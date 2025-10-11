@@ -8,7 +8,12 @@ from panda3d.core import AmbientLight, DirectionalLight, Material, Vec3, Vec4
 
 from kung_fu_panda.engine import Engine
 from kung_fu_panda.resources import cube, load_mesh
-from kung_fu_panda.views import AxesView, MeshSurfaceView, MeshWireframeView
+from kung_fu_panda.views import (
+    AxesView,
+    MeshSurfaceView,
+    MeshWireframeView,
+    MeshPositionLabelsView,
+)
 from kung_fu_panda.controllers import (
     ExitController,
     FpvCameraController,
@@ -84,10 +89,19 @@ def main() -> None:
     material = build_material()
     surface = MeshSurfaceView(primitive.mesh, name="surface", sort=0, material=material)
     wireframe = MeshWireframeView(primitive.mesh, name="wireframe", sort=0)
+    labels = MeshPositionLabelsView(
+        primitive.mesh,
+        name="labels",
+        sort=5,
+        scale_factor=0.02,
+        offset_factor=0.03,
+        text_color=(1.0, 0.8, 0.2, 1.0),
+    )
 
     eng.add_view(AxesView(axis_length=1.5, sort=-10))
     eng.add_view(surface)
     eng.add_view(wireframe)
+    eng.add_view(labels)
 
     setup_lighting(eng.session)
 
@@ -97,7 +111,10 @@ def main() -> None:
     cam.lookAt(cam_look)
 
     eng.add_controller(FpvCameraController(speed=6.0, speed_fast=12.0))
+    eng.enable_view("labels", False)
+
     eng.add_controller(ToggleViewController(eng, groups=[["surface"], ["wireframe"]], key="space", name="WireframeToggle"))
+    eng.add_controller(ToggleViewController(eng, groups=[["labels"], []], key="l", name="LabelToggle"))
     eng.add_controller(ScreenshotController(eng, key="p", filename="mesh_preview.png"))
     eng.add_controller(ExitController(eng, key="escape"))
 

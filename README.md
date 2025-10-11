@@ -46,7 +46,7 @@ Examples
 
   python kung_fu_panda/examples/mesh_preview.py path/to/model.obj --no-center
 
-Controls: WASD to fly, QE vertical strafe, Shift to sprint, mouse to look, Space toggle wireframe, P screenshot, ESC exit.
+Controls: WASD to fly, QE vertical strafe, Shift to sprint, hold left mouse + move to look, Space toggle wireframe, L toggle vertex labels, P screenshot, ESC exit.
 
 Jupyter Basics
 - In a notebook, you can import and boot the Engine in interactive mode (the loop auto-starts):

@@ -39,6 +39,11 @@ class FpvCameraController(Controller):
         self._center_x = 0
         self._center_y = 0
 
+        # Mouse capture state
+        self._mouse_active = False
+        self._relative_mode = False
+        self._relative_supported = True
+
         # Rig & camera parenting
         self._rig_np: Optional[NodePath] = None
         self._orig_cam_parent: Optional[NodePath] = None
@@ -139,18 +144,24 @@ class FpvCameraController(Controller):
 
         # Mouse capture
         win = session.win
-        props = WindowProperties()
-        props.setCursorHidden(True)
-        win.requestProperties(props)
         self._center_x = win.getXSize() // 2
         self._center_y = win.getYSize() // 2
-        win.movePointer(0, self._center_x, self._center_y)
+        props = WindowProperties()
+        props.setCursorHidden(False)
+        props.setMouseMode(WindowProperties.M_absolute)
+        win.requestProperties(props)
+        self._relative_mode = False
+        self._mouse_active = False
 
         # Keys
         for key in ["w", "s", "a", "d", "q", "e", "shift"]:
             session.accept(key, self._on_key, [key, True])
             session.accept(f"{key}-up", self._on_key, [key, False])
             self._accepted.extend([key, f"{key}-up"])
+
+        session.accept("mouse1", self._on_mouse_down)
+        session.accept("mouse1-up", self._on_mouse_up)
+        self._accepted.extend(["mouse1", "mouse1-up"])
 
         # Per-frame task
         self._task_name = f"fpv-camera-{id(self)}"
@@ -167,9 +178,7 @@ class FpvCameraController(Controller):
         self._keys.clear()
 
         # Release mouse
-        props = WindowProperties()
-        props.setCursorHidden(False)
-        self._session.win.requestProperties(props)
+        self._release_mouse_capture()
 
         # Restore camera world transform and remove rig
         base = self._session.base
@@ -190,6 +199,65 @@ class FpvCameraController(Controller):
     def _on_key(self, key: str, pressed: bool) -> None:
         self._keys[key] = pressed
 
+    def _on_mouse_down(self) -> None:
+        win = self._session.win
+        if win is None:
+            return
+        ptr = win.getPointer(0)
+        self._center_x = ptr.getX()
+        self._center_y = ptr.getY()
+        self._acquire_mouse_capture()
+
+    def _on_mouse_up(self) -> None:
+        self._release_mouse_capture()
+
+    def _acquire_mouse_capture(self) -> None:
+        if self._mouse_active:
+            return
+        win = self._session.win
+        if win is None:
+            return
+        props = WindowProperties()
+        props.setCursorHidden(True)
+        if self._relative_supported:
+            props.setMouseMode(WindowProperties.M_relative)
+        win.requestProperties(props)
+        current_props = win.getProperties()
+        self._relative_mode = (
+            current_props.getMouseMode() == WindowProperties.M_relative
+        )
+        self._relative_supported = self._relative_mode
+        if not self._relative_mode:
+            self._center_x = win.getXSize() // 2
+            self._center_y = win.getYSize() // 2
+            win.movePointer(0, self._center_x, self._center_y)
+        else:
+            win.movePointer(0, 0, 0)
+        self._mouse_active = True
+
+    def _release_mouse_capture(self) -> None:
+        if not self._mouse_active:
+            # ensure cursor visible even if never activated
+            win = self._session.win
+            if win is not None:
+                props = WindowProperties()
+                props.setCursorHidden(False)
+                props.setMouseMode(WindowProperties.M_absolute)
+                win.requestProperties(props)
+            return
+
+        win = self._session.win
+        if win is None:
+            self._mouse_active = False
+            return
+
+        props = WindowProperties()
+        props.setCursorHidden(False)
+        props.setMouseMode(WindowProperties.M_absolute)
+        win.requestProperties(props)
+        self._mouse_active = False
+        self._relative_mode = False
+
     def _update_task(self, task) -> int:
         dt = self._session.clock.getDt() if self._session.clock else 0.0
         win = self._session.win
@@ -199,15 +267,23 @@ class FpvCameraController(Controller):
             return task.cont
 
         # --- Mouse look -> update eye vector ---
-        ptr = win.getPointer(0)
-        dx = ptr.getX() - self._center_x
-        dy = ptr.getY() - self._center_y
-        if dx or dy:
-            win.movePointer(0, self._center_x, self._center_y)
-            yaw_deg = -dx * self.mouse_sensitivity
-            pitch_deg = (dy if self.invert_y else -dy) * self.mouse_sensitivity
-            self._apply_yaw_pitch(yaw_deg, pitch_deg)
-            self._orient_rig_to_eye()
+        if self._mouse_active:
+            ptr = win.getPointer(0)
+            if self._relative_mode:
+                dx = ptr.getX()
+                dy = ptr.getY()
+                if dx or dy:
+                    win.movePointer(0, 0, 0)
+            else:
+                dx = ptr.getX() - self._center_x
+                dy = ptr.getY() - self._center_y
+                if dx or dy:
+                    win.movePointer(0, self._center_x, self._center_y)
+            if dx or dy:
+                yaw_deg = -dx * self.mouse_sensitivity
+                pitch_deg = (dy if self.invert_y else -dy) * self.mouse_sensitivity
+                self._apply_yaw_pitch(yaw_deg, pitch_deg)
+                self._orient_rig_to_eye()
 
         # --- Movement in the local (r, f, u_local) frame ---
         move = Vec3(0, 0, 0)
