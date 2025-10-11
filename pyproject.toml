@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kung-fu-panda"
+version = "0.1.0"
+description = "Framework for DDG experiments with Taichi + Panda3D"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "Rudresh Veerkhare" }]
+dependencies = ["numpy>=1.23"]
+
+[project.optional-dependencies]
+render = ["panda3d>=1.10"]
+compute = ["taichi>=1.7"]
+mesh = ["trimesh>=4.0"]
+all = ["panda3d>=1.10", "taichi>=1.7", "trimesh>=4.0", "numpy>=1.23"]
+
+[tool.setuptools.packages.find]
+include = ["kung_fu_panda", "kung_fu_panda.*"]

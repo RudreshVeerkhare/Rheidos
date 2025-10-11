@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+
+# Build artefacts
+build/
+dist/
+*.egg-info/
+
+# Compiled bytecode
+*.so
+
+# Jupyter
+.ipynb_checkpoints/
+
+# IDEs
+.vscode/
+.idea/
+
+# macOS
+.DS_Store
+
+# Panda3D screenshots/videos
+*.png
+*.jpg
+*.mp4
+*.mov
+
+# Logs
+*.log
+
