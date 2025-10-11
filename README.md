@@ -30,6 +30,10 @@ Examples
 
   python kung_fu_panda/examples/run_interactive.py
 
+- Jupyter notebook walkthrough:
+
+  jupyter notebook notebooks/interactive_demo.ipynb
+
 - Mesh preview with FPV controls (space toggles surface/wireframe, ESC exits):
 
   python kung_fu_panda/examples/mesh_preview.py
@@ -45,11 +49,10 @@ Examples
 Controls: WASD to fly, QE vertical strafe, Shift to sprint, mouse to look, Space toggle wireframe, P screenshot, ESC exit.
 
 Jupyter Basics
-- In a notebook, you can import and boot the Engine in interactive mode:
+- In a notebook, you can import and boot the Engine in interactive mode (the loop auto-starts):
 
   from kung_fu_panda.engine import Engine
   eng = Engine(window_title="Kung Fu Panda — Interactive", interactive=True)
-  eng.start()
   # Now add/remove views/controllers dynamically from cells
 
 - Stop the interactive loop when done:
