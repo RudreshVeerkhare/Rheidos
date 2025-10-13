@@ -63,3 +63,16 @@ Notes
 - Video capture is stubbed; screenshots are supported.
 - Mesh utilities expect float32 arrays for positions/normals/texcoords and float32/uint8 for colors.
 - Trimesh-powered mesh loading is optional; install via `pip install -e .[mesh]` or `.[all]`.
+
+Docs
+- Start here: `docs/index.md`
+- Key topics:
+  - Getting Started: `docs/getting-started.md`
+  - Concepts: `docs/concepts.md`
+  - Rendering: `docs/rendering.md`
+  - Input & Controllers: `docs/input.md`
+  - Taichi integration: `docs/taichi.md`
+  - Notebooks: `docs/notebooks.md`
+  - Recipes: `docs/recipes.md`
+  - Philosophy: `docs/philosophy.md`
+  - FAQ: `docs/faq.md`
