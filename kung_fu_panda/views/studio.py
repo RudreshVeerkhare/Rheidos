@@ -44,6 +44,8 @@ class StudioView(View):
         ground_height: Optional[float] = None,  # world Z height of ground plane
         ground_from_bounds: Optional[tuple[np.ndarray, np.ndarray]] = None,
         ground_margin: float = 0.0,
+        camera_near: float = 0.03,
+        camera_far: Optional[float] = None,
     ) -> None:
         super().__init__(name=name or "StudioView", sort=sort)
         self.ground_size = float(ground_size)
@@ -62,6 +64,8 @@ class StudioView(View):
         self._ground_height = ground_height
         self._ground_from_bounds = ground_from_bounds
         self._ground_margin = float(ground_margin)
+        self._camera_near = float(camera_near)
+        self._camera_far = camera_far if camera_far is None or camera_far > 0 else None
 
         self._group: Optional[NodePath] = None
         self._ground_np: Optional[NodePath] = None
@@ -103,6 +107,20 @@ class StudioView(View):
             mins, _ = self._ground_from_bounds
             z = float(mins[2] - self._ground_margin)
         self._ground_np.setZ(z)
+
+        # Tweak main camera frustum to avoid aggressive near-plane clipping
+        try:
+            lens = session.base.camLens
+            if lens is not None:
+                lens.setNear(self._camera_near)
+                far = (
+                    self._camera_far
+                    if self._camera_far is not None
+                    else max(1000.0, self.ground_size * 10.0)
+                )
+                lens.setFar(float(far))
+        except Exception:
+            pass
 
         if self._targets:
             mat = self._material or self._build_default_material()
@@ -192,11 +210,12 @@ class StudioView(View):
         cells = max(2, self.ground_tiles)
         cell_px = 32
         w = h = cells * cell_px
-        i = np.indices((h, w)).sum(axis=0) // cell_px
-        pattern = (i % 2).astype(np.uint8)
+        yy, xx = np.indices((h, w))
+        # Proper checker: toggle per cell along X and Y, then XOR (sum mod 2)
+        pattern = (((yy // cell_px) + (xx // cell_px)) % 2).astype(np.uint8)
         c0 = np.array(self.checker_light, dtype=np.float32)
         c1 = np.array(self.checker_dark, dtype=np.float32)
-        img = (pattern[..., None] * c1 + (1 - pattern[..., None]) * c0)
+        img = pattern[..., None] * c1 + (1 - pattern[..., None]) * c0
         img = np.clip(img * 255.0, 0, 255).astype(np.uint8)
         tex = Texture2D("ground_checker")
         tex.from_numpy_rgba(img)
@@ -207,6 +226,8 @@ class StudioView(View):
         if self._ground_np is not None:
             self._ground_np.setZ(float(z))
 
-    def snap_ground_to_bounds(self, bounds: tuple[np.ndarray, np.ndarray], margin: float = 0.0) -> None:
+    def snap_ground_to_bounds(
+        self, bounds: tuple[np.ndarray, np.ndarray], margin: float = 0.0
+    ) -> None:
         mins, _ = bounds
         self.set_ground_height(float(mins[2] - margin))

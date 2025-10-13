@@ -37,12 +37,20 @@ class Engine:
         fps: int = 60,
         interactive: bool = False,
         auto_start: Optional[bool] = None,
+        msaa_samples: Optional[int] = 4,
     ) -> None:
         if ShowBase is None:
             raise RuntimeError("Panda3D is not available. Install 'panda3d'.")
 
         loadPrcFileData("", f"window-title {window_title}")
         loadPrcFileData("", f"win-size {window_size[0]} {window_size[1]}")
+        # Try to enable multisample anti-aliasing for smoother overlays/lines.
+        if msaa_samples and msaa_samples > 0:
+            try:
+                loadPrcFileData("", "framebuffer-multisample 1")
+                loadPrcFileData("", f"multisamples {int(msaa_samples)}")
+            except Exception:
+                pass
 
         # Important: construct ShowBase on the main (notebook) thread.
         self._base = ShowBase(windowType="onscreen")

@@ -10,6 +10,7 @@ try:
         NodePath,
         OrthographicLens,
         PerspectiveLens,
+        AntialiasAttrib,
     )
 except Exception:  # pragma: no cover
     Camera = None  # type: ignore
@@ -68,6 +69,11 @@ class OrientationGizmoView(View):
         self._axes_np = self._build_axes(self._render_np)
         self._axes_np.setDepthTest(False)
         self._axes_np.setDepthWrite(False)
+        # Try to smooth lines; if MSAA is available, Panda will pick it up.
+        try:
+            self._axes_np.setAntialias(AntialiasAttrib.MAuto)
+        except Exception:
+            pass
         # Keep origin centered to avoid chopping when any axis points left.
         try:
             self._axes_np.setPos(0.0, 0.0, 0.0)

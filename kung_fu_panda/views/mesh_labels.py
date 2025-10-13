@@ -17,6 +17,7 @@ from panda3d.core import (
     GeomVertexWriter,
     GeomNode,
     TextNode,
+    Point2,
     Vec3,
 )
 
@@ -37,6 +38,9 @@ class MeshPositionLabelsView(View):
         text_color: tuple[float, float, float, float] = (1.0, 0.9, 0.3, 1.0),
         fmt: str = "({x:.4f}, {y:.4f}, {z:.4f})",
         include_index: bool = True,
+        fixed_screen_size: bool = True,
+        screen_scale: float = 0.05,  # aspect2d scale
+        screen_offset: tuple[float, float] = (0.02, 0.02),  # aspect2d units
     ) -> None:
         super().__init__(name=name or "MeshPositionLabelsView", sort=sort)
         self._mesh = mesh
@@ -45,11 +49,15 @@ class MeshPositionLabelsView(View):
         self._text_color = text_color
         self._fmt = fmt
         self._include_index = include_index
+        self._fixed_screen = fixed_screen_size
+        self._screen_scale = float(screen_scale)
+        self._screen_offset = (float(screen_offset[0]), float(screen_offset[1]))
 
         # Session-bound objects initialised in setup
         self._group = None
         self._text_node = None
-        self._text_np = None
+        self._text_np = None  # legacy 3D text (unused when fixed_screen)
+        self._text_np2d = None  # 2D overlay text under aspect2d
         self._highlight_np = None
         self._picker_traverser: Optional[CollisionTraverser] = None
         self._picker_queue: Optional[CollisionHandlerQueue] = None
@@ -74,7 +82,7 @@ class MeshPositionLabelsView(View):
 
         self._group = session.render.attachNewNode(self.name)
 
-        # Compute size-based scale/offset using tight bounds (Panda doc: NodePath.getTightBounds)
+        # Compute size-based world offset magnitude (for 3D marker), independent of label size
         bounds = self._mesh.node_path.getTightBounds()
         if bounds:
             mins, maxs = bounds
@@ -98,16 +106,14 @@ class MeshPositionLabelsView(View):
         except Exception:
             self._normals = None
 
-        # Text node for the single hovered vertex
+        # Text nodes: 2D overlay for fixed screen size
         self._text_node = TextNode(f"{self.name}-label")
         self._text_node.setTextColor(*self._text_color)
-        self._text_np = self._group.attachNewNode(self._text_node)
-        self._text_np.setScale(self._text_scale)
-        self._text_np.hide()
-
-        cam = session.base.camera
-        if cam is not None:
-            self._text_np.setBillboardPointEye(cam, 0.0, False)
+        self._text_node.setShadow(0.015, 0.015)
+        self._text_node.setShadowColor(0, 0, 0, 0.6)
+        self._text_np2d = session.base.aspect2d.attachNewNode(self._text_node)
+        self._text_np2d.setScale(self._screen_scale)
+        self._text_np2d.hide()
 
         # Highlight marker: a single point rendered thicker
         vdata = GeomVertexData("highlight", GeomVertexFormat.getV3(), Geom.UHStatic)
@@ -155,6 +161,9 @@ class MeshPositionLabelsView(View):
         self._group = None
         self._text_node = None
         self._text_np = None
+        if self._text_np2d is not None:
+            self._text_np2d.removeNode()
+        self._text_np2d = None
         self._highlight_np = None
         self._picker_traverser = None
         self._picker_queue = None
@@ -176,8 +185,8 @@ class MeshPositionLabelsView(View):
         self._clear_selection()
 
     def _clear_selection(self) -> None:
-        if self._text_np is not None:
-            self._text_np.hide()
+        if self._text_np2d is not None:
+            self._text_np2d.hide()
         if self._highlight_np is not None:
             self._highlight_np.hide()
 
@@ -223,7 +232,16 @@ class MeshPositionLabelsView(View):
             self._highlight_np.setPos(self._geom_np, pos_vec)
             self._highlight_np.show()
 
-        if self._text_np is not None and self._text_node is not None:
+        # Compose label string
+        if self._include_index:
+            text = f"{index}: " + self._fmt.format(x=vertex[0], y=vertex[1], z=vertex[2])
+        else:
+            text = self._fmt.format(x=vertex[0], y=vertex[1], z=vertex[2])
+        self._text_node.setText(text)
+
+        # Place label as 2D overlay at projected screen position
+        if self._text_np2d is not None:
+            # Offset along normal (world space), then project
             offset_vec = Vec3(0, 0, 1)
             if self._normals is not None and index < len(self._normals):
                 n = Vec3(
@@ -234,10 +252,19 @@ class MeshPositionLabelsView(View):
                 if n.lengthSquared() > 1e-6:
                     n.normalize()
                     offset_vec = n
-            self._text_np.setPos(self._geom_np, pos_vec + offset_vec * self._offset_mag)
-            if self._include_index:
-                text = f"{index}: " + self._fmt.format(x=vertex[0], y=vertex[1], z=vertex[2])
-            else:
-                text = self._fmt.format(x=vertex[0], y=vertex[1], z=vertex[2])
-            self._text_node.setText(text)
-            self._text_np.show()
+
+            world_offset_point = pos_vec + offset_vec * self._offset_mag
+            # Project to NDC
+            cam = self._session.base.camera
+            lens = self._session.base.camLens
+            if cam is not None and lens is not None:
+                p_cam = cam.getRelativePoint(self._geom_np, world_offset_point)
+                p2 = Point2()
+                if lens.project(p_cam, p2):
+                    a = self._session.base.getAspectRatio()
+                    x = p2.x * a + self._screen_offset[0]
+                    y = p2.y + self._screen_offset[1]
+                    self._text_np2d.setPos(x, 0, y)
+                    self._text_np2d.show()
+                else:
+                    self._text_np2d.hide()

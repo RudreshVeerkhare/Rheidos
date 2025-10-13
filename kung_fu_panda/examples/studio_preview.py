@@ -52,7 +52,11 @@ def main() -> None:
         primitive = cube(size=2.0, name="preview_cube")
 
     # Studio with ground snapped to mesh bounds so it doesn't intersect
-    eng.add_view(StudioView(ground_from_bounds=primitive.bounds, ground_margin=0.02))
+    eng.add_view(
+        StudioView(
+            ground_from_bounds=primitive.bounds, ground_margin=0.02, ground_tiles=10
+        )
+    )
 
     mat = Material("Glossy")
     mat.setDiffuse((0.8, 0.82, 0.9, 1.0))
