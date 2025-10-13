@@ -49,6 +49,37 @@ Ready‑made Views
 - `MeshWireframeView`: wireframe with a nice teal color
 - `MeshPositionLabelsView`: shows a label with vertex coordinates near the mouse cursor and highlights the closest vertex
 
+Studio environment (CAD‑like base)
+- `StudioView`: ground checker plane, gentle sky background, and a solid default light rig. Optionally applies a mild glossy material to your model nodes.
+
+  ```python
+  from kung_fu_panda.views import StudioView, MeshSurfaceView, OrientationGizmoView
+  from kung_fu_panda.resources import load_mesh, cube
+  from panda3d.core import Material
+
+  primitive = cube(2.0)
+  # Option 1: let MeshSurfaceView set the material
+  glossy = Material("Glossy"); glossy.setShininess(64)
+  # Snap ground to sit just below the mesh's lowest point (Z)
+  eng.add_view(StudioView(ground_from_bounds=primitive.bounds, ground_margin=0.02))
+  eng.add_view(MeshSurfaceView(primitive.mesh, material=glossy))
+  # Tiny orientation widget in the top-left
+  eng.add_view(OrientationGizmoView(size=0.16, margin=0.02))
+
+  # Option 2: let StudioView apply its default glossy material to the mesh node
+  # eng.add_view(StudioView(apply_material_to=primitive.mesh.node_path))
+  # eng.add_view(MeshSurfaceView(primitive.mesh))
+  ```
+
+Studio ground offset
+- Control the ground plane height (Panda3D up axis is Z):
+  - Fixed height: `StudioView(ground_height=0.0)`
+  - Snap to bounds: `StudioView(ground_from_bounds=primitive.bounds, ground_margin=0.02)`
+  - After creation: `studio.set_ground_height(z)` or `studio.snap_ground_to_bounds(bounds, margin)`
+
+Orientation gizmo
+- `OrientationGizmoView(size=0.18, margin=0.02)`: renders a small RGB axis overlay that rotates with the current camera
+
   ```python
   from kung_fu_panda.views import MeshSurfaceView, MeshWireframeView, MeshPositionLabelsView
   from panda3d.core import Material
@@ -80,4 +111,3 @@ Axes helper
 
 Two‑sided rendering
 - For thin surfaces, call `node.setTwoSided(True)` via `MeshSurfaceView(two_sided=True)` or `mesh.set_two_sided(True)`
-

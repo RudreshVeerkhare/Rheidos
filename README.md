@@ -38,6 +38,10 @@ Examples
 
   python kung_fu_panda/examples/mesh_preview.py
 
+- Studio (CAD-like) environment preview:
+
+  python kung_fu_panda/examples/studio_preview.py
+
 - Load a custom OBJ/PLY/STL file and preview it with glossy shading:
 
   python kung_fu_panda/examples/mesh_preview.py path/to/model.obj

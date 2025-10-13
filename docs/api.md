@@ -32,6 +32,14 @@ Views (kung_fu_panda/views)
 - `MeshSurfaceView(mesh, material=None, two_sided=False, sort=0)`
 - `MeshWireframeView(mesh, sort=0)`
 - `MeshPositionLabelsView(mesh, scale_factor=0.015, offset_factor=0.02, text_color=(1,0.9,0.3,1), fmt="({x:.4f}, {y:.4f}, {z:.4f})", include_index=True, sort=0)`
+- `StudioView(ground_size=40.0, ground_tiles=40, checker_light=(0.92,0.93,0.96,1), checker_dark=(0.86,0.87,0.90,1), sky_color=(0.92,0.95,1.0,1), add_lights=True, apply_material_to=None, material=None)`
+- `OrientationGizmoView(size=0.18, margin=0.02, thickness=3.0, fov_deg=28.0, sort=1000)`
+
+StudioView helpers/params
+- `ground_height: Optional[float]` — set ground plane world Z directly
+- `ground_from_bounds: Optional[(mins, maxs)]` — snap ground to min Z of bounds
+- `ground_margin: float` — subtract margin from min Z before snapping
+- Methods: `set_ground_height(z)`, `snap_ground_to_bounds(bounds, margin=0.0)`
 
 Controllers (kung_fu_panda/controllers)
 - `FpvCameraController(speed=6.0, speed_fast=12.0, mouse_sensitivity=0.15, invert_y=False)`
@@ -51,4 +59,3 @@ Resources (kung_fu_panda/resources)
 Taichi bridge (kung_fu_panda/utils/taichi_bridge.py)
 - `field_to_numpy(field) -> np.ndarray`
 - `numpy_to_field(np_array, field)`
-
