@@ -1,13 +1,13 @@
-Getting Started
+Getting Started 🚀
 
-Install
+Install 📦
 - Python 3.9+
 - Install packages:
   - Minimum: `pip install panda3d numpy`
   - Optional: `pip install taichi trimesh`
   - Project (editable with extras): `pip install -e .[all]`
 
-Verify your environment
+Verify your environment ✅
 - Panda3D window opens and shows axes:
 
   ```bash
@@ -27,7 +27,7 @@ Verify your environment
   # Skip recentre: --no-center
   ```
 
-Keyboard & mouse
+Keyboard & mouse 🎮
 - Hold left mouse to enable mouselook
 - `WASD` move, `Q/E` vertical strafe, `Shift` sprint
 - `Space` toggle surface/wireframe
@@ -35,7 +35,7 @@ Keyboard & mouse
 - `P` screenshot
 - `ESC` exit
 
-Two usage modes
+Two usage modes 🎬
 1) Script/demo mode (blocking)
 
    ```python
@@ -62,12 +62,12 @@ Two usage modes
    # or eng.stop() in a script
    ```
 
-Notebook tips
+Notebook tips 🧪
 - If the window doesn’t show, make sure the Jupyter kernel allows GUI event loops (standard JupyterLab/Notebook does)
 - Prefer `eng.start_async()` and `await eng.stop_async()` in async‑enabled cells; otherwise `eng.start()`/`eng.stop()` work too
 - You can dynamically attach controllers (e.g., FPV camera) and toggle views while the loop runs
 
-Project layout
+Project layout 🗺️
 - Engine: `rheidos/engine.py`
 - Session wrapper: `rheidos/session.py`
 - Base classes: `rheidos/abc/*.py`
@@ -75,4 +75,3 @@ Project layout
 - Controllers: `rheidos/controllers/*.py`
 - Mesh/Texture/Loaders: `rheidos/resources/*.py`
 - Taichi <-> Numpy bridge: `rheidos/utils/taichi_bridge.py`
-

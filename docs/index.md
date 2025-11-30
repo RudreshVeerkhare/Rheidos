@@ -1,4 +1,4 @@
-Rheidos — A DDG + Taichi + Panda3D Playground
+Rheidos — A DDG + Taichi + Panda3D Playground ✨
 
 Welcome! This is a tiny, pragmatic framework for quickly prototyping physics and geometry experiments that render in real time. It stitches together three worlds:
 
@@ -10,13 +10,13 @@ The goal: keep you in “flow”. Spin up a window fast, drop in a mesh, write a
 
 If you’re new to Panda3D or Taichi, don’t worry — the docs include short intros and walk‑throughs. Think developer‑to‑developer chat with runnable snippets.
 
-What you get
+What you get 🎁
 - Engine that runs Panda3D in blocking mode (scripts) or async stepping mode (Jupyter/REPL)
 - Views (renderers), Controllers (input), Observers (per‑frame workers/loggers)
 - Mesh/Texture helpers to bridge Numpy/Taichi data into Panda3D buffers efficiently
 - A tiny global StoreState to share flags/data across components
 
-Quick Start
+Quick Start 🚀
 1) Install dependencies (Python 3.9+):
 
    - Core: `pip install panda3d numpy`
@@ -36,7 +36,7 @@ Quick Start
    # now add/remove views/controllers live from cells
    ```
 
-Controls (mesh_preview)
+Controls (mesh_preview) 🎮
 - WASD move, QE vertical strafe, Shift sprint, hold left mouse to look
 - Space toggles surface/wireframe, L toggles labels, P screenshot, ESC exit
 
@@ -62,4 +62,3 @@ Links into this repo
 - Taichi bridge: rheidos/utils/taichi_bridge.py
 
 Next up: read Getting Started (docs/getting-started.md), then Concepts (docs/concepts.md).
-

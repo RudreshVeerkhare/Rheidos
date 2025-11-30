@@ -1,15 +1,15 @@
 # Rheidos
 
-The name blends the Greek roots _rheos_ ("flow") and _eidos_ ("shape") — think "flow of shape." It was previously dubbed Kung-Fu-Panda as a tongue-in-cheek nod to the Taichi-Lang + Panda3D stack.
-
-Overview
+Overview 🧭
 
 - A small framework to prototype physics simulations using discrete differential geometry (DDG), Taichi for compute kernels, and Panda3D for rendering.
 - Two usage modes:
   - Interactive: drive from a Jupyter notebook while a Panda3D window renders in a background loop.
   - Script/Demo: run a single script that sets up views/controllers and blocks in Panda3D’s main loop.
 
-Core Abstractions
+The name blends the Greek roots _rheos_ ("flow") and _eidos_ ("shape") — think "flow of shape" 🌊. It was previously dubbed Kung-Fu-Panda 🐼 as a tongue-in-cheek nod to the Taichi-Lang + Panda3D stack.
+
+Core Abstractions 🧩
 
 - Views: Frame-updated tasks with full access to the Panda3D session. Use to render meshes, scalar fields, vector fields, overlays, legends, etc.
 - Controllers: Input/event handlers. Can attach/detach views, pause, capture screenshots, etc.
@@ -17,7 +17,7 @@ Core Abstractions
 - Resources (Mesh/Texture): Efficiently bridge Numpy/Taichi data into Panda3D buffers. Mesh uses separate vertex arrays for positions, normals, colors, texcoords.
 - StoreState: Global, thread-safe store that views/controllers/observers can query/update.
 
-Install
+Install 📦
 
 - Requires Python 3.9+.
 - Suggested deps: panda3d, taichi, numpy.
