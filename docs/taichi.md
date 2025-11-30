@@ -9,7 +9,7 @@ Install
 Data flow in this framework
 - Your simulation state often lives in Taichi fields
 - To render, you’ll push updated data to Panda3D via Numpy
-- Helpers in `kung_fu_panda/utils/taichi_bridge.py`:
+- Helpers in `rheidos/utils/taichi_bridge.py`:
   - `field_to_numpy(field) -> np.ndarray`
   - `numpy_to_field(np_array, field) -> None`
 
@@ -24,11 +24,11 @@ End‑to‑end example: wavy cube
 ```python
 import numpy as np
 import taichi as ti
-from kung_fu_panda.engine import Engine
-from kung_fu_panda.resources import cube
-from kung_fu_panda.views import MeshSurfaceView
-from kung_fu_panda.abc.observer import Observer
-from kung_fu_panda.utils.taichi_bridge import numpy_to_field, field_to_numpy
+from rheidos.engine import Engine
+from rheidos.resources import cube
+from rheidos.views import MeshSurfaceView
+from rheidos.abc.observer import Observer
+from rheidos.utils.taichi_bridge import numpy_to_field, field_to_numpy
 
 ti.init()
 

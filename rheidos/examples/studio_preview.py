@@ -6,16 +6,16 @@ from pathlib import Path
 import numpy as np
 from panda3d.core import Material
 
-from kung_fu_panda.engine import Engine
-from kung_fu_panda.resources import cube, load_mesh
-from kung_fu_panda.views import (
+from rheidos.engine import Engine
+from rheidos.resources import cube, load_mesh
+from rheidos.views import (
     StudioView,
     MeshSurfaceView,
     MeshWireframeView,
     MeshPositionLabelsView,
     OrientationGizmoView,
 )
-from kung_fu_panda.controllers import (
+from rheidos.controllers import (
     FpvCameraController,
     ToggleViewController,
     ScreenshotController,
@@ -60,7 +60,7 @@ def main() -> None:
 
     mat = Material("Glossy")
     mat.setDiffuse((0.8, 0.82, 0.9, 1.0))
-    mat.setSpecular((1, 1, 1, 1))
+    mat.setSpecular((0.1, 0.1, 0.1, 1))
     mat.setShininess(64)
     surface = MeshSurfaceView(primitive.mesh, name="surface", material=mat)
     wire = MeshWireframeView(primitive.mesh, name="wire")

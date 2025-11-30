@@ -14,7 +14,7 @@ Why this split?
 - Observers do background updates or bookkeeping without cluttering render code.
 
 Engine
-- File: `kung_fu_panda/engine.py`
+- File: `rheidos/engine.py`
 - Blocking start: `eng.start()` (good for scripts/demos)
 - Async start for notebooks: `await eng.start_async()`; stop with `await eng.stop_async()`
 - Add/remove components:
@@ -25,12 +25,12 @@ Engine
 - Pause flag to freeze updates: `eng.set_paused(True/False)`
 
 PandaSession
-- File: `kung_fu_panda/session.py`
+- File: `rheidos/session.py`
 - Holds `base`, `task_mgr`, `render`, `win`, and `clock` (global clock)
 - Exposes `.accept()` / `.ignore()` for binding/unbinding Panda3D events
 
 Views
-- Base: `kung_fu_panda/abc/view.py`
+- Base: `rheidos/abc/view.py`
 - Lifecycle methods you can override:
   - `setup(session)`: create nodes, attach geometry
   - `update(dt)`: per‑frame work (animation, material updates, etc.)
@@ -40,7 +40,7 @@ Views
 - Example (a minimal blinking node):
 
   ```python
-  from kung_fu_panda.abc.view import View
+  from rheidos.abc.view import View
 
   class BlinkView(View):
       def setup(self, session):
@@ -55,15 +55,15 @@ Views
   ```
 
 Observers
-- Base: `kung_fu_panda/abc/observer.py`
+- Base: `rheidos/abc/observer.py`
 - Same shape as `View` but intended for non‑rendering per‑frame logic
 - Great for stepping a simulation, sampling metrics, writing logs, etc.
 
 Controllers
-- Base: `kung_fu_panda/abc/controller.py`
+- Base: `rheidos/abc/controller.py`
 - Attach to wire up inputs; detach to tear them down
 - Use Panda3D’s event system via `session.accept("key", callback)`
-- Built‑ins located in `kung_fu_panda/controllers`:
+- Built‑ins located in `rheidos/controllers`:
   - `FpvCameraController`: first‑person camera rig with mouselook and WASD
   - `ToggleViewController`: cycles predefined groups of view names on/off
   - `PauseController`: toggles `Engine` pause flag
@@ -71,7 +71,7 @@ Controllers
   - `ExitController`: exits the app (and stops the engine if interactive)
 
 StoreState
-- File: `kung_fu_panda/store.py`
+- File: `rheidos/store.py`
 - Methods: `.get(key)`, `.set(key, value)`, `.update(**kvs)`, `.subscribe(key, fn)`
 - A handy place to expose "global switches" or small shared data
 - Example: stop a simulation when a threshold is reached and pause rendering

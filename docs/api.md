@@ -1,7 +1,7 @@
 API Quick Reference
 
-Engine (kung_fu_panda/engine.py)
-- `Engine(window_title="Kung Fu Panda", window_size=(1280,720), fps=60, interactive=False, auto_start=None)`
+Engine (rheidos/engine.py)
+- `Engine(window_title="Rheidos", window_size=(1280,720), fps=60, interactive=False, auto_start=None)`
 - `.start()` / `.stop()` — blocking run/stop for scripts
 - `.start_async(fps=None)` / `.stop_async()` — notebook‑friendly
 - `.is_running()` / `.set_paused(bool)` / `.is_paused()`
@@ -13,21 +13,21 @@ Engine (kung_fu_panda/engine.py)
 - `.screenshot(filename, use_default=False)`
 - `.dispatch(fn)` — run small callable on next frame (render thread)
 
-PandaSession (kung_fu_panda/session.py)
+PandaSession (rheidos/session.py)
 - `.base`, `.task_mgr`, `.render`, `.win`, `.clock`
 - `.accept(event, callback, *args)` / `.ignore(event)` — Panda3D event binding
 
-StoreState (kung_fu_panda/store.py)
+StoreState (rheidos/store.py)
 - `.get(key, default=None)` / `.set(key, value)` / `.update(**kvs)`
 - `.subscribe(key, fn) -> unsubscribe()`
 - `.as_dict()`
 
-Base classes (kung_fu_panda/abc)
+Base classes (rheidos/abc)
 - `View(name=None, sort=0)` — override `setup(session)`, `update(dt)`, `teardown()`, `on_enable()`, `on_disable()`
 - `Observer(name=None, sort=-10)` — override `setup(session)`, `update(dt)`, `teardown()`
 - `Controller(name=None)` — override `attach(session)`, `detach()`
 
-Views (kung_fu_panda/views)
+Views (rheidos/views)
 - `AxesView(axis_length=1.0, sort=0)`
 - `MeshSurfaceView(mesh, material=None, two_sided=False, sort=0)`
 - `MeshWireframeView(mesh, sort=0)`
@@ -41,14 +41,14 @@ StudioView helpers/params
 - `ground_margin: float` — subtract margin from min Z before snapping
 - Methods: `set_ground_height(z)`, `snap_ground_to_bounds(bounds, margin=0.0)`
 
-Controllers (kung_fu_panda/controllers)
+Controllers (rheidos/controllers)
 - `FpvCameraController(speed=6.0, speed_fast=12.0, mouse_sensitivity=0.15, invert_y=False)`
 - `ToggleViewController(engine, groups, key="v")`
 - `PauseController(engine, key="space")`
 - `ScreenshotController(engine, key="s", filename="screenshot.png")`
 - `ExitController(engine, key="escape")`
 
-Resources (kung_fu_panda/resources)
+Resources (rheidos/resources)
 - `Mesh(vertices=None, indices=None, normals=None, colors=None, texcoords=None, dynamic=True, name="mesh")`
   - `.set_vertices((N,3) float32)` / `.set_normals((N,3) float32)` / `.set_colors((N,4) float32)` / `.set_colors_uint8((N,4) uint8)` / `.set_texcoords((N,2) float32)` / `.set_indices(int32)`
   - `.reparent_to(nodepath)` / `.set_two_sided(True/False)`
@@ -56,6 +56,6 @@ Resources (kung_fu_panda/resources)
 - `load_mesh(path, name=None, center=True) -> Primitive(mesh, bounds)`
 - `Texture2D.from_numpy_rgba(image_uint8)`
 
-Taichi bridge (kung_fu_panda/utils/taichi_bridge.py)
+Taichi bridge (rheidos/utils/taichi_bridge.py)
 - `field_to_numpy(field) -> np.ndarray`
 - `numpy_to_field(np_array, field)`

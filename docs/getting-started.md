@@ -11,19 +11,19 @@ Verify your environment
 - Panda3D window opens and shows axes:
 
   ```bash
-  python kung_fu_panda/examples/demo_script.py
+  python rheidos/examples/demo_script.py
   ```
 
 - Preview a cube (use mouse + keyboard controls below):
 
   ```bash
-  python kung_fu_panda/examples/mesh_preview.py
+  python rheidos/examples/mesh_preview.py
   ```
 
 - Preview your own mesh (OBJ/PLY/STL via trimesh):
 
   ```bash
-  python kung_fu_panda/examples/mesh_preview.py ~/models/bunny.obj
+  python rheidos/examples/mesh_preview.py ~/models/bunny.obj
   # Skip recentre: --no-center
   ```
 
@@ -39,11 +39,11 @@ Two usage modes
 1) Script/demo mode (blocking)
 
    ```python
-   from kung_fu_panda.engine import Engine
-   from kung_fu_panda.views.axes import AxesView
-   from kung_fu_panda.controllers import PauseController, ScreenshotController
+   from rheidos.engine import Engine
+   from rheidos.views.axes import AxesView
+   from rheidos.controllers import PauseController, ScreenshotController
 
-   eng = Engine(window_title="Kung Fu Panda — Demo", interactive=False)
+   eng = Engine(window_title="Rheidos — Demo", interactive=False)
    eng.add_view(AxesView(axis_length=1.5))
    eng.add_controller(PauseController(eng, key="space"))
    eng.add_controller(ScreenshotController(eng, key="s", filename="shot.png"))
@@ -53,8 +53,8 @@ Two usage modes
 2) Interactive mode (Jupyter/REPL friendly)
 
    ```python
-   from kung_fu_panda.engine import Engine
-   eng = Engine(window_title="Kung Fu Panda — Interactive", interactive=True)
+   from rheidos.engine import Engine
+   eng = Engine(window_title="Rheidos — Interactive", interactive=True)
    # The engine starts an async loop and the notebook stays responsive.
    # You can add/remove views/controllers live across cells.
    # Stop when you’re done:
@@ -68,11 +68,11 @@ Notebook tips
 - You can dynamically attach controllers (e.g., FPV camera) and toggle views while the loop runs
 
 Project layout
-- Engine: `kung_fu_panda/engine.py`
-- Session wrapper: `kung_fu_panda/session.py`
-- Base classes: `kung_fu_panda/abc/*.py`
-- Views: `kung_fu_panda/views/*.py`
-- Controllers: `kung_fu_panda/controllers/*.py`
-- Mesh/Texture/Loaders: `kung_fu_panda/resources/*.py`
-- Taichi <-> Numpy bridge: `kung_fu_panda/utils/taichi_bridge.py`
+- Engine: `rheidos/engine.py`
+- Session wrapper: `rheidos/session.py`
+- Base classes: `rheidos/abc/*.py`
+- Views: `rheidos/views/*.py`
+- Controllers: `rheidos/controllers/*.py`
+- Mesh/Texture/Loaders: `rheidos/resources/*.py`
+- Taichi <-> Numpy bridge: `rheidos/utils/taichi_bridge.py`
 

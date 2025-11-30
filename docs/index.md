@@ -1,4 +1,4 @@
-Kung Fu Panda — A DDG + Taichi + Panda3D Playground
+Rheidos — A DDG + Taichi + Panda3D Playground
 
 Welcome! This is a tiny, pragmatic framework for quickly prototyping physics and geometry experiments that render in real time. It stitches together three worlds:
 
@@ -25,14 +25,14 @@ Quick Start
 
 2) Run a demo script:
 
-   - `python kung_fu_panda/examples/demo_script.py`
-   - `python kung_fu_panda/examples/mesh_preview.py <optional_mesh_path>`
+   - `python rheidos/examples/demo_script.py`
+   - `python rheidos/examples/mesh_preview.py <optional_mesh_path>`
 
 3) Or boot interactively in a notebook:
 
    ```python
-   from kung_fu_panda.engine import Engine
-   eng = Engine(window_title="Kung Fu Panda — Interactive", interactive=True)
+   from rheidos.engine import Engine
+   eng = Engine(window_title="Rheidos — Interactive", interactive=True)
    # now add/remove views/controllers live from cells
    ```
 
@@ -53,13 +53,13 @@ Docs Map
 
 Links into this repo
 - README: README.md
-- Examples: kung_fu_panda/examples
-- Core Engine: kung_fu_panda/engine.py
-- Abstractions (base classes): kung_fu_panda/abc
-- Views: kung_fu_panda/views
-- Controllers: kung_fu_panda/controllers
-- Resources (meshes/textures): kung_fu_panda/resources
-- Taichi bridge: kung_fu_panda/utils/taichi_bridge.py
+- Examples: rheidos/examples
+- Core Engine: rheidos/engine.py
+- Abstractions (base classes): rheidos/abc
+- Views: rheidos/views
+- Controllers: rheidos/controllers
+- Resources (meshes/textures): rheidos/resources
+- Taichi bridge: rheidos/utils/taichi_bridge.py
 
 Next up: read Getting Started (docs/getting-started.md), then Concepts (docs/concepts.md).
 

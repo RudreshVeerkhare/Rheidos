@@ -7,8 +7,8 @@ Why interactive?
 Engine setup
 
 ```python
-from kung_fu_panda.engine import Engine
-eng = Engine(window_title="Kung Fu Panda — Interactive", interactive=True)
+from rheidos.engine import Engine
+eng = Engine(window_title="Rheidos — Interactive", interactive=True)
 ```
 
 What happens under the hood
@@ -21,8 +21,8 @@ Working style
 - Define views/controllers/observers in cells and attach them:
 
   ```python
-  from kung_fu_panda.views import AxesView
-  from kung_fu_panda.controllers import FpvCameraController
+  from rheidos.views import AxesView
+  from rheidos.controllers import FpvCameraController
   eng.add_view(AxesView(axis_length=1.5))
   eng.add_controller(FpvCameraController())
   ```

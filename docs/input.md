@@ -5,7 +5,7 @@ Philosophy
 - Swap controllers freely (e.g., disable FPV in favor of a trackball down the line).
 
 FPV camera
-- Class: `kung_fu_panda/controllers/fpv_camera.py:FpvCameraController`
+- Class: `rheidos/controllers/fpv_camera.py:FpvCameraController`
 - Features:
   - Hold left mouse to capture and look around
   - WASD for planar motion, Q/E for vertical, Shift for faster speed
@@ -15,7 +15,7 @@ FPV camera
 Usage:
 
 ```python
-from kung_fu_panda.controllers import FpvCameraController
+from rheidos.controllers import FpvCameraController
 eng.add_controller(FpvCameraController(speed=6.0, speed_fast=12.0, invert_y=False))
 ```
 
@@ -23,7 +23,7 @@ ToggleViewController
 - Cycle between groups of view names. Great for switching render modes or overlays.
 
 ```python
-from kung_fu_panda.controllers import ToggleViewController
+from rheidos.controllers import ToggleViewController
 eng.add_controller(ToggleViewController(eng, groups=[["surface"],["wireframe"]], key="space"))
 eng.add_controller(ToggleViewController(eng, groups=[["labels"],[]], key="l"))
 ```
@@ -36,7 +36,7 @@ Pause, Screenshot, Exit
 Custom controller template
 
 ```python
-from kung_fu_panda.abc.controller import Controller
+from rheidos.abc.controller import Controller
 
 class MyController(Controller):
     def __init__(self, key="f"):

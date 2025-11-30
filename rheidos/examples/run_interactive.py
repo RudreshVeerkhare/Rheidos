@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from kung_fu_panda.engine import Engine
-from kung_fu_panda.views.axes import AxesView
-from kung_fu_panda.controllers import PauseController, ScreenshotController
+from rheidos.engine import Engine
+from rheidos.views.axes import AxesView
+from rheidos.controllers import PauseController, ScreenshotController
 
 
 def main() -> None:
-    eng = Engine(window_title="Kung Fu Panda — Interactive", interactive=True, auto_start=False)
+    eng = Engine(window_title="Rheidos — Interactive", interactive=True, auto_start=False)
 
     eng.add_view(AxesView(axis_length=1.5, sort=0))
     eng.add_controller(PauseController(eng, key="space"))

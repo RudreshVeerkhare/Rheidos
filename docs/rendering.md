@@ -7,14 +7,14 @@ Panda3D basics (crash course)
 - Materials, lights, and shaders affect appearance
 
 Meshes
-- Class: `kung_fu_panda/resources/mesh.py:Mesh`
+- Class: `rheidos/resources/mesh.py:Mesh`
 - Separate vertex arrays for positions, normals, colors, texcoords
 - Dynamic updates supported (buffers created with dynamic usage by default)
 - Construct and attach quickly:
 
   ```python
   import numpy as np
-  from kung_fu_panda.resources import Mesh
+  from rheidos.resources import Mesh
 
   # A single triangle
   V = np.array([[-1,0,0],[1,0,0],[0,0,1]], dtype=np.float32)
@@ -35,11 +35,11 @@ Updating mesh data
   - `set_indices((M*3,) or (M,3) int32)`
 
 Primitives and loaders
-- Procedural cube: `from kung_fu_panda.resources import cube`
+- Procedural cube: `from rheidos.resources import cube`
 - Load external mesh with trimesh: `load_mesh(path, center=True)`
 
   ```python
-  from kung_fu_panda.resources import load_mesh, cube
+  from rheidos.resources import load_mesh, cube
   primitive = load_mesh("~/models/bunny.obj")  # or cube(size=2.0)
   eng.session.base.camera.lookAt(0,0,0)
   ```
@@ -53,8 +53,8 @@ Studio environment (CAD‑like base)
 - `StudioView`: ground checker plane, gentle sky background, and a solid default light rig. Optionally applies a mild glossy material to your model nodes.
 
   ```python
-  from kung_fu_panda.views import StudioView, MeshSurfaceView, OrientationGizmoView
-  from kung_fu_panda.resources import load_mesh, cube
+  from rheidos.views import StudioView, MeshSurfaceView, OrientationGizmoView
+  from rheidos.resources import load_mesh, cube
   from panda3d.core import Material
 
   primitive = cube(2.0)
@@ -81,7 +81,7 @@ Orientation gizmo
 - `OrientationGizmoView(size=0.18, margin=0.02)`: renders a small RGB axis overlay that rotates with the current camera
 
   ```python
-  from kung_fu_panda.views import MeshSurfaceView, MeshWireframeView, MeshPositionLabelsView
+  from rheidos.views import MeshSurfaceView, MeshWireframeView, MeshPositionLabelsView
   from panda3d.core import Material
 
   mat = Material("Glossy"); mat.setShininess(64)

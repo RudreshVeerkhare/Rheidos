@@ -3,6 +3,7 @@ from .mesh_preview import MeshSurfaceView, MeshWireframeView
 from .mesh_labels import MeshPositionLabelsView
 from .studio import StudioView
 from .orientation_gizmo import OrientationGizmoView
+from .stream_function import PointVortexStreamFunctionView
 
 __all__ = [
     "AxesView",
@@ -11,4 +12,5 @@ __all__ = [
     "MeshPositionLabelsView",
     "StudioView",
     "OrientationGizmoView",
+    "PointVortexStreamFunctionView",
 ]

@@ -1,5 +1,5 @@
 import numpy as np
-from kung_fu_panda.abc.view import View
+from rheidos.abc.view import View
 
 
 class PulseColors(View):
@@ -24,9 +24,9 @@ class PulseColors(View):
 
 
 # Usage
-from kung_fu_panda.resources import cube
-from kung_fu_panda.views import MeshSurfaceView
-from kung_fu_panda.engine import Engine
+from rheidos.resources import cube
+from rheidos.views import MeshSurfaceView
+from rheidos.engine import Engine
 
 prim = cube(2.0)
 eng = Engine("Pulse", interactive=False)

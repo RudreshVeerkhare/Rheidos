@@ -11,7 +11,9 @@ from ..abc.view import View
 
 
 class AxesView(View):
-    def __init__(self, name: str | None = None, axis_length: float = 1.0, sort: int = 0) -> None:
+    def __init__(
+        self, name: str | None = None, axis_length: float = 1.0, sort: int = 0
+    ) -> None:
         super().__init__(name=name, sort=sort)
         self.axis_length = float(axis_length)
         self._node = None

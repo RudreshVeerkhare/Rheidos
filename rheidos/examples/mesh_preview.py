@@ -6,15 +6,15 @@ from pathlib import Path
 import numpy as np
 from panda3d.core import AmbientLight, DirectionalLight, Material, Vec3, Vec4
 
-from kung_fu_panda.engine import Engine
-from kung_fu_panda.resources import cube, load_mesh
-from kung_fu_panda.views import (
+from rheidos.engine import Engine
+from rheidos.resources import cube, load_mesh
+from rheidos.views import (
     AxesView,
     MeshSurfaceView,
     MeshWireframeView,
     MeshPositionLabelsView,
 )
-from kung_fu_panda.controllers import (
+from rheidos.controllers import (
     ExitController,
     FpvCameraController,
     ScreenshotController,

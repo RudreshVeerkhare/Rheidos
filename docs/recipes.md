@@ -3,10 +3,10 @@ Recipes
 1) Minimal surface + FPV + toggle
 
 ```python
-from kung_fu_panda.engine import Engine
-from kung_fu_panda.resources import cube
-from kung_fu_panda.views import MeshSurfaceView, MeshWireframeView, AxesView
-from kung_fu_panda.controllers import FpvCameraController, ToggleViewController
+from rheidos.engine import Engine
+from rheidos.resources import cube
+from rheidos.views import MeshSurfaceView, MeshWireframeView, AxesView
+from rheidos.controllers import FpvCameraController, ToggleViewController
 
 eng = Engine("Minimal", interactive=False)
 prim = cube(size=2.0)
@@ -25,7 +25,7 @@ eng.start()
 
 ```python
 import numpy as np
-from kung_fu_panda.abc.view import View
+from rheidos.abc.view import View
 
 class PulseColors(View):
     def __init__(self, mesh):
@@ -46,9 +46,9 @@ class PulseColors(View):
         self.mesh.set_colors(cols)
 
 # Usage
-from kung_fu_panda.resources import cube
-from kung_fu_panda.views import MeshSurfaceView
-from kung_fu_panda.engine import Engine
+from rheidos.resources import cube
+from rheidos.views import MeshSurfaceView
+from rheidos.engine import Engine
 prim = cube(2.0)
 eng = Engine("Pulse", interactive=False)
 eng.add_view(MeshSurfaceView(prim.mesh))
@@ -59,7 +59,7 @@ eng.start()
 3) Pause‑aware simulation (observer)
 
 ```python
-from kung_fu_panda.abc.observer import Observer
+from rheidos.abc.observer import Observer
 
 class StepSim(Observer):
     def __init__(self):

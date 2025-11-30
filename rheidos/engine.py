@@ -32,7 +32,7 @@ class Engine:
 
     def __init__(
         self,
-        window_title: str = "Kung Fu Panda",
+        window_title: str = "Rheidos",
         window_size: tuple[int, int] = (1280, 720),
         fps: int = 60,
         interactive: bool = False,
