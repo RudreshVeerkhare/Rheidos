@@ -13,6 +13,7 @@ class Action:
     label: str
     kind: ActionKind
     group: str = "General"
+    order: int = 0
     shortcut: Optional[str] = None
     invoke: Callable[[Any, Optional[Any]], None] = lambda session, value=None: None
     get_value: Optional[Callable[[Any], Any]] = None

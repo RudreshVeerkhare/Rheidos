@@ -50,7 +50,11 @@ class GUIManager:
         x_pad = 0.05
         y_step = 0.1
 
-        for name, controller in controllers.items():
+        sorted_controllers = sorted(
+            controllers.values(), key=lambda c: (getattr(c, "ui_order", 0), c.name)
+        )
+
+        for controller in sorted_controllers:
             # Header label
             DirectLabel(
                 parent=self._root,
@@ -62,7 +66,12 @@ class GUIManager:
             )
             y -= y_step * 0.8
 
-            for action in controller.actions():
+            actions = sorted(
+                controller.actions(),
+                key=lambda a: (a.group, getattr(a, "order", 0), a.label or a.id),
+            )
+
+            for action in actions:
                 initial_state = self._get_toggle_state(action)
                 label = self._format_label(action, initial_state)
                 if action.kind == "toggle":
