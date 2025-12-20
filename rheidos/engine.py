@@ -21,6 +21,7 @@ from .abc.view import View
 from .abc.observer import Observer
 from .abc.controller import Controller
 from .input_router import InputRouter
+from .ui.surface import GUISurface
 
 
 class Engine:
@@ -71,6 +72,10 @@ class Engine:
         self._session = PandaSession(self._base)
         self._store = StoreState()
         self._input_router = InputRouter(self._session)
+        try:
+            self._gui_surface = GUISurface("main", getattr(self._base, "aspect2d", None))
+        except Exception:
+            self._gui_surface = GUISurface("main", None)
 
         self._views: Dict[str, View] = {}
         self._view_tasks: Dict[str, str] = {}
