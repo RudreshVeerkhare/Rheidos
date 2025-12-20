@@ -20,6 +20,7 @@ from .store import StoreState
 from .abc.view import View
 from .abc.observer import Observer
 from .abc.controller import Controller
+from .input_router import InputRouter
 
 
 class Engine:
@@ -69,6 +70,7 @@ class Engine:
 
         self._session = PandaSession(self._base)
         self._store = StoreState()
+        self._input_router = InputRouter(self._session)
 
         self._views: Dict[str, View] = {}
         self._view_tasks: Dict[str, str] = {}
@@ -291,6 +293,10 @@ class Engine:
             if name in self._controllers:
                 raise ValueError(f"Controller '{name}' already exists")
             controller.attach(self._session)
+            try:
+                self._input_router.bind_actions(name, controller.actions())
+            except Exception:
+                pass
             self._controllers[name] = controller
 
         self._run_on_render_thread(_impl)
@@ -299,6 +305,10 @@ class Engine:
         def _impl() -> None:
             ctrl = self._controllers.pop(name, None)
             if ctrl is not None:
+                try:
+                    self._input_router.unbind_controller(name)
+                except Exception:
+                    pass
                 ctrl.detach()
 
         self._run_on_render_thread(_impl)
