@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from .action import Action
+
 
 class Controller:
     name: str
@@ -16,3 +18,6 @@ class Controller:
     def detach(self) -> None:
         pass
 
+    def actions(self) -> tuple[Action, ...]:
+        """Declare available actions for UI layers; override in subclasses."""
+        return ()
