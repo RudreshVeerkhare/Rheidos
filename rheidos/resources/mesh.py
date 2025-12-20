@@ -140,15 +140,55 @@ class Mesh:
 
     def set_indices(self, indices: np.ndarray) -> None:
         inds = np.ascontiguousarray(indices, dtype=np.int32)
-        assert inds.ndim == 1 or inds.ndim == 2
         if inds.ndim == 2:
             inds = inds.reshape(-1)
-        self.prim.clearVertices()
-        # Add triangles; assume triples
-        for i in range(0, inds.size, 3):
-            a, b, c = int(inds[i]), int(inds[i + 1]), int(inds[i + 2])
-            self.prim.addVertices(a, b, c)
-        self.prim.closePrimitive()
+        if inds.ndim != 1:
+            raise ValueError(f"Indices must be a 1D or 2D array, got shape {inds.shape}")
+        if inds.size % 3 != 0:
+            raise ValueError(
+                f"Triangle index buffer must be a multiple of 3 elements, got {inds.size}"
+            )
+        if inds.size == 0:
+            self.prim.clearVertices()
+            return
+
+        min_idx = int(inds.min())
+        if min_idx < 0:
+            raise ValueError("Triangle indices must be non-negative")
+
+        vert_count = self.vdata.getNumRows()
+        max_idx = int(inds.max())
+        if vert_count > 0 and max_idx >= vert_count:
+            raise ValueError(
+                f"Triangle index {max_idx} exceeds vertex count {vert_count - 1}"
+            )
+
+        prim = self.prim
+        prim.clearVertices()
+        prim.reserveNumVertices(inds.size)
+
+        # Choose 16-bit or 32-bit index type depending on the range we need.
+        try:
+            if max_idx < 65536:
+                prim.setIndexType(Geom.NTUint16)
+                inds_bytes = inds.astype(np.uint16, copy=False).tobytes()
+            else:
+                prim.setIndexType(Geom.NTUint32)
+                inds_bytes = inds.tobytes()
+        except Exception:
+            inds_bytes = inds.tobytes()
+
+        try:
+            handle = prim.modifyVertices().modifyHandle()
+            handle.setData(inds_bytes)
+            prim.closePrimitive()
+        except Exception:
+            # Fallback to the safer (but slower) per-triangle insertion path.
+            prim.clearVertices()
+            for i in range(0, inds.size, 3):
+                a, b, c = int(inds[i]), int(inds[i + 1]), int(inds[i + 2])
+                prim.addVertices(a, b, c)
+            prim.closePrimitive()
 
     # --- scene helpers
     def reparent_to(self, parent: NodePath) -> None:
@@ -156,4 +196,3 @@ class Mesh:
 
     def set_two_sided(self, two_sided: bool = True) -> None:
         self.node.setTwoSided(two_sided)
-
