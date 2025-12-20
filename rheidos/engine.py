@@ -22,6 +22,7 @@ from .abc.observer import Observer
 from .abc.controller import Controller
 from .input_router import InputRouter
 from .ui.surface import GUISurface
+from .ui.gui_manager import GUIManager
 
 
 class Engine:
@@ -76,6 +77,7 @@ class Engine:
             self._gui_surface = GUISurface("main", getattr(self._base, "aspect2d", None))
         except Exception:
             self._gui_surface = GUISurface("main", None)
+        self._gui_manager = GUIManager(self._session, self._gui_surface)
 
         self._views: Dict[str, View] = {}
         self._view_tasks: Dict[str, str] = {}
@@ -303,6 +305,10 @@ class Engine:
             except Exception:
                 pass
             self._controllers[name] = controller
+            try:
+                self._gui_manager.rebuild(self._controllers)
+            except Exception:
+                pass
 
         self._run_on_render_thread(_impl)
 
@@ -311,10 +317,14 @@ class Engine:
             ctrl = self._controllers.pop(name, None)
             if ctrl is not None:
                 try:
-                    self._input_router.unbind_controller(name)
-                except Exception:
-                    pass
-                ctrl.detach()
+                self._input_router.unbind_controller(name)
+            except Exception:
+                pass
+            ctrl.detach()
+            try:
+                self._gui_manager.rebuild(self._controllers)
+            except Exception:
+                pass
 
         self._run_on_render_thread(_impl)
 
