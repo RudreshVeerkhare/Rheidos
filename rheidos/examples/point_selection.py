@@ -109,17 +109,12 @@ def main() -> None:
     surface._node.setCollideMask(BitMask32.bit(4))
     wireframe._node.setCollideMask(BitMask32.bit(4))
 
-    def on_selection_changed(points):
-        print(f"Selected {len(points)} points ({'vertex' if not args.surface else 'surface'} mode)")
-        for p in points:
-            print(f"  node={p.node_name} index={p.index} world={p.world} normal={p.normal} snapped={p.snapped_to_vertex}")
-
     selector_cls = SceneSurfacePointSelector if args.surface else SceneVertexPointSelector
     selector = selector_cls(
         engine=eng,
         markers_view=markers,
         store_key="surface_points" if args.surface else "vertex_points",
-        on_change=on_selection_changed,
+        on_change=None,
     )
 
     eng.add_controller(selector)

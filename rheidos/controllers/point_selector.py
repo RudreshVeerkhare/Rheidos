@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Tuple
 
 import numpy as np
+from direct.showbase.MessengerGlobal import messenger
 from panda3d.core import (
     BitMask32,
     CollisionHandlerQueue,
@@ -35,6 +36,7 @@ class _PickResult:
     surface_world: Vec3
     surface_local: Vec3
     surface_normal: Optional[Vec3]
+    geom_index: Optional[int]
     into_node: Optional[object]
     vertex_index: Optional[int]
     vertex_local: Optional[Vec3]
@@ -129,7 +131,8 @@ class _ScenePointSelectorBase(Controller):
         self._build_picker()
 
         if self.select_button:
-            session.accept(self.select_button, self._on_click)
+            # Use messenger with a unique object (self) so other controllers can bind the same event.
+            messenger.accept(self.select_button, self, self._on_click)
             self._accepted.append(self.select_button)
 
         self._task_name = f"scene-point-hover-{id(self)}"
@@ -146,7 +149,7 @@ class _ScenePointSelectorBase(Controller):
         if self._session is not None:
             for evt in self._accepted:
                 try:
-                    self._session.ignore(evt)
+                    messenger.ignore(evt, self)
                 except Exception:
                     pass
         self._accepted.clear()
@@ -271,6 +274,10 @@ class _ScenePointSelectorBase(Controller):
             surface_local = entry.getSurfacePoint(into_np)
             surface_world = entry.getSurfacePoint(self._root_np)
             surface_normal = entry.getSurfaceNormal(into_np)
+            try:
+                geom_index = entry.getGeomIndex()  # type: ignore[attr-defined]
+            except Exception:
+                geom_index = None
         except Exception:
             return None
 
@@ -278,12 +285,15 @@ class _ScenePointSelectorBase(Controller):
         v_local = None
         v_world = None
         if self.snap_to_vertex:
-            vertex_idx, v_local, v_world = self._nearest_vertex(into_np, entry, surface_local)
+            vertex_idx, v_local, v_world = self._nearest_vertex(
+                into_np, entry, surface_local, geom_index
+            )
 
         return _PickResult(
             surface_world=surface_world,
             surface_local=surface_local,
             surface_normal=surface_normal,
+            geom_index=geom_index,
             into_node=into_np,
             vertex_index=vertex_idx,
             vertex_local=v_local,
@@ -291,7 +301,7 @@ class _ScenePointSelectorBase(Controller):
         )
 
     def _nearest_vertex(
-        self, into_np, entry, surface_local: Vec3
+        self, into_np, entry, surface_local: Vec3, geom_index: Optional[int] = None
     ) -> tuple[Optional[int], Optional[Vec3], Optional[Vec3]]:
         try:
             node = into_np.node()
@@ -300,10 +310,11 @@ class _ScenePointSelectorBase(Controller):
         if not isinstance(node, GeomNode):
             return (None, None, None)
 
-        try:
-            geom_index = entry.getGeomIndex()  # type: ignore[attr-defined]
-        except Exception:
-            geom_index = 0
+        if geom_index is None:
+            try:
+                geom_index = entry.getGeomIndex()  # type: ignore[attr-defined]
+            except Exception:
+                geom_index = 0
 
         try:
             geom = node.getGeom(geom_index)
@@ -353,11 +364,37 @@ class _ScenePointSelectorBase(Controller):
         point_local = hit.vertex_local if (self.snap_to_vertex and hit.vertex_local is not None) else hit.surface_local
         idx = hit.vertex_index if self.snap_to_vertex else None
 
-        key = idx if idx is not None else (
-            round(point_world.x, 5),
-            round(point_world.y, 5),
-            round(point_world.z, 5),
-        )
+        # Build a stable key per hit so toggling does not collide across duplicated geoms.
+        def _node_key(np):
+            if np is None:
+                return None
+            for attr in ("get_key", "getKey"):
+                try:
+                    return getattr(np, attr)()
+                except Exception:
+                    continue
+            try:
+                return id(np.node())
+            except Exception:
+                return id(np)
+
+        node_key = _node_key(hit.into_node)
+        if idx is not None:
+            if node_key is not None and hit.geom_index is not None:
+                key = (node_key, hit.geom_index, idx)
+            elif node_key is not None:
+                key = (node_key, idx)
+            elif hit.geom_index is not None:
+                key = (hit.geom_index, idx)
+            else:
+                key = idx
+        else:
+            coord_key = (
+                round(point_world.x, 5),
+                round(point_world.y, 5),
+                round(point_world.z, 5),
+            )
+            key = (node_key, coord_key) if node_key is not None else coord_key
 
         if key in self._selected:
             self._selected.pop(key, None)
