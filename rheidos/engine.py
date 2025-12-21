@@ -21,8 +21,6 @@ from .abc.view import View
 from .abc.observer import Observer
 from .abc.controller import Controller
 from .input_router import InputRouter
-from .ui.surface import GUISurface
-from .ui.gui_manager import GUIManager
 from .ui.imgui_manager import ImGuiUIManager, PanelFactory
 from .ui.panels.store_state import StoreStatePanel
 
@@ -76,11 +74,6 @@ class Engine:
         self._session = PandaSession(self._base)
         self._store = StoreState()
         self._input_router = InputRouter(self._session)
-        try:
-            self._gui_surface = GUISurface("main", getattr(self._base, "aspect2d", None))
-        except Exception:
-            self._gui_surface = GUISurface("main", None)
-        self._gui_manager = GUIManager(self._session, self._gui_surface)
         self._imgui_ui: Optional[ImGuiUIManager] = None
         try:
             import p3dimgui  # type: ignore
@@ -325,8 +318,6 @@ class Engine:
             try:
                 if self._imgui_ui is not None:
                     self._imgui_ui.set_controllers(self._controllers)
-                elif self._gui_manager is not None:
-                    self._gui_manager.rebuild(self._controllers)
             except Exception:
                 pass
 
@@ -344,8 +335,6 @@ class Engine:
                 try:
                     if self._imgui_ui is not None:
                         self._imgui_ui.set_controllers(self._controllers)
-                    elif self._gui_manager is not None:
-                        self._gui_manager.rebuild(self._controllers)
                 except Exception:
                     pass
 

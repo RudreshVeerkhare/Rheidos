@@ -3,10 +3,10 @@
 Rheidos controllers declare **Actions** (button/toggle metadata) instead of constructing UI widgets. The engine:
 
 - binds shortcuts from actions via the `InputRouter`
-- renders the actions panel (ImGui if available via `panda3d-imgui`, DirectGUI fallback)
+- renders the actions panel via ImGui (panda3d-imgui + p3dimgui)
 - keeps toggle state in sync using `get_value`/`set_value`
 
-You never touch DirectGUI from controllers; you just return actions.
+You never touch ImGui directly from controllers; you just return actions.
 
 ## Action API (current kinds)
 
@@ -124,6 +124,6 @@ class MeshVisibilityController(Controller):
 ## Notes & behaviors
 
 - **Hotkey capture:** `InputRouter` skips actions when ImGui wants keyboard/mouse (`io.want_capture_*`) to avoid duplicate handling while typing in UI.
-- **ImGui vs DirectGUI:** If `panda3d-imgui` is installed, the panel uses ImGui (drawn every frame). Otherwise, the DirectGUI panel is rebuilt on controller changes.
+- **ImGui only:** UI rendering now relies on ImGui; if imgui is unavailable, hotkeys still work but the actions panel is skipped.
 - **Thread safety:** actions run on the render thread (same as controllers). Keep callbacks lightweight; for heavy work, queue via `engine.dispatch`.
 - **Grouping/order:** sort is `(controller.ui_order, controller.name)` then `(action.group, action.order, action.label)`, so panels stay stable as you add more controllers.

@@ -4,6 +4,7 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Protocol, Sequ
 
 from ..abc.controller import Controller
 from ..store import StoreState
+from .panels.actions import ControllerActionsPanel
 
 
 class ImGuiPanel(Protocol):
@@ -12,6 +13,7 @@ class ImGuiPanel(Protocol):
     id: str
     title: str
     order: int
+    separate_window: bool
 
     def draw(self, imgui: Any) -> None:
         """Render panel content using the provided imgui module."""
@@ -36,6 +38,9 @@ class ImGuiUIManager:
         self._panel_factories: List[PanelFactory] = list(panel_factories or [])
         self._panels: List[ImGuiPanel] = []
         self._open = True
+        self._panels_enabled = True
+        self._panel_visibility: Dict[str, bool] = {}
+        self._actions_panel = ControllerActionsPanel(lambda: self._controllers, session)
         self._build_panels()
 
     def set_controllers(self, controllers: Dict[str, Controller]) -> None:
@@ -62,6 +67,9 @@ class ImGuiUIManager:
             if panel is not None:
                 self._panels.append(panel)
         self._panels.sort(key=lambda p: getattr(p, "order", 0))
+        # Preserve existing visibilities; default to True for new panels
+        for panel in self._panels:
+            self._panel_visibility.setdefault(panel.id, True)
 
     @staticmethod
     def _header_expanded(header_result: Any) -> bool:
@@ -79,72 +87,58 @@ class ImGuiUIManager:
         imgui.set_next_window_size((360, 520), imgui.Cond_.first_use_ever)
         imgui.begin("Rheidos Tools", True)
 
-        controllers = sorted(
-            self._controllers.values(),
-            key=lambda c: (getattr(c, "ui_order", 0), c.name),
-        )
+        # Core controller actions panel (always on).
+        try:
+            self._actions_panel.draw(imgui)
+        except Exception:
+            pass
 
-        # Controllers retain their existing layout/behavior.
-        for ctrl in controllers:
-            actions = ctrl.actions()
-            if not actions:
-                continue
+        embedded_panels = [p for p in self._panels if not getattr(p, "separate_window", False)]
+        window_panels = [p for p in self._panels if getattr(p, "separate_window", False)]
 
-            header = imgui.collapsing_header(
-                ctrl.name, flags=imgui.TreeNodeFlags_.default_open
-            )
-            if not self._header_expanded(header):
-                continue
-
-            sorted_actions = sorted(
-                actions,
-                key=lambda a: (a.group, getattr(a, "order", 0), a.label or a.id),
-            )
-
-            for act in sorted_actions:
-                label = act.label or act.id
-                tooltip = act.tooltip
-                if act.kind == "toggle":
-                    current = False
-                    if act.get_value is not None:
-                        try:
-                            current = bool(act.get_value(self._session))
-                        except Exception:
-                            current = False
-                    changed, new_val = imgui.checkbox(label, current)
-                    if changed:
-                        try:
-                            if act.set_value is not None:
-                                act.set_value(self._session, bool(new_val))
-                            act.invoke(self._session, bool(new_val))
-                        except Exception:
-                            pass
-                else:
-                    if imgui.button(label):
-                        try:
-                            act.invoke(self._session, None)
-                        except Exception:
-                            pass
-                if tooltip:
-                    try:
-                        if imgui.is_item_hovered():
-                            imgui.set_tooltip(tooltip + f" [{act.shortcut}]" if act.shortcut else "")
-                    except Exception:
-                        pass
+        # Plugin panels inside the tools window.
+        if embedded_panels:
+            changed, enabled = imgui.checkbox("Show Debug Panels", self._panels_enabled)
+            if changed:
+                self._panels_enabled = bool(enabled)
             imgui.separator()
 
-        # Plugin panels share the same window; each handles its own drawing.
-        for panel in self._panels:
-            header = imgui.collapsing_header(
-                f"{panel.title}##{panel.id}", flags=imgui.TreeNodeFlags_.default_open
-            )
-            if not self._header_expanded(header):
-                continue
-            try:
-                panel.draw(imgui)
-            except Exception:
-                # Panels should not be able to break the host window.
-                pass
+        if self._panels_enabled:
+            for panel in embedded_panels:
+                header = imgui.collapsing_header(
+                    f"{panel.title}##{panel.id}", flags=imgui.TreeNodeFlags_.default_open
+                )
+                if not self._header_expanded(header):
+                    continue
+                try:
+                    panel.draw(imgui)
+                except Exception:
+                    # Panels should not be able to break the host window.
+                    pass
+                imgui.separator()
+
+        # Toggles for standalone windows.
+        if window_panels:
             imgui.separator()
+            imgui.text("Debug Windows")
+            for panel in window_panels:
+                current = self._panel_visibility.get(panel.id, True)
+                changed, new_val = imgui.checkbox(f"Show {panel.title}", current)
+                if changed:
+                    self._panel_visibility[panel.id] = bool(new_val)
 
         imgui.end()
+
+        # Render separate windows after the main tools window closes.
+        for panel in window_panels:
+            if not self._panel_visibility.get(panel.id, True):
+                continue
+            try:
+                imgui.begin(f"{panel.title}##{panel.id}")
+                panel.draw(imgui)
+            except Exception:
+                pass
+            try:
+                imgui.end()
+            except Exception:
+                pass

@@ -58,10 +58,15 @@ eng.set_imgui_panel_factories([lambda session, store: StoreStatePanel(store)])
 
 If `imgui_panel_factories` is omitted and `panda3d-imgui` is available, the engine installs the default `StoreStatePanel`.
 
+### Built-in actions panel
+
+The controller actions UI is now an ImGui panel (`ControllerActionsPanel`) rendered at the top of the tools window. It is always on (not affected by `Show Debug Panels`) and lists controller actions with the same sorting and tooltips as before. If imgui is unavailable, actions still respond to hotkeys but no UI is shown.
+
 ## StoreState panel
 
-`rheidos.ui.panels.store_state.StoreStatePanel` pretty-prints the live `StoreState` with light sanitization:
+`rheidos.ui.panels.store_state.StoreStatePanel` renders the live store as a JSON-like tree (like a browser DevTools viewer):
 
+- Collapsible objects/lists/sets; scalar leaves show truncated `repr`
 - Polls the store every `0.5s` (configurable `refresh_interval`)
 - Max 50 items per dict/sequence (`max_items`)
 - Max nesting depth 3 (`max_depth`)
@@ -84,9 +89,14 @@ eng = Engine(
 )
 ```
 
+The tools window exposes:
+
+- `Show Debug Panels`: toggles embedded plugin panels (if any).
+- `Show Store State` (and other windowed panels): toggles standalone windows like the StoreState panel; when enabled, the panel renders in its own ImGui window (`Store State`).
+
 ## Caveats and behaviors
 
-- Requires `panda3d-imgui` + `p3dimgui`; if unavailable, panels are skipped (DirectGUI still handles controller actions).
+- Requires `panda3d-imgui` + `p3dimgui`; if unavailable, panels are skipped (hotkeys still work, but no panel rendering).
 - Panels share the single “Rheidos Tools” window; headers use `##id` to avoid label collisions.
 - Panel `draw` should be cheap; heavy work can hurt frame time. Do throttling inside the panel (as `StoreStatePanel` does).
 - Panel exceptions are swallowed to keep the UI alive; log inside the panel if you need diagnostics.

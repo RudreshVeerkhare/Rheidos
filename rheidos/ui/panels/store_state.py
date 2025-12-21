@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-import pprint
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 from ...store import StoreState
 
@@ -13,6 +12,7 @@ class StoreStatePanel:
     id = "store-state"
     title = "Store State"
     order = 100
+    separate_window = True
 
     def __init__(
         self,
@@ -32,10 +32,16 @@ class StoreStatePanel:
 
     def draw(self, imgui: Any) -> None:
         state = self._get_state_snapshot()
-        pretty = self._format_state(state)
-        imgui.push_text_wrap_pos()
-        imgui.text_unformatted(pretty)
-        imgui.pop_text_wrap_pos()
+        if not state:
+            imgui.text_disabled("(empty)")
+            return
+
+        imgui.text("Store contents")
+        imgui.same_line()
+        imgui.text_disabled(f"(refresh {self._refresh_interval:.2f}s)")
+
+        imgui.separator()
+        self._render_node(imgui, label="root", value=state, depth=0, is_root=True)
 
     def _get_state_snapshot(self) -> Dict[str, Any]:
         now = time.perf_counter()
@@ -57,43 +63,67 @@ class StoreStatePanel:
         self._cached = data
         return self._cached
 
-    def _format_state(self, data: Dict[str, Any]) -> str:
-        if not data:
-            return "(empty)"
-        sanitized = self._sanitize(data, depth=self._max_depth)
-        return pprint.pformat(sanitized, width=80, sort_dicts=True, compact=False)
+    def _render_node(
+        self,
+        imgui: Any,
+        label: str,
+        value: Any,
+        depth: int,
+        is_root: bool = False,
+    ) -> None:
+        if depth >= self._max_depth:
+            imgui.bullet_text(f"{label}: ...")
+            return
 
-    def _sanitize(self, value: Any, depth: int) -> Any:
-        if depth <= 0:
-            return "..."
+        kind, summary = self._describe(value)
+        display_label = f"{label} ({kind}{summary})" if not is_root else "store"
 
         if isinstance(value, dict):
-            items = sorted(value.items(), key=lambda kv: self._short_repr(kv[0]))
-            trimmed = items[: self._max_items]
-            result = {
-                self._short_repr(k): self._sanitize(v, depth - 1) for k, v in trimmed
-            }
-            if len(items) > len(trimmed):
-                result["..."] = f"+{len(items) - len(trimmed)} more"
-            return result
+            open_node = imgui.tree_node(display_label)
+            if open_node:
+                items = sorted(value.items(), key=lambda kv: self._safe_str(kv[0]))
+                trimmed = items[: self._max_items]
+                for idx, (k, v) in enumerate(trimmed):
+                    with imgui_ctx_id(imgui, f"{label}-{idx}"):
+                        self._render_node(imgui, label=self._safe_str(k), value=v, depth=depth + 1)
+                if len(items) > len(trimmed):
+                    imgui.bullet_text(f"... (+{len(items) - len(trimmed)} more)")
+                imgui.tree_pop()
+        elif isinstance(value, (list, tuple)):
+            open_node = imgui.tree_node(display_label)
+            if open_node:
+                seq = list(value)
+                trimmed = seq[: self._max_items]
+                for idx, v in enumerate(trimmed):
+                    with imgui_ctx_id(imgui, f"{label}-{idx}"):
+                        self._render_node(imgui, label=str(idx), value=v, depth=depth + 1)
+                if len(seq) > len(trimmed):
+                    imgui.bullet_text(f"... (+{len(seq) - len(trimmed)} more)")
+                imgui.tree_pop()
+        elif isinstance(value, set):
+            open_node = imgui.tree_node(display_label)
+            if open_node:
+                seq = sorted(list(value), key=self._safe_str)
+                trimmed = seq[: self._max_items]
+                for idx, v in enumerate(trimmed):
+                    with imgui_ctx_id(imgui, f"{label}-{idx}"):
+                        self._render_node(imgui, label=str(idx), value=v, depth=depth + 1)
+                if len(seq) > len(trimmed):
+                    imgui.bullet_text(f"... (+{len(seq) - len(trimmed)} more)")
+                imgui.tree_pop()
+        else:
+            imgui.bullet_text(f"{label}: {self._short_repr(value)}")
 
-        if isinstance(value, (list, tuple)):
-            seq = list(value)
-            trimmed = seq[: self._max_items]
-            sanitized = [self._sanitize(v, depth - 1) for v in trimmed]
-            if len(seq) > len(trimmed):
-                sanitized.append(f"... +{len(seq) - len(trimmed)} more")
-            return sanitized if isinstance(value, list) else tuple(sanitized)
-
+    def _describe(self, value: Any) -> Tuple[str, str]:
+        if isinstance(value, dict):
+            return "object", f", {len(value)} keys"
+        if isinstance(value, list):
+            return "list", f", {len(value)} items"
+        if isinstance(value, tuple):
+            return "tuple", f", {len(value)} items"
         if isinstance(value, set):
-            seq = sorted(list(value), key=self._short_repr)
-            trimmed = seq[: self._max_items]
-            sanitized = [self._sanitize(v, depth - 1) for v in trimmed]
-            if len(seq) > len(trimmed):
-                sanitized.append(f"... +{len(seq) - len(trimmed)} more")
-            return sanitized
-
-        return self._short_repr(value)
+            return "set", f", {len(value)} items"
+        return type(value).__name__, ""
 
     def _short_repr(self, value: Any) -> str:
         try:
@@ -103,3 +133,29 @@ class StoreStatePanel:
         if len(text) > self._max_repr_len:
             text = text[: self._max_repr_len] + "..."
         return text
+
+    def _safe_str(self, value: Any) -> str:
+        try:
+            return str(value)
+        except Exception:
+            return "<unstr>"
+
+
+class imgui_ctx_id:
+    """Context manager to pair push_id/pop_id when available."""
+
+    def __init__(self, imgui: Any, ident: str) -> None:
+        self._imgui = imgui
+        self._ident = ident
+
+    def __enter__(self) -> None:
+        try:
+            self._imgui.push_id(self._ident)
+        except Exception:
+            pass
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        try:
+            self._imgui.pop_id()
+        except Exception:
+            pass

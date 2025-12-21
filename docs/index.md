@@ -43,7 +43,7 @@ Controls (mesh_preview) 🎮
 Docs Map
 - Getting Started: installation, first runs, controls
 - Concepts: Engine, Session, Views, Observers, Controllers, StoreState
-- Actions & UI: how controller actions become hotkeys + GUI (ImGui/DirectGUI)
+- Actions & UI: how controller actions become hotkeys + GUI (ImGui)
 - ImGui Panels: plugin panels inside the ImGui tools window
 - Rendering: meshes, materials, lighting, labels
 - Input: FPV camera and other controllers
