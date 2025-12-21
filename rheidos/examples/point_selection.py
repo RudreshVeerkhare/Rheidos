@@ -4,7 +4,7 @@ import argparse
 from pathlib import Path
 
 import numpy as np
-from panda3d.core import AmbientLight, DirectionalLight, Material, Vec3, Vec4
+from panda3d.core import AmbientLight, DirectionalLight, Material, Vec3, Vec4, BitMask32
 
 from rheidos.engine import Engine
 from rheidos.resources import cube, load_mesh
@@ -17,7 +17,8 @@ from rheidos.views import (
 from rheidos.controllers import (
     ExitController,
     FpvCameraController,
-    PointSelectorController,
+    SceneSurfacePointSelector,
+    SceneVertexPointSelector,
     ScreenshotController,
     ToggleViewController,
 )
@@ -71,11 +72,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Pick points on a mesh surface")
     parser.add_argument("mesh", nargs="?", help="Path to mesh file (OBJ, PLY, STL, ...)")
     parser.add_argument("--no-center", action="store_true", help="Do not recenter mesh to origin")
-    parser.add_argument(
-        "--surface",
-        action="store_true",
-        help="Select the exact surface hit point (disable snapping to nearest vertex)",
-    )
+    parser.add_argument("--surface", action="store_true", help="Use surface hits (no vertex snap)")
     args = parser.parse_args()
 
     mesh_path = Path(args.mesh).expanduser() if args.mesh else None
@@ -108,18 +105,20 @@ def main() -> None:
     cam.setPos(cam_pos)
     cam.lookAt(cam_look)
 
-    def on_selection_changed(points):
-        print(f"Selected {len(points)} points (snap_to_vertex={not args.surface})")
-        for p in points:
-            print(f"  index={p.index} world={p.world} normal={p.normal} snapped={p.snapped_to_vertex}")
+    # Make mesh nodes pickable (match controller pick_mask bit 4)
+    surface._node.setCollideMask(BitMask32.bit(4))
+    wireframe._node.setCollideMask(BitMask32.bit(4))
 
-    selector = PointSelectorController(
+    def on_selection_changed(points):
+        print(f"Selected {len(points)} points ({'vertex' if not args.surface else 'surface'} mode)")
+        for p in points:
+            print(f"  node={p.node_name} index={p.index} world={p.world} normal={p.normal} snapped={p.snapped_to_vertex}")
+
+    selector_cls = SceneSurfacePointSelector if args.surface else SceneVertexPointSelector
+    selector = selector_cls(
         engine=eng,
-        mesh=primitive.mesh,
-        target_view="surface",
         markers_view=markers,
-        store_key="selected_points",
-        snap_to_vertex=not args.surface,
+        store_key="surface_points" if args.surface else "vertex_points",
         on_change=on_selection_changed,
     )
 

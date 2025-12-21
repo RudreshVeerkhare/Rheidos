@@ -1,52 +1,60 @@
-# Point Selector Controller
+# Point Selector Controllers
 
-Pick points on a mesh surface with a simple controller + marker view. Uses Panda3D collision rays to hit the mesh, then lets you choose whether to snap to the nearest vertex or keep the exact surface hit point.
+Scene-wide point picking powered by Panda3D collision rays. Two flavors:
+- `SceneSurfacePointSelector` — fast surface hits (no vertex snap).
+- `SceneVertexPointSelector` — snap to the nearest vertex of the hit geometry.
 
-## What it provides
+Both share:
 - Click-to-toggle selections (left mouse by default).
-- UI actions: enable/disable picking, clear selection, toggle “Snap To Nearest Vertex”.
+- UI actions: enable/disable picking, clear selection.
 - Optional markers via `PointSelectionView` for hover/selected dots.
-- Selected points pushed into `engine.store` (default key `selected_points`) and exposed via the controller’s `selected_points()` plus an `on_change` callback.
+- Selected points pushed into `engine.store` (`surface_points` / `vertex_points` by default) and exposed via `selected_points()` plus an `on_change` callback.
 
 `SelectedPoint` fields:
-- `index`: nearest vertex index (or `None` for surface mode)
-- `world` / `local`: coordinates in world space and mesh-local space
+- `index`: nearest vertex index (None for surface selector)
+- `world` / `local`: coordinates in world space and hit-node local space
 - `normal`: surface normal at the hit
-- `snapped_to_vertex`: whether the hit was snapped
+- `snapped_to_vertex`: True for vertex selector when a vertex was found
+- `node_name`: name of the hit node
 
-## Quick usage
+> Picking relies on Panda3D collide masks. Ensure pickable nodes have the `pick_mask` bit set (default `BitMask32.bit(4)`). The ray uses that bit; non-matching nodes are skipped.
+
+## Quick usage (vertex snapping)
 ```python
+from panda3d.core import BitMask32
 from rheidos.engine import Engine
 from rheidos.resources import cube
 from rheidos.views import MeshSurfaceView, PointSelectionView
-from rheidos.controllers import PointSelectorController
+from rheidos.controllers import SceneVertexPointSelector
 
 eng = Engine(window_title="Picker", interactive=False)
 prim = cube(size=2.0)
-eng.add_view(MeshSurfaceView(prim.mesh, name="surface"))
+surface = MeshSurfaceView(prim.mesh, name="surface")
+eng.add_view(surface)
+
+# Make the surface pickable (matches pick_mask bit 4)
+surface._node.setCollideMask(BitMask32.bit(4))
+
 markers = PointSelectionView(name="selected_points")
 eng.add_view(markers)
 
-selector = PointSelectorController(
+selector = SceneVertexPointSelector(
     engine=eng,
-    mesh=prim.mesh,
-    target_view="surface",      # align ray space to this view if it moves
-    markers_view=markers,       # show hover/selected dots
-    snap_to_vertex=True,        # False keeps exact surface hit
-    store_key="selected_points",
+    markers_view=markers,     # show hover/selected dots
+    store_key="vertex_points",
     on_change=lambda pts: print(f"Selected {len(pts)} pts"),
 )
 eng.add_controller(selector)
 eng.start()
 ```
 
-## CLI example
-Run the bundled demo (snapping on by default, pass `--surface` to keep exact hits):
-```
-python -m rheidos.examples.point_selection            # snap to vertex
-python -m rheidos.examples.point_selection --surface  # keep surface points
+## Variant: surface-only (no snapping)
+```python
+from rheidos.controllers import SceneSurfacePointSelector
+selector = SceneSurfacePointSelector(engine=eng, markers_view=markers, store_key="surface_points")
+eng.add_controller(selector)
 ```
 
-Controls:
+## Controls
 - Left mouse: toggle selection at cursor
-- Panel actions: enable/disable picking, clear selection, toggle snapping
+- Panel actions: enable/disable picking, clear selection
