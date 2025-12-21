@@ -1,9 +1,11 @@
 from __future__ import annotations
+
 from typing import Dict, Optional
 from math import copysign
 from panda3d.core import Vec3, WindowProperties, NodePath, Quat
 
 from ..abc.controller import Controller
+from ..abc.action import Action
 
 
 def _safe_normalize(v: Vec3, eps: float = 1e-12) -> Vec3:
@@ -57,6 +59,8 @@ class FpvCameraController(Controller):
             0.99985  # ~= cos(1 deg). Never let |dot(eye, up)| exceed this.
         )
 
+        self._enabled = True
+
     def _ui_wants_mouse(self) -> bool:
         """Check if an ImGui UI (or similar) wants exclusive mouse capture."""
         try:
@@ -66,6 +70,22 @@ class FpvCameraController(Controller):
             return bool(io.want_capture_mouse)
         except Exception:
             return False
+
+    def actions(self) -> tuple[Action, ...]:
+        return (
+            Action(
+                id="fpv-enabled",
+                label="FPV Enabled",
+                kind="toggle",
+                group="Camera",
+                order=0,
+                get_value=lambda session: self._enabled,
+                set_value=lambda session, v: self._set_enabled(bool(v)),
+                invoke=lambda session, v=None: self._set_enabled(
+                    not self._enabled if v is None else bool(v)
+                ),
+            ),
+        )
 
     def _build_frame_from_eye(self) -> tuple[Vec3, Vec3, Vec3]:
         """Return (right, up_local, forward) from current world-space eye."""
@@ -117,7 +137,6 @@ class FpvCameraController(Controller):
 
     def _orient_rig_to_eye(self) -> None:
         """Point rig along self._eye_w using global up as reference (no roll)."""
-        # Use lookAt with explicit up; this sets HPR relative to parent (render).
         rig = self._rig_np
         render = self._session.render
         if rig is None:
@@ -207,9 +226,13 @@ class FpvCameraController(Controller):
 
     # ---------- input & update ----------
     def _on_key(self, key: str, pressed: bool) -> None:
+        if not self._enabled:
+            return
         self._keys[key] = pressed
 
     def _on_mouse_down(self) -> None:
+        if not self._enabled:
+            return
         if self._ui_wants_mouse():
             return
         win = self._session.win
@@ -221,6 +244,8 @@ class FpvCameraController(Controller):
         self._acquire_mouse_capture()
 
     def _on_mouse_up(self) -> None:
+        if not self._enabled:
+            return
         self._release_mouse_capture()
 
     def _acquire_mouse_capture(self) -> None:
@@ -271,6 +296,9 @@ class FpvCameraController(Controller):
         self._relative_mode = False
 
     def _update_task(self, task) -> int:
+        if not self._enabled:
+            return task.cont
+
         dt = self._session.clock.getDt() if self._session.clock else 0.0
         win = self._session.win
         render = self._session.render
@@ -322,10 +350,14 @@ class FpvCameraController(Controller):
             speed = self.speed_fast if self._keys.get("shift") else self.speed
 
             r, u, f = self._build_frame_from_eye()
-            # NOTE: If you want Q/E to be pure world-up (platformer-style),
-            # replace `u` with `self._GLOBAL_UP` in the combination below.
             world_dir = r * move.x + f * move.y + u * move.z
 
             self._rig_np.setPos(self._rig_np.getPos() + world_dir * (speed * dt))
 
         return task.cont
+
+    def _set_enabled(self, enabled: bool) -> None:
+        self._enabled = bool(enabled)
+        if not self._enabled:
+            self._keys.clear()
+            self._release_mouse_capture()

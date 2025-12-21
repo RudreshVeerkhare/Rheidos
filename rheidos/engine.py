@@ -4,7 +4,7 @@ import os
 import queue
 import time
 import asyncio
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, Optional, Sequence
 
 try:
     from direct.showbase.ShowBase import ShowBase
@@ -23,7 +23,8 @@ from .abc.controller import Controller
 from .input_router import InputRouter
 from .ui.surface import GUISurface
 from .ui.gui_manager import GUIManager
-from .ui.imgui_manager import ImGuiUIManager
+from .ui.imgui_manager import ImGuiUIManager, PanelFactory
+from .ui.panels.store_state import StoreStatePanel
 
 
 class Engine:
@@ -42,6 +43,7 @@ class Engine:
         interactive: bool = False,
         auto_start: Optional[bool] = None,
         msaa_samples: Optional[int] = 4,
+        imgui_panel_factories: Optional[Sequence[PanelFactory]] = None,
     ) -> None:
         if ShowBase is None:
             raise RuntimeError("Panda3D is not available. Install 'panda3d'.")
@@ -84,7 +86,12 @@ class Engine:
             import p3dimgui  # type: ignore
 
             p3dimgui.init()
-            self._imgui_ui = ImGuiUIManager(self._session)
+            panel_factories = imgui_panel_factories
+            if panel_factories is None:
+                panel_factories = (lambda session, store: StoreStatePanel(store=store),)
+            self._imgui_ui = ImGuiUIManager(
+                self._session, store=self._store, panel_factories=panel_factories
+            )
             self._base.accept("imgui-new-frame", self._imgui_ui.draw_frame)
         except Exception:
             self._imgui_ui = None
@@ -339,6 +346,26 @@ class Engine:
                         self._imgui_ui.set_controllers(self._controllers)
                     elif self._gui_manager is not None:
                         self._gui_manager.rebuild(self._controllers)
+                except Exception:
+                    pass
+
+        self._run_on_render_thread(_impl)
+
+    def set_imgui_panel_factories(self, panel_factories: Sequence[PanelFactory]) -> None:
+        def _impl() -> None:
+            if self._imgui_ui is not None:
+                try:
+                    self._imgui_ui.set_panel_factories(panel_factories)
+                except Exception:
+                    pass
+
+        self._run_on_render_thread(_impl)
+
+    def add_imgui_panel_factory(self, panel_factory: PanelFactory) -> None:
+        def _impl() -> None:
+            if self._imgui_ui is not None:
+                try:
+                    self._imgui_ui.add_panel_factory(panel_factory)
                 except Exception:
                     pass
 
