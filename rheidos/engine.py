@@ -23,6 +23,7 @@ from .abc.controller import Controller
 from .input_router import InputRouter
 from .ui.surface import GUISurface
 from .ui.gui_manager import GUIManager
+from .ui.imgui_manager import ImGuiUIManager
 
 
 class Engine:
@@ -78,6 +79,15 @@ class Engine:
         except Exception:
             self._gui_surface = GUISurface("main", None)
         self._gui_manager = GUIManager(self._session, self._gui_surface)
+        self._imgui_ui: Optional[ImGuiUIManager] = None
+        try:
+            import p3dimgui  # type: ignore
+
+            p3dimgui.init()
+            self._imgui_ui = ImGuiUIManager(self._session)
+            self._base.accept("imgui-new-frame", self._imgui_ui.draw_frame)
+        except Exception:
+            self._imgui_ui = None
 
         self._views: Dict[str, View] = {}
         self._view_tasks: Dict[str, str] = {}
@@ -306,7 +316,10 @@ class Engine:
                 pass
             self._controllers[name] = controller
             try:
-                self._gui_manager.rebuild(self._controllers)
+                if self._imgui_ui is not None:
+                    self._imgui_ui.set_controllers(self._controllers)
+                elif self._gui_manager is not None:
+                    self._gui_manager.rebuild(self._controllers)
             except Exception:
                 pass
 
@@ -317,14 +330,17 @@ class Engine:
             ctrl = self._controllers.pop(name, None)
             if ctrl is not None:
                 try:
-                self._input_router.unbind_controller(name)
-            except Exception:
-                pass
-            ctrl.detach()
-            try:
-                self._gui_manager.rebuild(self._controllers)
-            except Exception:
-                pass
+                    self._input_router.unbind_controller(name)
+                except Exception:
+                    pass
+                ctrl.detach()
+                try:
+                    if self._imgui_ui is not None:
+                        self._imgui_ui.set_controllers(self._controllers)
+                    elif self._gui_manager is not None:
+                        self._gui_manager.rebuild(self._controllers)
+                except Exception:
+                    pass
 
         self._run_on_render_thread(_impl)
 

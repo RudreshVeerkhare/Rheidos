@@ -57,6 +57,16 @@ class FpvCameraController(Controller):
             0.99985  # ~= cos(1 deg). Never let |dot(eye, up)| exceed this.
         )
 
+    def _ui_wants_mouse(self) -> bool:
+        """Check if an ImGui UI (or similar) wants exclusive mouse capture."""
+        try:
+            from imgui_bundle import imgui
+
+            io = imgui.get_io()
+            return bool(io.want_capture_mouse)
+        except Exception:
+            return False
+
     def _build_frame_from_eye(self) -> tuple[Vec3, Vec3, Vec3]:
         """Return (right, up_local, forward) from current world-space eye."""
         f = _safe_normalize(self._eye_w)
@@ -200,6 +210,8 @@ class FpvCameraController(Controller):
         self._keys[key] = pressed
 
     def _on_mouse_down(self) -> None:
+        if self._ui_wants_mouse():
+            return
         win = self._session.win
         if win is None:
             return
@@ -264,6 +276,11 @@ class FpvCameraController(Controller):
         render = self._session.render
 
         if self._rig_np is None:
+            return task.cont
+
+        # Skip capture and movement when UI wants the mouse; release if held.
+        if self._ui_wants_mouse():
+            self._release_mouse_capture()
             return task.cont
 
         # --- Mouse look -> update eye vector ---

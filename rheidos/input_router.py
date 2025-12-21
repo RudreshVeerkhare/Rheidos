@@ -48,9 +48,20 @@ class InputRouter:
                 pass
 
     def _make_callback(self, action: Action):
+        def _blocked() -> bool:
+            # If ImGui wants keyboard/mouse, skip hotkeys.
+            try:
+                from imgui_bundle import imgui
+                io = imgui.get_io()
+                return bool(io.want_capture_keyboard or io.want_capture_mouse)
+            except Exception:
+                return False
+
         if action.kind == "toggle":
 
             def _cb(value: Optional[object] = None) -> None:
+                if _blocked():
+                    return
                 # If getters/setters are provided, toggle the stored value; otherwise just invoke.
                 if action.get_value is not None and action.set_value is not None:
                     try:
@@ -66,6 +77,8 @@ class InputRouter:
         else:
 
             def _cb(value: Optional[object] = None) -> None:
+                if _blocked():
+                    return
                 action.invoke(self._session, value)
 
         return _cb
