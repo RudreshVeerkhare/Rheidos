@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """
 Demo: Render a mesh with a GUI+shortcut toggle to show/hide it.
- - Shortcut: 'v' toggles visibility.
+ - Shortcut: 'v' toggles visibility (panel shows as "[v] Mesh Visible").
  - GUI: panel auto-populates with a toggle button via controller actions.
 """
 
@@ -16,6 +16,26 @@ from rheidos.resources import cube
 from rheidos.controllers import FpvCameraController
 from rheidos.abc.controller import Controller
 from rheidos.abc.action import Action
+
+class ScreenshotController(Controller):
+    def __init__(self, engine, filename="shot.png"):
+        super().__init__("Screenshot")
+        self.engine = engine
+        self.filename = filename
+        self.ui_order = 10
+
+    def actions(self):
+        return (
+            Action(
+                id="screenshot",
+                label="Take Screenshot",
+                kind="button",
+                group="Utils",
+                order=0,
+                shortcut="p",
+                invoke=lambda session, value=None: self.engine.screenshot(self.filename),
+            ),
+        )
 
 
 class MeshVisibilityController(Controller):
@@ -42,6 +62,7 @@ class MeshVisibilityController(Controller):
             group="Views",
             order=0,
             shortcut="v",
+            tooltip="Show or hide the mesh view",
             get_value=lambda session: self._current_state(),
             set_value=lambda session, value: self._set_state(bool(value)),
             invoke=lambda session, value=None: self._set_state(
@@ -63,6 +84,7 @@ def main() -> None:
     # Controls: FPV camera and mesh visibility toggle (GUI + shortcut)
     eng.add_controller(FpvCameraController(speed=6.0, speed_fast=12.0))
     eng.add_controller(MeshVisibilityController(eng, view_name="mesh"))
+    eng.add_controller(ScreenshotController(eng))
 
     eng.start()
 

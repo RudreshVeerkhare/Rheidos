@@ -48,6 +48,7 @@ class GUIManager:
         self._refresh_task_name = f"gui-refresh-{id(self)}"
         self._last_refresh = 0.0
         self._refresh_interval = 0.2
+        self._tooltip = None
 
     def rebuild(self, controllers: Dict[str, Controller]) -> None:
         base = getattr(self._session, "base", None)
@@ -74,6 +75,7 @@ class GUIManager:
                 DirectScrolledFrame,
             )
             from panda3d.core import TextNode
+            from direct.gui import DirectGuiGlobals as DGG
         except Exception:
             return
 
@@ -110,6 +112,21 @@ class GUIManager:
         )
         canvas = self._scroll.getCanvas()
 
+        # Tooltip label (shared)
+        try:
+            self._tooltip = DirectLabel(
+                parent=self._root,
+                text="",
+                text_fg=(1, 1, 1, 1),
+                text_scale=0.04,
+                frameColor=(0, 0, 0, 0.85),
+                pad=(0.02, 0.01),
+                relief=1,
+            )
+            self._tooltip.hide()
+        except Exception:
+            self._tooltip = None
+
         # --- Layout pass ---
         y = -self.PAD_TOP
         row_width = self.PANEL_W - 2 * self.PAD_X
@@ -136,6 +153,9 @@ class GUIManager:
 
             for action in actions:
                 pretty = action.label or _prettify(action.id)
+                if action.shortcut:
+                    pretty = f"[{action.shortcut}] {pretty}"
+                tooltip = action.tooltip
 
                 if action.kind == "toggle":
                     initial = self._get_toggle_state(action)
@@ -190,6 +210,13 @@ class GUIManager:
 
                 y -= self.ROW_H
 
+                if tooltip and self._tooltip is not None:
+                    w.bind(
+                        DGG.ENTER,
+                        lambda evt, t=tooltip, widget=w: self._show_tooltip(t, widget),
+                    )
+                    w.bind(DGG.EXIT, lambda evt: self._hide_tooltip())
+
             y -= self.GAP_BETWEEN_CONTROLLERS
 
         self._ensure_refresh_task()
@@ -208,6 +235,7 @@ class GUIManager:
         self._root = None
         self._scroll = None
         self._toggle_widgets.clear()
+        self._tooltip = None
 
     # --- internal helpers ---
 
@@ -252,3 +280,23 @@ class GUIManager:
                 pass
 
         return task.cont
+
+    def _show_tooltip(self, text: str, widget: Any) -> None:
+        if self._tooltip is None or self._root is None:
+            return
+        try:
+            pos = widget.getPos(self._root)
+            # Offset slightly above the widget row
+            self._tooltip.setText(text)
+            self._tooltip.setPos(pos[0], 0, pos[2] + 0.06)
+            self._tooltip.show()
+        except Exception:
+            pass
+
+    def _hide_tooltip(self) -> None:
+        if self._tooltip is None:
+            return
+        try:
+            self._tooltip.hide()
+        except Exception:
+            pass

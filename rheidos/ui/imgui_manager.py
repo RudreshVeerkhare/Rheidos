@@ -52,6 +52,7 @@ class ImGuiUIManager:
 
             for act in sorted_actions:
                 label = act.label or act.id
+                tooltip = act.tooltip
                 if act.kind == "toggle":
                     current = False
                     if act.get_value is not None:
@@ -73,6 +74,12 @@ class ImGuiUIManager:
                             act.invoke(self._session, None)
                         except Exception:
                             pass
+                if tooltip:
+                    try:
+                        if imgui.is_item_hovered():
+                            imgui.set_tooltip(tooltip + f" [{act.shortcut}]" if act.shortcut else "")
+                    except Exception:
+                        pass
             imgui.separator()
 
         imgui.end()

@@ -3,6 +3,7 @@ from .pause import PauseController
 from .screenshot import ScreenshotController
 from .fpv_camera import FpvCameraController
 from .exit import ExitController
+from .point_selector import PointSelectorController, SelectedPoint
 
 __all__ = [
     "ToggleViewController",
@@ -10,4 +11,6 @@ __all__ = [
     "ScreenshotController",
     "FpvCameraController",
     "ExitController",
+    "PointSelectorController",
+    "SelectedPoint",
 ]

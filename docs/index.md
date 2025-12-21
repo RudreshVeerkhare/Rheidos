@@ -43,11 +43,12 @@ Controls (mesh_preview) 🎮
 Docs Map
 - Getting Started: installation, first runs, controls
 - Concepts: Engine, Session, Views, Observers, Controllers, StoreState
+- Actions & UI: how controller actions become hotkeys + GUI (ImGui/DirectGUI)
 - Rendering: meshes, materials, lighting, labels
 - Input: FPV camera and other controllers
-- Taichi: kernels, data flow, per‑frame updates
+- Taichi: kernels, data flow, per-frame updates
 - Notebooks: interactive loop and workflow
-- Recipes: step‑by‑step examples
+- Recipes: step-by-step examples
 - Philosophy: how to build abstractions to move fast
 - FAQ: common hiccups and fixes
 
@@ -58,6 +59,7 @@ Links into this repo
 - Abstractions (base classes): rheidos/abc
 - Views: rheidos/views
 - Controllers: rheidos/controllers
+- Point selector controller: docs/point-selector.md
 - Resources (meshes/textures): rheidos/resources
 - Taichi bridge: rheidos/utils/taichi_bridge.py
 

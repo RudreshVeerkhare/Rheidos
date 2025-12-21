@@ -30,6 +30,12 @@ def cube(size: float = 1.0, name: str = "cube") -> Primitive:
         dtype=np.float32,
     )
 
+    # Outward-pointing normals per vertex (normalized position vector)
+    norms = vertices.copy()
+    lengths = np.linalg.norm(norms, axis=1, keepdims=True)
+    lengths[lengths == 0.0] = 1.0
+    normals = (norms / lengths).astype(np.float32)
+
     indices = np.array(
         [
             0, 1, 2, 0, 2, 3,  # bottom
@@ -62,4 +68,3 @@ def cube(size: float = 1.0, name: str = "cube") -> Primitive:
     mins = vertices.min(axis=0)
     maxs = vertices.max(axis=0)
     return Primitive(mesh=mesh, bounds=(mins, maxs))
-
