@@ -25,6 +25,7 @@ Config structure (quick reference)
   - `pickable` (bool, default true): sets collide mask for picking
   - `surface` / `wireframe` (bool): enable those views
   - `material` (object): `diffuse`, `specular`, `ambient`, `emission` (3 or 4 floats), `shininess`
+  - `transform` (object): `position`/`translation` (vec3), `hpr`/`rotation` (vec3 degrees), `scale` (number or vec3)
 - `camera` (object):
   - `position`, `look_at` (vec3): explicit camera placement
   - or `auto_frame` (bool, default true), `offset_dir`, `distance_scale`, `min_distance`

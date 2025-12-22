@@ -122,6 +122,7 @@ def _build_mesh(
     material = _material_from_cfg(mesh_cfg.get("material"))
     pick_mask = default_pick_mask if mesh_cfg.get("pickable", True) else None
     two_sided = bool(mesh_cfg.get("two_sided", False))
+    transform = _transform_from_cfg(mesh_cfg.get("transform"))
 
     surface_enabled = mesh_cfg.get("surface", True)
     wireframe_enabled = mesh_cfg.get("wireframe", True)
@@ -139,6 +140,7 @@ def _build_mesh(
             material=material,
             two_sided=two_sided,
             collide_mask=pick_mask,
+            transform=transform,
         )
         if surface_enabled
         else None
@@ -149,6 +151,7 @@ def _build_mesh(
             name=wire_name,
             sort=wire_sort,
             collide_mask=pick_mask,
+            transform=transform,
         )
         if wireframe_enabled
         else None
@@ -460,3 +463,26 @@ def _vec3(values: Sequence[float]) -> Vec3:
     if len(vals) != 3:
         raise ValueError(f"Expected 3 components for Vec3, got {len(vals)}")
     return Vec3(float(vals[0]), float(vals[1]), float(vals[2]))
+
+
+def _transform_from_cfg(cfg: Optional[Dict[str, Any]]) -> Optional[tuple[Optional[Vec3], Optional[Vec3], Optional[tuple[float, float, float]]]]:
+    if not cfg:
+        return None
+    pos = None
+    hpr = None
+    scale = None
+    if "position" in cfg or "translate" in cfg or "translation" in cfg:
+        v = cfg.get("position", cfg.get("translate", cfg.get("translation")))
+        pos = _vec3(v)
+    if "hpr" in cfg or "rotation" in cfg:
+        v = cfg.get("hpr", cfg.get("rotation"))
+        hpr = _vec3(v)
+    if "scale" in cfg:
+        s = cfg["scale"]
+        if isinstance(s, (int, float)):
+            scale = (float(s), float(s), float(s))
+        elif isinstance(s, (list, tuple)) and len(s) == 3:
+            scale = (float(s[0]), float(s[1]), float(s[2]))
+        else:
+            raise ValueError(f"Invalid scale value: {s}")
+    return (pos, hpr, scale)

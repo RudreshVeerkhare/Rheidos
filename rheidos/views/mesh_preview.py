@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, Tuple
 
 from panda3d.core import BitMask32, NodePath
 
@@ -17,6 +17,7 @@ class MeshSurfaceView(View):
         material: Optional[object] = None,
         two_sided: bool = False,
         collide_mask: Optional[BitMask32] = None,
+        transform: Optional[Tuple[Optional[object], Optional[object], Optional[Tuple[float, float, float]]]] = None,
     ) -> None:
         super().__init__(name=name or "MeshSurfaceView", sort=sort)
         self._mesh = mesh
@@ -24,6 +25,7 @@ class MeshSurfaceView(View):
         self._material = material
         self._two_sided = two_sided
         self._collide_mask = collide_mask
+        self._transform = transform
 
     def setup(self, session) -> None:
         super().setup(session)
@@ -34,6 +36,14 @@ class MeshSurfaceView(View):
         node.setShaderAuto()
         if self._material is not None:
             node.setMaterial(self._material, 1)
+        if self._transform is not None:
+            pos, hpr, scale = self._transform
+            if pos is not None:
+                node.setPos(pos)
+            if hpr is not None:
+                node.setHpr(hpr)
+            if scale is not None:
+                node.setScale(*scale)
         if self._collide_mask is not None:
             node.setCollideMask(self._collide_mask)
         self._node = node
@@ -59,11 +69,13 @@ class MeshWireframeView(View):
         name: Optional[str] = None,
         sort: int = 0,
         collide_mask: Optional[BitMask32] = None,
+        transform: Optional[Tuple[Optional[object], Optional[object], Optional[Tuple[float, float, float]]]] = None,
     ) -> None:
         super().__init__(name=name or "MeshWireframeView", sort=sort)
         self._mesh = mesh
         self._node: Optional[NodePath] = None
         self._collide_mask = collide_mask
+        self._transform = transform
 
     def setup(self, session) -> None:
         super().setup(session)
@@ -73,6 +85,14 @@ class MeshWireframeView(View):
         node.setColor(0.0, 0.85, 1.0, 1.0)
         node.setLightOff()
         node.setTwoSided(True)
+        if self._transform is not None:
+            pos, hpr, scale = self._transform
+            if pos is not None:
+                node.setPos(pos)
+            if hpr is not None:
+                node.setHpr(hpr)
+            if scale is not None:
+                node.setScale(*scale)
         if self._collide_mask is not None:
             node.setCollideMask(self._collide_mask)
         self._node = node

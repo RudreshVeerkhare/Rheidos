@@ -4,6 +4,10 @@ meshes:
   - path: ../../../models/bunny.obj
     name: bunny
     center: true
+    transform:
+      position: [0.0, 0.0, 0.1]
+      hpr: [0.0, 25.0, 0.0]
+      scale: 1.0
     material:
       diffuse: [0.80, 0.82, 0.90, 1.0]
       specular: [1.0, 1.0, 1.0, 1.0]
