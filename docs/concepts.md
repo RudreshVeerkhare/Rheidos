@@ -64,7 +64,7 @@ Controllers
 - Attach to wire up inputs; detach to tear them down
 - Use Panda3D’s event system via `session.accept("key", callback)`
 - Built‑ins located in `rheidos/controllers`:
-  - `FpvCameraController`: first‑person camera rig with mouselook and WASD
+  - `FpvCameraController`: first‑person flycam with mouselook, roll, and WASD/QE
   - `ToggleViewController`: cycles predefined groups of view names on/off
   - `PauseController`: toggles `Engine` pause flag
   - `ScreenshotController`: saves a screenshot to file
@@ -93,4 +93,3 @@ Data flow and threading
 Task ordering
 - Engine inserts two internal tasks at very early sorts for dispatch and FPS title
 - Your Views/Observers run according to their `sort` (lower first)
-

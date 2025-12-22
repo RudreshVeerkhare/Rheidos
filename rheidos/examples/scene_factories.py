@@ -7,7 +7,12 @@ from __future__ import annotations
 
 from panda3d.core import Vec4
 
-from rheidos.controllers import PauseController, ScreenshotController
+from rheidos.controllers import (
+    PauseController,
+    ScreenshotController,
+    FpvCameraController,
+    ExitController,
+)
 from rheidos.views import OrientationGizmoView
 
 
@@ -52,4 +57,35 @@ def make_pause_controller(engine, config):
         engine=engine,
         key=config.get("key", "space"),
         name=config.get("name", "ConfigPause"),
+    )
+
+
+def make_fpv_camera_controller(engine, config):
+    """
+    Build an FpvCameraController using YAML config keys:
+      speed, speed_fast, mouse_sensitivity, roll_speed, pitch_limit_deg,
+      lock_mouse, hide_cursor, invert_y, name
+    """
+    return FpvCameraController(
+        speed=float(config.get("speed", 6.0)),
+        speed_fast=float(config.get("speed_fast", 12.0)),
+        mouse_sensitivity=float(config.get("mouse_sensitivity", 0.15)),
+        roll_speed=float(config.get("roll_speed", 120.0)),
+        pitch_limit_deg=float(config.get("pitch_limit_deg", 89.0)),
+        lock_mouse=bool(config.get("lock_mouse", False)),
+        hide_cursor=config.get("hide_cursor"),
+        invert_y=bool(config.get("invert_y", False)),
+        name=config.get("name"),
+    )
+
+
+def make_exit_controller(engine, config):
+    """
+    Build an ExitController using YAML config keys:
+      key (default 'escape'), name (optional)
+    """
+    return ExitController(
+        engine=engine,
+        key=config.get("key", "escape"),
+        name=config.get("name", "ConfigExit"),
     )

@@ -7,9 +7,9 @@ Philosophy
 FPV camera
 - Class: `rheidos/controllers/fpv_camera.py:FpvCameraController`
 - Features:
-  - Hold left mouse to capture and look around
-  - WASD for planar motion, Q/E for vertical, Shift for faster speed
-  - Robust yaw/pitch with global‑up clamping (prevents gimbal weirdness)
+  - Hold left mouse to capture and look around (cursor stays visible/moves by default; set `lock_mouse=True` if you want it hidden/centered)
+  - WASD for motion, Q/E for vertical thrust, Z/C to roll left/right, Shift for faster speed
+  - World‑up yaw with clamped pitch (no pole flips) and optional roll for a true flycam feel
   - Clean attach/detach: camera re‑parents under a rig while active, restored on detach
 
 Usage:
@@ -50,4 +50,3 @@ class MyController(Controller):
     def _on(self):
         print("Toggled!")
 ```
-

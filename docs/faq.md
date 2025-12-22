@@ -19,8 +19,7 @@ Performance tanks with big meshes.
 - You’re probably copying large arrays each frame. Try updating at a lower rate, downsampled geometry, or move more logic into Taichi and only push the final result
 
 The camera flips or behaves oddly.
-- The provided FPV controller clamps pitch to avoid gimbal issues; if you write your own, normalize and clamp your direction vectors and use a stable up vector (Z+ in Panda3D)
+- The FPV controller uses world‑up yaw, clamped pitch, and roll support to avoid gimbal issues; if you write your own, normalize/clamp your direction vectors, keep yaw about Z+, and use a stable up vector (Z+ in Panda3D)
 
 Where do I put my own building blocks?
 - Create your own `views/`, `controllers/`, and `observers/` modules in your project; import the framework and compose
-
