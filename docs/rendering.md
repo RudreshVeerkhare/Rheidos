@@ -111,3 +111,58 @@ Axes helper
 
 Two‑sided rendering
 - For thin surfaces, call `node.setTwoSided(True)` via `MeshSurfaceView(two_sided=True)` or `mesh.set_two_sided(True)`
+
+Renderer presets & ImGui panel
+- Drop-in wrapper that keeps visuals decoupled from the sim: `renderer = Renderer(eng.session)`
+- Plug UI controls into the tools window (requires panda3d-imgui):
+  - `eng.add_imgui_panel_factory(renderer.panel_factory())` (fast/CommonFilters)
+  - `eng.add_imgui_panel_factory(renderer.render_pipeline_panel_factory())` (RenderPipeline-only controls)
+- Presets (fast backend): `fast` (minimal), `balanced` (default HDR + bloom), `quality` (HDR, bloom, SSAO, fog, shadowed key)
+- Presets (RenderPipeline backend): `fast`, `balanced`, `quality` mapped to RP plugins (AO/bloom/SSR/volumetrics/AA/shadows) and resolution scale
+- Toggles/sliders for HDR exposure, bloom size/strength, SSAO radius/strength, sharpen amount, fog density, and default light rig + shadow map size on the fast path. RenderPipeline-specific sliders live in the new “Render Pipeline” panel.
+
+End-to-end usage (with ImGui panel)
+```python
+from rheidos.engine import Engine
+from rheidos.rendering import Renderer
+
+eng = Engine(window_title="Render Demo", interactive=True, auto_start=False)
+renderer = Renderer(eng.session)
+
+# Optional: add your views / geometry here
+# eng.add_view(...)
+
+# Hook the render settings panel (appears as a separate window; toggle in Rheidos Tools)
+eng.add_imgui_panel_factory(renderer.panel_factory())
+eng.add_imgui_panel_factory(renderer.render_pipeline_panel_factory())  # RP controls (optional)
+eng.start()
+```
+- Open “Rheidos Tools” → check “Show Render Settings” to pop out the panel.
+- Open “Render Pipeline” to switch to RP and tweak its options (if installed).
+- Swap presets fast/balanced/quality, then tune: exposure, bloom size/strength, SSAO radius/strength, sharpen, fog density, light rig on/off, light intensity, shadow map size.
+
+Minimal usage (no ImGui)
+```python
+renderer = Renderer(eng.session)
+renderer.apply_preset("quality")
+renderer.update_config(light_rig=True, light_intensity=1.3, fog=True, fog_density=0.03)
+```
+
+Example scene (interactive demo)
+```bash
+PYTHONPATH=. python rheidos/examples/run_interactive.py
+```
+- Loads a detailed mesh if available under `models/` (spot/armadillo/double_torus/bunny) and falls back to a cube.
+- Shows Studio ground + axes, FPV camera controller, and the Render Settings panel for live tweaking.
+- Add the “Render Pipeline” panel to toggle into the RP backend and adjust RP-only options.
+
+Notes
+- Post stack uses Panda3D `CommonFilters`; ensure `panda3d` (and `panda3d-imgui` for UI) are installed.
+- SSAO/shadows/SSR are scene-scale sensitive; adjust light intensity and exposure if highlights blow out after enabling bloom/SSAO.
+- The renderer stays data-agnostic: it only needs `session` and manages its own light rig and post effects without touching simulation state.
+
+RenderPipeline backend (optional)
+- The RenderPipeline backend stays decoupled from sim data and is opt-in. Fast/CommonFilters remain the default.
+- Vendor location: clone the latest RenderPipeline into `third_party/RenderPipeline` (or `third_party/render_pipeline`) and run `python setup.py` there. Use flags like `--skip-native --skip-update` if you don’t want to build C++ modules. This writes `data/install.flag` and unpacks assets. The UI will show “unavailable” until this folder exists and is set up.
+- Once available, open the “Render Pipeline” panel to switch backends. Presets map to AO/bloom/SSR/volumetrics/AA/shadows settings; a resolution scale slider, exposure, tonemap, AA mode, and light rig controls live in that panel.
+- Backend toggle is also available at the top of the regular Render Settings panel; switching back to “fast” returns to the CommonFilters stack instantly.
