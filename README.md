@@ -20,11 +20,11 @@ Core Abstractions 🧩
 Install 📦
 
 - Requires Python 3.9+.
-- Suggested deps: panda3d, taichi, numpy.
+- Base install now bundles all runtime dependencies (Panda3D, Taichi, trimesh, PyYAML, ImGui).
 
-Using pip:
+Using pip (installs everything):
 
-pip install -e .[all]
+pip install -e .
 
 Examples
 
@@ -79,7 +79,7 @@ Notes
 
 Docs
 
-- Start here: `docs/index.md`
+- Start here: `docs/index.md` (or the friendlier walkthrough in `docs/user-guide.md`)
 - Key topics:
   - Getting Started: `docs/getting-started.md`
   - Concepts: `docs/concepts.md`

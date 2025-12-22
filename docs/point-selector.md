@@ -18,6 +18,7 @@ Both share:
 - `node_name`: name of the hit node
 
 > Picking relies on Panda3D collide masks. Ensure pickable nodes have the `pick_mask` bit set (default `BitMask32.bit(4)`). The ray uses that bit; non-matching nodes are skipped.
+> When loading scenes from YAML, set `pickable: true` on meshes (defaults to true) so they inherit the mask; custom nodes should call `setCollideMask(BitMask32.bit(4))` (or your chosen mask) before attaching selectors.
 
 ## Quick usage (vertex snapping)
 ```python

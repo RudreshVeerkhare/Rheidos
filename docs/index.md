@@ -6,6 +6,8 @@ Welcome! This is a tiny, pragmatic framework for quickly prototyping physics and
 - Taichi for high‑performance compute kernels (optional, but great for simulation)
 - Numpy as the glue for data exchange
 
+Prefer a straight-to-the-point walkthrough? See the User Guide: `docs/user-guide.md`.
+
 The goal: keep you in “flow”. Spin up a window fast, drop in a mesh, write a few kernels, and iterate from a notebook or a small script. The abstractions are intentionally light so you can keep creating your own layers of abstraction as you experiment.
 
 If you’re new to Panda3D or Taichi, don’t worry — the docs include short intros and walk‑throughs. Think developer‑to‑developer chat with runnable snippets.

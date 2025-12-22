@@ -5,7 +5,7 @@ The `rheidos.scene_config.load_scene_from_config` helper lets you keep scene set
 
 Prerequisites
 -------------
-- Install with YAML support: `pip install -e .[config]`
+- All dependencies are included in the base install, including `panda3d`, `trimesh`, and `pyyaml`. (If you want a minimal install, `[config]` now bundles both `pyyaml` and `trimesh`.)
 - Example model bundle is in `models/`; example config in `rheidos/examples/scene_configs/point_selection.yaml`.
 
 Running the built‑in demo
@@ -220,6 +220,7 @@ Notes:
 - Mesh identity is by `name` (or path stem if unnamed); renaming a mesh is treated as remove+add.
 - Runs only when `panda3d-imgui` is available; otherwise the panel is skipped.
 - Toggle “Save to disk on apply” or click “Save Buffer to Disk” if you want to persist edits.
+- Picking: if you plan to use point selectors, keep pickable nodes on the same collide mask (default `BitMask32.bit(4)`); mesh views created through the config respect `pickable: true/false` per mesh.
 
 ```python
 # mypkg/grid.py
