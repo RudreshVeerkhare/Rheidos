@@ -89,12 +89,13 @@ eng.add_view(markers)
 eng.add_controller(SceneVertexPointSelector(engine=eng, markers_view=markers))
 ```
 
-Scalar/vector overlay example with providers:
+Scalar/vector overlay example with field metadata and store toggles:
 
 ```python
 import numpy as np
 from rheidos.views import VectorFieldView, ScalarFieldView
-from rheidos.sim.base import VectorFieldSample, ScalarFieldSample
+from rheidos.sim.base import FieldInfo, FieldMeta, VectorFieldSample, ScalarFieldSample
+from rheidos.visualization import create_color_scheme
 
 def vector_provider():
     pts = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]], dtype=np.float32)
@@ -110,8 +111,28 @@ def scalar_provider():
     sample.validate()
     return sample
 
-eng.add_view(VectorFieldView(vector_provider, scale=0.8))
-eng.add_view(ScalarFieldView(scalar_provider, frame=(-1, 1, -1, 1)))
+vec_field = FieldInfo(FieldMeta("demo_vectors", "Demo Vectors"), vector_provider)
+scalar_field = FieldInfo(FieldMeta("demo_scalar", "Demo Scalar"), scalar_provider)
+scheme = create_color_scheme("sequential")
+
+eng.store.update({
+    "demo/show_vectors": True,
+    "demo/show_scalar": True,
+})
+
+eng.add_view(VectorFieldView(
+    vec_field,
+    color_scheme=scheme,
+    scale=0.8,
+    visible_store_key="demo/show_vectors",
+    store=eng.store,
+))
+eng.add_view(ScalarFieldView(
+    scalar_field,
+    frame=(-1, 1, -1, 1),
+    visible_store_key="demo/show_scalar",
+    store=eng.store,
+))
 ```
 
 ## Controllers and Actions

@@ -32,8 +32,36 @@ class LegendView(View):
         self._scheme_provider = scheme_provider
         self._store = store
         self._visible_store_key = visible_store_key
+        self._event_registered = False
+
+    def setup(self, session: Any) -> None:
+        super().setup(session)
+        # If p3dimgui is driving the frame, hook into its event to ensure we draw inside an ImGui frame.
+        try:
+            from direct.showbase.MessengerGlobal import messenger
+
+            messenger.accept("imgui-new-frame", self, self._draw)
+            self._event_registered = True
+        except Exception:
+            self._event_registered = False
+
+    def teardown(self) -> None:
+        if self._event_registered:
+            try:
+                from direct.showbase.MessengerGlobal import messenger
+
+                messenger.ignore("imgui-new-frame", self)
+            except Exception:
+                pass
+        self._event_registered = False
 
     def update(self, dt: float) -> None:
+        # If we are registered with imgui-new-frame, rendering is handled in _draw.
+        if self._event_registered:
+            return
+        self._draw()
+
+    def _draw(self) -> None:
         try:
             from imgui_bundle import imgui
         except Exception:

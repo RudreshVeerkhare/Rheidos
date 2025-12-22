@@ -13,13 +13,22 @@ from typing import Mapping, Optional
 import numpy as np
 import taichi as ti
 
-from rheidos.sim.base import Simulation, SimulationState, VectorFieldSample, ScalarFieldSample
+from rheidos.sim.base import (
+    FieldMeta,
+    FieldRegistry,
+    ScalarFieldSample,
+    Simulation,
+    SimulationState,
+    VectorFieldSample,
+)
 
 class PointVortexSimulation(Simulation):
     def __init__(self, name: str = "point_vortex") -> None:
         self.name = name
         self.cfg = {}
         self.state = SimulationState()
+        self.vector_fields = FieldRegistry[VectorFieldSample]()
+        self.scalar_fields = FieldRegistry[ScalarFieldSample]()
         self._ti_initialized = False
         self._N = 0
 
@@ -36,6 +45,7 @@ class PointVortexSimulation(Simulation):
             ti.init(arch=ti.gpu if self.cfg["device"] == "gpu" else ti.cpu)
             self._ti_initialized = True
         self._build_fields()
+        self._register_fields()
         self.reset(seed=cfg.get("seed"))
 
     def _build_fields(self) -> None:
@@ -105,7 +115,7 @@ class PointVortexSimulation(Simulation):
         # padded to 3D for view consumption
         return np.hstack([self.pos.to_numpy(), np.zeros((self._N, 1), dtype=np.float32)])
 
-    def get_vectors_view(self) -> Optional[VectorFieldSample]:
+    def _velocity_field(self) -> VectorFieldSample:
         pos2d = self.pos.to_numpy().astype(np.float32)
         vel2d = self.vel.to_numpy().astype(np.float32)
         zeros = np.zeros((self._N, 1), dtype=np.float32)
@@ -115,11 +125,29 @@ class PointVortexSimulation(Simulation):
         sample.validate()
         return sample
 
-    def get_scalar_view(self) -> Optional[ScalarFieldSample]:
+    def _stream_field(self) -> ScalarFieldSample:
         values = self.stream.to_numpy().astype(np.float32)
         sample = ScalarFieldSample(values=values)
         sample.validate()
         return sample
+
+    def _register_fields(self) -> None:
+        self.vector_fields.register(
+            FieldMeta(field_id="velocity", label="Velocity", units="m/s"),
+            self._velocity_field,
+            overwrite=True,
+        )
+        self.scalar_fields.register(
+            FieldMeta(field_id="stream", label="Stream Function"),
+            self._stream_field,
+            overwrite=True,
+        )
+
+    def get_vector_fields(self):
+        return self.vector_fields.items()
+
+    def get_scalar_fields(self):
+        return self.scalar_fields.items()
 
     def get_metadata(self):
         return {"bounds": self.cfg["bounds"], "core_radius": self.cfg["core_radius"]}
@@ -153,29 +181,13 @@ class VortexStepObserver(Observer):
             self._accum -= target_dt
 ```
 
-## 4) Providers for Views (`app/point_vortex/views.py`)
-```python
-from rheidos.sim.base import VectorFieldSample, ScalarFieldSample
-
-def make_vector_provider(sim):
-    def _provider():
-        return sim.get_vectors_view()
-    return _provider
-
-def make_scalar_provider(sim):
-    def _provider():
-        return sim.get_scalar_view()
-    return _provider
-```
-
-## 5) Wire Up Engine, Views, and Legend (`app/point_vortex/main.py`)
+## 4) Wire Up Engine, Views, and Legend (`app/point_vortex/main.py`)
 ```python
 from rheidos.engine import Engine
 from rheidos.views import VectorFieldView, ScalarFieldView, LegendView
 from rheidos.visualization import create_color_scheme
 from app.point_vortex.sim import PointVortexSimulation
 from app.point_vortex.observer import VortexStepObserver
-from app.point_vortex.views import make_vector_provider, make_scalar_provider
 
 def main():
     eng = Engine(window_title="Point Vortex", interactive=False)
@@ -184,16 +196,19 @@ def main():
     observer = VortexStepObserver(sim, eng.store)
     eng.add_observer(observer)
 
+    velocity_field = sim.get_vector_fields()["velocity"]
+    stream_field = sim.get_scalar_fields()["stream"]
+
     scheme = create_color_scheme("diverging")
     vec_view = VectorFieldView(
-        make_vector_provider(sim),
+        velocity_field,
         color_scheme=scheme,
         scale=0.6,
         visible_store_key="vortex/show_vector_field",
         store=eng.store,
     )
     scal_view = ScalarFieldView(
-        make_scalar_provider(sim),
+        stream_field,
         color_scheme="sequential",
         frame=(-2, 2, -2, 2),
         visible_store_key="vortex/show_scalar_field",

@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, Mapping, Optional, Protocol, Sequence
+from typing import Any, Callable, Dict, Generic, Mapping, Optional, Protocol, Sequence, TypeVar
 
 import numpy as np
 
 ArrayLike = Any
 SimulationFactory = Callable[..., "Simulation"]
+SampleT = TypeVar("SampleT", bound="FieldSample")
+Provider = Callable[[], Optional[SampleT]]
 
 
 @dataclass
@@ -131,6 +133,60 @@ class SimulationState:
         return {k: v for k, v in self.buffers.items() if self.dirty.get(k, False)}
 
 
+@dataclass
+class FieldMeta:
+    """Metadata describing a vector/scalar field for UI/legend selection."""
+
+    field_id: str
+    label: str
+    units: Optional[str] = None
+    description: Optional[str] = None
+
+
+class FieldSample(Protocol):
+    def validate(self) -> None:
+        ...
+
+
+@dataclass
+class FieldInfo(Generic[SampleT]):
+    """Pair of metadata and provider callable for a simulation field."""
+
+    meta: FieldMeta
+    provider: Provider[SampleT]
+
+    def fetch(self) -> Optional[SampleT]:
+        return self.provider()
+
+
+class FieldRegistry(Generic[SampleT]):
+    """
+    Registry for vector/scalar fields on a simulation.
+
+    Provides metadata for enumeration and provider access for rendering.
+    """
+
+    def __init__(self) -> None:
+        self._fields: Dict[str, FieldInfo[SampleT]] = {}
+
+    def register(self, meta: FieldMeta, provider: Provider[SampleT], *, overwrite: bool = False) -> None:
+        if not overwrite and meta.field_id in self._fields:
+            raise ValueError(f"Field '{meta.field_id}' already registered")
+        self._fields[meta.field_id] = FieldInfo(meta=meta, provider=provider)
+
+    def get(self, field_id: str) -> Optional[FieldInfo[SampleT]]:
+        return self._fields.get(field_id)
+
+    def items(self) -> Mapping[str, FieldInfo[SampleT]]:
+        return dict(self._fields)
+
+    def __len__(self) -> int:
+        return len(self._fields)
+
+    def __iter__(self):
+        return iter(self._fields.items())
+
+
 class Simulation(Protocol):
     """
     Minimal simulation lifecycle + data access contract.
@@ -157,10 +213,10 @@ class Simulation(Protocol):
     def get_positions_view(self) -> Optional[np.ndarray]:
         ...
 
-    def get_vectors_view(self) -> Optional[VectorFieldSample]:
+    def get_vector_fields(self) -> Mapping[str, FieldInfo[VectorFieldSample]]:
         ...
 
-    def get_scalar_view(self) -> Optional[ScalarFieldSample]:
+    def get_scalar_fields(self) -> Mapping[str, FieldInfo[ScalarFieldSample]]:
         ...
 
     def get_metadata(self) -> Mapping[str, Any]:
@@ -197,6 +253,9 @@ __all__ = [
     "SimulationState",
     "VectorFieldSample",
     "ScalarFieldSample",
+    "FieldMeta",
+    "FieldInfo",
+    "FieldRegistry",
     "register_simulation",
     "create_simulation",
     "list_simulations",

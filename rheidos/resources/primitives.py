@@ -38,28 +38,26 @@ def cube(size: float = 1.0, name: str = "cube") -> Primitive:
 
     indices = np.array(
         [
-            0, 1, 2, 0, 2, 3,  # bottom
-            4, 5, 6, 4, 6, 7,  # top
-            0, 4, 5, 0, 5, 1,  # front
-            1, 5, 6, 1, 6, 2,  # right
-            2, 6, 7, 2, 7, 3,  # back
-            3, 7, 4, 3, 4, 0,  # left
+            # bottom (-Z) CCW as seen from below
+            0, 3, 2,
+            0, 2, 1,
+            # top (+Z)
+            4, 5, 6,
+            4, 6, 7,
+            # front (-Y)
+            0, 1, 5,
+            0, 5, 4,
+            # right (+X)
+            1, 2, 6,
+            1, 6, 5,
+            # back (+Y)
+            2, 3, 7,
+            2, 7, 6,
+            # left (-X)
+            3, 0, 4,
+            3, 4, 7,
         ],
         dtype=np.int32,
-    )
-
-    normals = np.array(
-        [
-            [0, 0, -1],
-            [0, 0, -1],
-            [0, 0, -1],
-            [0, 0, -1],
-            [0, 0, 1],
-            [0, 0, 1],
-            [0, 0, 1],
-            [0, 0, 1],
-        ],
-        dtype=np.float32,
     )
 
     colors = np.full((8, 4), [0.8, 0.8, 0.9, 1.0], dtype=np.float32)

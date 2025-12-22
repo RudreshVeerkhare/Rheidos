@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Callable, Optional, Tuple
+from typing import Any, Callable, Optional, Tuple, Union
 
 import numpy as np
 
@@ -14,11 +14,12 @@ except Exception:  # pragma: no cover
 
 from ..abc.view import View
 from ..resources.texture import Texture2D
-from ..sim.base import ScalarFieldSample
+from ..sim.base import FieldInfo, ScalarFieldSample
 from ..store import StoreState
 from ..visualization.color_schemes import ColorScheme, create_color_scheme
 
 ScalarProvider = Callable[[], Optional[ScalarFieldSample]]
+ScalarFieldSource = Union[ScalarProvider, FieldInfo[ScalarFieldSample]]
 
 
 class ScalarFieldView(View):
@@ -28,7 +29,7 @@ class ScalarFieldView(View):
 
     def __init__(
         self,
-        scalar_provider: ScalarProvider,
+        scalar_source: ScalarFieldSource,
         *,
         color_scheme: str | ColorScheme = "sequential",
         frame: Tuple[float, float, float, float] = (-1.0, 1.0, -1.0, 1.0),
@@ -38,7 +39,12 @@ class ScalarFieldView(View):
         sort: int = 0,
     ) -> None:
         super().__init__(name=name or "ScalarFieldView", sort=sort)
-        self._scalar_provider = scalar_provider
+        if isinstance(scalar_source, FieldInfo):
+            self._scalar_provider = scalar_source.provider
+            self._field_meta = scalar_source.meta
+        else:
+            self._scalar_provider = scalar_source
+            self._field_meta = None
         self._color_scheme = (
             create_color_scheme(color_scheme) if isinstance(color_scheme, str) else color_scheme
         )
@@ -112,4 +118,4 @@ class ScalarFieldView(View):
         sample.dirty = False
 
 
-__all__ = ["ScalarFieldView", "ScalarProvider"]
+__all__ = ["ScalarFieldView", "ScalarProvider", "ScalarFieldSource"]

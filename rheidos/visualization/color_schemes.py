@@ -121,7 +121,10 @@ class SequentialColorScheme:
     def __init__(self, name: str = "sequential", max_value: float = 1.0) -> None:
         self.name = name
         self.max_value = max(1e-8, float(max_value))
-        self._legend = ColorLegend(
+        self._legend = self._build_legend()
+
+    def _build_legend(self) -> ColorLegend:
+        return ColorLegend(
             title="Magnitude",
             ticks=(
                 LegendTick(value=0.0, label="0"),
@@ -144,6 +147,10 @@ class SequentialColorScheme:
 
     def legend(self) -> ColorLegend:
         return self._legend
+
+    def set_max_value(self, max_value: float) -> None:
+        self.max_value = max(1e-8, float(max_value))
+        self._legend = self._build_legend()
 
 
 class CategoricalColorScheme:

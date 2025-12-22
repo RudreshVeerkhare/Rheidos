@@ -10,7 +10,7 @@ This document captures a modular simulation architecture for Rheidos and a concr
 - Keep everything togglable from controllers/UI and configurable via scene configs.
 
 ## Architectural Approach
-- **Simulation interface**: A small `Simulation` protocol/base with `configure(cfg)`, `reset(seed=None)`, `step(dt)`, read-only accessors (`get_positions_view()`, `get_vectors_view()`, metadata for legends/color maps). No Panda3D dependencies here.
+- **Simulation interface**: A small `Simulation` protocol/base with `configure(cfg)`, `reset(seed=None)`, `step(dt)`, read-only accessors (`get_positions_view()`, `get_vector_fields()`, `get_scalar_fields()`, metadata for legends/color maps). No Panda3D dependencies here.
 - **State container**: `SimulationState` holds immutable config (bounds, core radius, max N) and runtime buffers (Taichi fields, NumPy views, dirty flags).
 - **Color schemes**: `ColorScheme` strategy interface with `apply(values_np) -> colors_np` and `legend()` metadata; registry map for selection by name.
 - **StoreState contract**: Controllers/UI mutate keys; views/observers subscribe. Keeps UI, input, and rendering in sync with the sim without direct coupling.
@@ -19,7 +19,7 @@ This document captures a modular simulation architecture for Rheidos and a concr
 
 ## App vs Framework Split
 - **Framework (reusable, under `rheidos/`)**:
-  - Simulation interface/protocols and state container scaffolding (no Taichi).
+  - Simulation interface/protocols and state container + field registries (no Taichi).
   - ColorScheme interface + registry; HUD Legend view; generic vector/scalar surface views that accept buffers/samplers from any app.
   - StoreState key conventions and helpers; controller/panel patterns that are sim-agnostic.
   - Scene-config plumbing remains generic; apps register their own factories.
@@ -40,7 +40,7 @@ Store naming guidance: prefix per sim/app (e.g., `vortex/*`), keep overlay toggl
 
 ## Module Layout (target)
 - **Framework (reusable)**
-  - `rheidos/sim/base.py`: Simulation protocol, SimulationState, registry helpers (no Taichi).
+  - `rheidos/sim/base.py`: Simulation protocol, SimulationState, field registries (no Taichi).
   - `rheidos/visualization/color_schemes.py`: ColorScheme interface + built-in schemes + registry.
   - `rheidos/views/legend.py`: HUD legend view driven by ColorScheme metadata.
   - `rheidos/views/vector_field.py`: Generic arrow/hedgehog renderer for vector samples on planes/UV grids.
@@ -90,7 +90,7 @@ Legacy note: the old `rheidos/views/stream_function.py` helper was removed; scal
   - `docs/simulation-design.md`: this design/plan document.
 
 ### Data Model / API Changes
-- Define a `Simulation` protocol/base with `configure(cfg)`, `reset(seed=None)`, `step(dt)`, and read-only data accessors (`get_positions_view()`, `get_vectors_view()`, metadata for legends/color maps).
+- Define a `Simulation` protocol/base with `configure(cfg)`, `reset(seed=None)`, `step(dt)`, read-only data accessors (`get_positions_view()`, `get_vector_fields()`, `get_scalar_fields()`), and field metadata for legends/color maps and UI selection.
 - Introduce `SimulationState` dataclass capturing immutable config (e.g., bounds, core radius, max N) and runtime mutable buffers (NumPy views) with per-buffer dirty flags and runtime shape/dtype validation.
 - Document store key conventions (namespaced, app-prefixed) for legend/overlay toggles; no code constants yet.
 - Add a `ColorScheme` strategy interface (`apply(values_np) -> colors_np`, `legend()` metadata) plus registry map to switch schemes by name.
@@ -103,7 +103,7 @@ Legacy note: the old `rheidos/views/stream_function.py` helper was removed; scal
 
 ### Action Items
 - **Framework (reusable)**
-  - [x] Baseline module layout: create `rheidos/sim/base.py` with `Simulation`, `SimulationState`, and registry helpers; ensure zero Panda3D/Taichi imports here to keep it lightweight.
+  - [x] Baseline module layout: create `rheidos/sim/base.py` with `Simulation`, `SimulationState`, and field registries; ensure zero Panda3D/Taichi imports here to keep it lightweight.
   - [x] Color schemes: add `rheidos/visualization/color_schemes.py` with interface, built-in schemes (circulation diverging, speed sequential, categorical), and registry; ensure legend metadata is standardized.
   - [x] Legend view: add `rheidos/views/legend.py` to render a HUD legend driven by ColorScheme metadata; bind visibility to a store key.
   - [x] Generic field views: add `rheidos/views/vector_field.py` (arrow/hedgehog renderer) and `rheidos/views/scalar_field.py` (texture/colormap surface) that accept data providers so any app can feed them.

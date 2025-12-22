@@ -10,8 +10,15 @@ class StoreState:
         self._lock = threading.RLock()
         self._listeners: Dict[str, list[Callable[[Any], None]]] = {}
 
-    def get(self, key: str, default: Any = None) -> Any:
+    def get(self, key: Any, default: Any = None) -> Any:
         with self._lock:
+            if isinstance(key, (tuple, list)):
+                cur: Any = self._data
+                for part in key:
+                    if not isinstance(cur, dict) or part not in cur:
+                        return default
+                    cur = cur[part]
+                return cur
             return self._data.get(key, default)
 
     def set(self, key: str, value: Any) -> None:
@@ -51,4 +58,3 @@ class StoreState:
     def as_dict(self) -> Dict[str, Any]:
         with self._lock:
             return dict(self._data)
-
