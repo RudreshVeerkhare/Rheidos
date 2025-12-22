@@ -50,7 +50,20 @@ def load_scene_from_config(
     """
     cfg_path = Path(config_path).expanduser()
     data = _read_config(cfg_path)
+    return build_scene_from_data(engine, data, cfg_path, default_pick_mask=default_pick_mask)
 
+
+def build_scene_from_data(
+    engine,
+    data: Dict[str, Any],
+    cfg_path: Path,
+    *,
+    default_pick_mask: BitMask32 = BitMask32.bit(4),
+) -> SceneConfigResult:
+    """
+    Build a scene from an already-parsed config dictionary. Useful for callers that have
+    edited the config in-memory (e.g., live reload tools).
+    """
     meshes_cfg = data.get("meshes") or data.get("models")
     if not meshes_cfg:
         raise ValueError("Scene config must contain a non-empty 'meshes' list.")

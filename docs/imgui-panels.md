@@ -102,3 +102,14 @@ The tools window exposes:
 - Panel exceptions are swallowed to keep the UI alive; log inside the panel if you need diagnostics.
 - StoreState panel shows sanitized snapshots; large collections are trimmed and deeply nested data collapses to `"..."` markers.
 - Factories run on ImGuiUIManager init or when set via `set_imgui_panel_factories`; if a factory raises or returns `None`, it is skipped.
+
+## SceneConfig panel (live scene editor)
+
+`rheidos.ui.panels.scene_config_panel.SceneConfigPanel` loads the active scene config (YAML/JSON), lets you edit it, and applies diffs live:
+
+- Meshes are diffed by `name` (or path stem); changed meshes rebuild their views, removed ones are torn down.
+- Studio/lights/camera/background/custom views/controllers are reapplied when their config sections change.
+- “Force Reload” tears down the scene and rebuilds from the current buffer; “Reload From Disk” refreshes the editor buffer without applying.
+- Panel is transient by default: editing does not auto-save the config file; use “Save Buffer to Disk” or toggle “Save to disk on apply” to persist changes.
+- Requires `panda3d-imgui` to render; if unavailable, the factory is ignored.
+- Enable it via the scene config: set `ui.scene_config_panel: true` in your YAML/JSON.

@@ -200,6 +200,27 @@ def make_highlight(engine, config):
     return Highlight()
 ```
 
+Live editing panel (experimental)
+---------------------------------
+There is an ImGui panel that lets you edit the scene config text live and apply changes without rebuilding the whole scene. It diffs by mesh name (add/remove/update meshes) and re-applies studio/lights/camera/background/custom components when their sections change. A “Force Reload” button tears everything down and rebuilds from scratch.
+
+Enable it in the config itself (recommended):
+```yaml
+ui:
+  scene_config_panel: true
+```
+
+Point-selection demo:
+```
+python -m rheidos.examples.point_selection \
+  --scene-config rheidos/examples/scene_configs/point_selection.yaml
+```
+Notes:
+- Uses the current text buffer (does not auto-save the file). “Reload From Disk” reopens the file.
+- Mesh identity is by `name` (or path stem if unnamed); renaming a mesh is treated as remove+add.
+- Runs only when `panda3d-imgui` is available; otherwise the panel is skipped.
+- Toggle “Save to disk on apply” or click “Save Buffer to Disk” if you want to persist edits.
+
 ```python
 # mypkg/grid.py
 from rheidos.abc.view import View

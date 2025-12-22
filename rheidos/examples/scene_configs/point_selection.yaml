@@ -5,14 +5,14 @@ meshes:
     name: bunny
     center: true
     transform:
-      position: [0.0, 0.0, 0.1]
-      hpr: [0.0, 25.0, 0.0]
+      position: [0.0, 0.0, 0.2]
+      hpr: [0.0, 90.0, 0.0]
       scale: 1.0
     material:
       diffuse: [0.80, 0.82, 0.90, 1.0]
       specular: [1.0, 1.0, 1.0, 1.0]
       shininess: 64
-    wireframe: true
+    wireframe: false
     two_sided: false
     pickable: true
 
@@ -53,3 +53,7 @@ controllers:
   - factory: rheidos.examples.scene_factories:make_pause_controller
     config:
       key: space
+
+# Enable the live Scene Config panel (ImGui) for this config.
+ui:
+  scene_config_panel: true
