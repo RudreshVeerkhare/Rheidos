@@ -2,19 +2,28 @@ from __future__ import annotations
 
 from typing import Optional
 
-from panda3d.core import NodePath
+from panda3d.core import BitMask32, NodePath
 
 from ..abc.view import View
 from ..resources.mesh import Mesh
 
 
 class MeshSurfaceView(View):
-    def __init__(self, mesh: Mesh, name: Optional[str] = None, sort: int = 0, material: Optional[object] = None, two_sided: bool = False) -> None:
+    def __init__(
+        self,
+        mesh: Mesh,
+        name: Optional[str] = None,
+        sort: int = 0,
+        material: Optional[object] = None,
+        two_sided: bool = False,
+        collide_mask: Optional[BitMask32] = None,
+    ) -> None:
         super().__init__(name=name or "MeshSurfaceView", sort=sort)
         self._mesh = mesh
         self._node: Optional[NodePath] = None
         self._material = material
         self._two_sided = two_sided
+        self._collide_mask = collide_mask
 
     def setup(self, session) -> None:
         super().setup(session)
@@ -25,6 +34,8 @@ class MeshSurfaceView(View):
         node.setShaderAuto()
         if self._material is not None:
             node.setMaterial(self._material, 1)
+        if self._collide_mask is not None:
+            node.setCollideMask(self._collide_mask)
         self._node = node
 
     def teardown(self) -> None:
@@ -42,10 +53,17 @@ class MeshSurfaceView(View):
 
 
 class MeshWireframeView(View):
-    def __init__(self, mesh: Mesh, name: Optional[str] = None, sort: int = 0) -> None:
+    def __init__(
+        self,
+        mesh: Mesh,
+        name: Optional[str] = None,
+        sort: int = 0,
+        collide_mask: Optional[BitMask32] = None,
+    ) -> None:
         super().__init__(name=name or "MeshWireframeView", sort=sort)
         self._mesh = mesh
         self._node: Optional[NodePath] = None
+        self._collide_mask = collide_mask
 
     def setup(self, session) -> None:
         super().setup(session)
@@ -55,6 +73,8 @@ class MeshWireframeView(View):
         node.setColor(0.0, 0.85, 1.0, 1.0)
         node.setLightOff()
         node.setTwoSided(True)
+        if self._collide_mask is not None:
+            node.setCollideMask(self._collide_mask)
         self._node = node
 
     def teardown(self) -> None:
