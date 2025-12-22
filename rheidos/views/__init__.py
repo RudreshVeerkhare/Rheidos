@@ -3,8 +3,10 @@ from .mesh_preview import MeshSurfaceView, MeshWireframeView
 from .mesh_labels import MeshPositionLabelsView
 from .studio import StudioView
 from .orientation_gizmo import OrientationGizmoView
-from .stream_function import PointVortexStreamFunctionView
 from .point_selection import PointSelectionView
+from .vector_field import VectorFieldView
+from .scalar_field import ScalarFieldView
+from .legend import LegendView
 
 __all__ = [
     "AxesView",
@@ -13,6 +15,8 @@ __all__ = [
     "MeshPositionLabelsView",
     "StudioView",
     "OrientationGizmoView",
-    "PointVortexStreamFunctionView",
     "PointSelectionView",
+    "VectorFieldView",
+    "ScalarFieldView",
+    "LegendView",
 ]

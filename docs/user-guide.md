@@ -63,12 +63,14 @@ await eng.start_async()
   - `cube(size)` -> `Primitive(mesh, bounds)`
   - `load_mesh(path, center=True)` -> `Primitive` (requires `trimesh`)
 - Ready-made views:
-  - `MeshSurfaceView` / `MeshWireframeView`
-  - `MeshPositionLabelsView` (labels nearest vertex under mouse)
-  - `StudioView` (ground plane, sky tint, optional material application)
-  - `OrientationGizmoView` (screen-corner axes)
-  - `PointSelectionView` (shows hover/selected dots)
-  - `PointVortexStreamFunctionView` (2D stream function textured quad)
+- `MeshSurfaceView` / `MeshWireframeView`
+- `MeshPositionLabelsView` (labels nearest vertex under mouse)
+- `StudioView` (ground plane, sky tint, optional material application)
+- `OrientationGizmoView` (screen-corner axes)
+- `PointSelectionView` (shows hover/selected dots)
+- `VectorFieldView` (arrow/hedgehog renderer fed by a provider)
+- `ScalarFieldView` (generic scalar-to-texture quad)
+- `LegendView` (imgui HUD legend driven by a color scheme)
 
 Point selection overlay example:
 
@@ -87,20 +89,29 @@ eng.add_view(markers)
 eng.add_controller(SceneVertexPointSelector(engine=eng, markers_view=markers))
 ```
 
-Stream function view example (CPU-side colormap):
+Scalar/vector overlay example with providers:
 
 ```python
-from rheidos.views import PointVortexStreamFunctionView
+import numpy as np
+from rheidos.views import VectorFieldView, ScalarFieldView
+from rheidos.sim.base import VectorFieldSample, ScalarFieldSample
 
-eng.add_view(
-    PointVortexStreamFunctionView(
-        positions=[(-0.6, 0.0), (0.6, 0.0)],
-        strengths=[1.0, -1.0],
-        bounds=((-1.5, -1.0), (1.5, 1.0)),
-        resolution=(512, 512),
-        plane_z=0.0,
-    )
-)
+def vector_provider():
+    pts = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]], dtype=np.float32)
+    vecs = np.array([[0.0, 1.0, 0.0], [0.0, 0.5, 0.0]], dtype=np.float32)
+    sample = VectorFieldSample(positions=pts, vectors=vecs)
+    sample.validate()
+    return sample
+
+def scalar_provider():
+    grid = np.linspace(0, 1, 32, dtype=np.float32)
+    values = np.outer(grid, grid)  # (32, 32)
+    sample = ScalarFieldSample(values=values)
+    sample.validate()
+    return sample
+
+eng.add_view(VectorFieldView(vector_provider, scale=0.8))
+eng.add_view(ScalarFieldView(scalar_provider, frame=(-1, 1, -1, 1)))
 ```
 
 ## Controllers and Actions
@@ -140,19 +151,21 @@ eng.add_imgui_panel_factory(lambda session, store: MyPanel(engine=eng))
 
 Panel factories receive `(session, store)` and should return a panel object with `id`, `title`, `order`, and `draw(imgui)`.
 
+Store-bound helpers: `rheidos.ui.panels.controls_base.StoreBoundControls` wraps common `imgui` sliders/checkboxes to mirror values into `StoreState` keys.
+
 ## Caveats and Limitations
 
 - `interactive=True` auto-starts the render loop inside `__init__` unless you pass `auto_start=False`; in scripts this can block unexpectedly.
 - Render/update wrappers swallow exceptions to keep the loop alive; add your own logging inside views/controllers/observers to debug.
 - Picking requires collide masks: set `collide_mask=BitMask32.bit(4)` on pickable nodes (or choose your own and pass it to selectors).
 - Scene-config live edits rebuild or replace views/controllers; external references to old NodePaths will go stale after reloads.
-- `PointVortexStreamFunctionView` renders on the CPU; high resolutions can hitch.
+- `ScalarFieldView` expects 2D float32 values; large grids can stall uploads when textures resize.
 - `Texture2D.from_numpy_rgba` only accepts `(H, W, 4) uint8`; changing resolution reallocates the texture.
 - ImGui UI depends on `p3dimgui` + `imgui-bundle`; neither is included in the extras.
 
 ## Doc Gaps Found (so you know what changed)
 
-- `docs/api.md` missed `PointSelectionView`, `PointVortexStreamFunctionView`, and the Scene* point selectors; this guide covers them.
+- `docs/api.md` missed `PointSelectionView` and the Scene* point selectors; this guide covers them.
 - `docs/scene_config.md` listed only the `[config]` extra but scene loading also requires `trimesh`; dependency callouts above fix that.
 - ImGui dependencies (`p3dimgui` + `imgui-bundle`) were undocumented; they’re now spelled out here.
 - The auto-start behavior of `Engine(interactive=True)` and exception-swallowing loop behavior were undocumented; see Caveats.

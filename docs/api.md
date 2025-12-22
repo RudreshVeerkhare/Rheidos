@@ -35,7 +35,9 @@ Views (rheidos/views)
 - `PointSelectionView(selected_color=(1.0,0.35,0.25,1.0), hover_color=(1.0,0.95,0.35,1.0), thickness=9.0, sort=0)`
 - `StudioView(ground_size=40.0, ground_tiles=40, checker_light=(0.92,0.93,0.96,1), checker_dark=(0.86,0.87,0.90,1), sky_color=(0.92,0.95,1.0,1), add_lights=True, apply_material_to=None, material=None)`
 - `OrientationGizmoView(size=0.18, margin=0.02, thickness=3.0, fov_deg=28.0, sort=1000)`
-- `PointVortexStreamFunctionView(positions, strengths, bounds=None, resolution=(512,512), plane_z=0.0, symmetric_colormap=True, core_radius=1e-3, margin=1.0, sort=0)`
+- `VectorFieldView(vector_provider, color_scheme="sequential", scale=1.0, thickness=2.0, visible_store_key=None, store=None, sort=0)`
+- `ScalarFieldView(scalar_provider, color_scheme="sequential", frame=(-1,1,-1,1), visible_store_key=None, store=None, sort=0)`
+- `LegendView(legend_provider=None, scheme_provider=None, visible_store_key=None, store=None, sort=100)`
 
 StudioView helpers/params
 - `ground_height: Optional[float]` — set ground plane world Z directly
@@ -51,6 +53,9 @@ Controllers (rheidos/controllers)
 - `ExitController(engine, key="escape")`
 - `SceneSurfacePointSelector(engine, pick_mask=BitMask32.bit(4), select_button="mouse1", clear_shortcut="c", markers_view=None, store_key="surface_points")`
 - `SceneVertexPointSelector(engine, pick_mask=BitMask32.bit(4), select_button="mouse1", clear_shortcut="c", markers_view=None, store_key="vertex_points")`
+
+UI helpers
+- `StoreBoundControls(store)` for imgui-bound sliders/checkboxes that read/write `StoreState` keys.
 
 Resources (rheidos/resources)
 - `Mesh(vertices=None, indices=None, normals=None, colors=None, texcoords=None, dynamic=True, name="mesh")`
