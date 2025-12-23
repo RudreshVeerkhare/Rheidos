@@ -15,6 +15,15 @@ meshes:
 camera: 
   auto_frame: true
 
+lights:
+  ambient: [0.18, 0.18, 0.22, 1.0]
+  directionals:
+    - name: key
+      color: [0.85, 0.85, 0.90, 1.0]
+      hpr: [-35, -45, 0]
+    - name: fill
+      color: [0.35, 0.35, 0.45, 1.0]
+      hpr: [60, -20, 0]
 
 studio: 
   enabled: false

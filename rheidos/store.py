@@ -11,20 +11,21 @@ class StoreState:
         self._listeners: Dict[str, list[Callable[[Any], None]]] = {}
 
     def get(self, key: Any, default: Any = None) -> Any:
+        parts = self._split_key(key)
         with self._lock:
-            if isinstance(key, (tuple, list)):
-                cur: Any = self._data
-                for part in key:
-                    if not isinstance(cur, dict) or part not in cur:
-                        return default
-                    cur = cur[part]
-                return cur
-            return self._data.get(key, default)
+            cur: Any = self._data
+            for part in parts:
+                if not isinstance(cur, dict) or part not in cur:
+                    return default
+                cur = cur[part]
+            return cur
 
     def set(self, key: str, value: Any) -> None:
+        parts = self._split_key(key)
+        listener_key = self._listener_key(key, parts)
         with self._lock:
-            self._data[key] = value
-            listeners = list(self._listeners.get(key, ()))
+            self._set_path(parts, value)
+            listeners = list(self._listeners.get(listener_key, ()))
         for fn in listeners:
             try:
                 fn(value)
@@ -32,29 +33,63 @@ class StoreState:
                 pass
 
     def update(self, **kwargs: Any) -> None:
+        callbacks: list[tuple[str, Any]] = []
         with self._lock:
             for k, v in kwargs.items():
-                self._data[k] = v
-                listeners = list(self._listeners.get(k, ()))
-            # Callbacks are executed after releasing lock
-        for k, _ in kwargs.items():
-            for fn in list(self._listeners.get(k, ())):
+                parts = self._split_key(k)
+                self._set_path(parts, v)
+                callbacks.append((self._listener_key(k, parts), v))
+        for listener_key, value in callbacks:
+            for fn in list(self._listeners.get(listener_key, ())):
                 try:
-                    fn(self._data[k])
+                    fn(value)
                 except Exception:
                     pass
 
     def subscribe(self, key: str, callback: Callable[[Any], None]) -> Callable[[], None]:
+        listener_key = self._listener_key(key, self._split_key(key))
         with self._lock:
-            self._listeners.setdefault(key, []).append(callback)
+            self._listeners.setdefault(listener_key, []).append(callback)
 
         def unsubscribe() -> None:
             with self._lock:
-                if key in self._listeners and callback in self._listeners[key]:
-                    self._listeners[key].remove(callback)
+                if (
+                    listener_key in self._listeners
+                    and callback in self._listeners[listener_key]
+                ):
+                    self._listeners[listener_key].remove(callback)
 
         return unsubscribe
 
     def as_dict(self) -> Dict[str, Any]:
         with self._lock:
             return dict(self._data)
+
+    def _split_key(self, key: Any) -> tuple[Any, ...]:
+        if isinstance(key, (tuple, list)):
+            return tuple(key)
+        if isinstance(key, str) and "/" in key:
+            parts = key.split("/")
+            if any(part == "" for part in parts):
+                raise ValueError(f"Invalid store key path: {key!r}")
+            return tuple(parts)
+        return (key,)
+
+    def _listener_key(self, key: Any, parts: tuple[Any, ...]) -> str:
+        if isinstance(key, str):
+            return key
+        if len(parts) > 1:
+            return "/".join(str(part) for part in parts)
+        return str(parts[0])
+
+    def _set_path(self, parts: tuple[Any, ...], value: Any) -> None:
+        if not parts:
+            return
+        cur: Dict[Any, Any] = self._data
+        for part in parts[:-1]:
+            nxt = cur.get(part)
+            if not isinstance(nxt, dict):
+                nxt = {}
+                cur[part] = nxt
+            cur = nxt
+        cur[parts[-1]] = value
