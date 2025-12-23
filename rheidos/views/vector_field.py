@@ -147,7 +147,7 @@ class VectorFieldView(View):
 
         geom_node.removeAllGeoms()
         vformat = GeomVertexFormat.getV3c4()
-        vdata = GeomVertexData(self.name + "-vectors", vformat, Geom.UHStatic)
+        vdata = GeomVertexData(self.name + "-vectors", vformat, Geom.UHDynamic)
         pos_writer = GeomVertexWriter(vdata, "vertex")
         color_writer = GeomVertexWriter(vdata, "color")
 
@@ -205,7 +205,7 @@ class VectorFieldView(View):
                         )
                     segment_count += 2
 
-        prim = GeomLines(Geom.UHStatic)
+        prim = GeomLines(Geom.UHDynamic)
         prim.reserveNumVertices(segment_count * 2)
         vert_idx = 0
         for _ in range(segment_count):

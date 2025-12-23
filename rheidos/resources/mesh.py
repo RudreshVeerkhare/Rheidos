@@ -4,6 +4,8 @@ from typing import Optional
 
 import numpy as np
 
+from ..utils.panda_arrays import copy_numpy_to_vertex_array
+
 try:
     from panda3d.core import (
         Geom,
@@ -107,24 +109,15 @@ class Mesh:
     # --- setters
     def set_vertices(self, vertices: np.ndarray) -> None:
         verts = _ensure_float32(vertices, 3)
-        n = verts.shape[0]
-        if self.vdata.getNumRows() != n:
-            self.vdata.setNumRows(n)
-        arr = self.vdata.modifyArray(0)
-        handle = arr.modifyHandle()
-        handle.setData(verts.tobytes())
+        copy_numpy_to_vertex_array(self.vdata, 0, verts, 3)
 
     def set_normals(self, normals: np.ndarray) -> None:
         norms = _ensure_float32(normals, 3)
-        arr = self.vdata.modifyArray(1)
-        handle = arr.modifyHandle()
-        handle.setData(norms.tobytes())
+        copy_numpy_to_vertex_array(self.vdata, 1, norms, 3)
 
     def set_colors(self, colors: np.ndarray) -> None:
         cols = _ensure_float32(colors, 4)
-        arr = self.vdata.modifyArray(2)
-        handle = arr.modifyHandle()
-        handle.setData(cols.tobytes())
+        copy_numpy_to_vertex_array(self.vdata, 2, cols, 4)
 
     def set_colors_uint8(self, colors: np.ndarray) -> None:
         cols = _ensure_uint8(colors, 4)
@@ -134,9 +127,7 @@ class Mesh:
 
     def set_texcoords(self, texcoords: np.ndarray) -> None:
         uvs = _ensure_float32(texcoords, 2)
-        arr = self.vdata.modifyArray(3)
-        handle = arr.modifyHandle()
-        handle.setData(uvs.tobytes())
+        copy_numpy_to_vertex_array(self.vdata, 3, uvs, 2)
 
     def set_indices(self, indices: np.ndarray) -> None:
         inds = np.ascontiguousarray(indices, dtype=np.int32)
