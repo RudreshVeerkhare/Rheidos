@@ -7,7 +7,7 @@ Components
 ----------
 - `rheidos.scene_config_live.SceneConfigLiveManager`: holds the last applied config + `SceneConfigResult`, computes diffs, and applies changes on the render thread.
 - `rheidos.ui.panels.scene_config_panel.SceneConfigPanel`: ImGui UI that edits the config text, applies diffs or force reloads, and optionally saves to disk.
-- Demo wiring: `rheidos/examples/point_selection.py` registers the panel when the scene config contains `ui.scene_config_panel: true`.
+- `load_scene_from_config` auto-registers the panel when the scene config contains `ui.scene_config_panel: true`.
 
 Apply flow
 ----------

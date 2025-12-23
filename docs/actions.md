@@ -3,7 +3,7 @@
 Rheidos controllers declare **Actions** (button/toggle metadata) instead of constructing UI widgets. The engine:
 
 - binds shortcuts from actions via the `InputRouter`
-- renders the actions panel via ImGui (panda3d-imgui + p3dimgui)
+- renders the actions panel via ImGui (panda3d-imgui + imgui-bundle)
 - keeps toggle state in sync using `get_value`/`set_value`
 
 You never touch ImGui directly from controllers; you just return actions.

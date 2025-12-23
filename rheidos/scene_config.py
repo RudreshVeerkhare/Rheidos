@@ -50,7 +50,9 @@ def load_scene_from_config(
     """
     cfg_path = Path(config_path).expanduser()
     data = _read_config(cfg_path)
-    return build_scene_from_data(engine, data, cfg_path, default_pick_mask=default_pick_mask)
+    result = build_scene_from_data(engine, data, cfg_path, default_pick_mask=default_pick_mask)
+    _maybe_register_scene_config_panel(engine, cfg_path, data, result, default_pick_mask)
+    return result
 
 
 def build_scene_from_data(
@@ -115,6 +117,34 @@ def _read_config(path: Path) -> Dict[str, Any]:
     else:
         parsed = json.loads(text)
     return parsed or {}
+
+
+def _maybe_register_scene_config_panel(
+    engine,
+    cfg_path: Path,
+    data: Dict[str, Any],
+    result: SceneConfigResult,
+    default_pick_mask: BitMask32,
+) -> None:
+    ui_cfg = data.get("ui")
+    if not isinstance(ui_cfg, dict) or not ui_cfg.get("scene_config_panel"):
+        return
+    try:
+        from .ui.panels.scene_config_panel import SceneConfigPanel
+    except Exception:
+        return
+    try:
+        engine.add_imgui_panel_factory(
+            lambda session, store: SceneConfigPanel(
+                engine=engine,
+                config_path=cfg_path,
+                default_pick_mask=default_pick_mask,
+                initial_config=data,
+                initial_result=result,
+            )
+        )
+    except Exception:
+        pass
 
 
 def _build_mesh(

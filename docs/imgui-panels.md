@@ -96,7 +96,7 @@ The tools window exposes:
 
 ## Caveats and behaviors
 
-- Requires `panda3d-imgui` + `p3dimgui`; if unavailable, panels are skipped (hotkeys still work, but no panel rendering).
+- Requires `panda3d-imgui` + `imgui-bundle`; if unavailable, panels are skipped (hotkeys still work, but no panel rendering).
 - Panels share the single “Rheidos Tools” window; headers use `##id` to avoid label collisions.
 - Panel `draw` should be cheap; heavy work can hurt frame time. Do throttling inside the panel (as `StoreStatePanel` does).
 - Panel exceptions are swallowed to keep the UI alive; log inside the panel if you need diagnostics.

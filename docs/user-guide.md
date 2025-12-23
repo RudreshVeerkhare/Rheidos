@@ -4,7 +4,7 @@ A practical walkthrough of how to use Rheidos as it exists in this repo today. I
 
 ## Install and Dependencies
 
-- Core and extras are bundled in the default install: `panda3d`, `taichi`, `trimesh`, `pyyaml`, `p3dimgui`, `imgui-bundle`, and `numpy` (Python 3.9+).
+- Core and extras are bundled in the default install: `panda3d`, `taichi`, `trimesh`, `pyyaml`, `panda3d-imgui`, `imgui-bundle`, and `numpy` (Python 3.9+).
 - Without ImGui deps, hotkeys still work but the tools window is skipped; they are installed by default to avoid confusion.
 
 Install everything:
@@ -142,7 +142,7 @@ eng.add_view(ScalarFieldView(
 - `PauseController`, `ScreenshotController`, `ExitController`.
 - `SceneSurfacePointSelector` / `SceneVertexPointSelector`: click-to-toggle selections; store results in `engine.store` (`surface_points`/`vertex_points`) and expose actions to enable/clear.
 
-Actions automatically show in the ImGui tools window (if `p3dimgui` + `imgui-bundle` are installed); shortcuts still work without UI.
+Actions automatically show in the ImGui tools window (if `panda3d-imgui` + `imgui-bundle` are installed); shortcuts still work without UI.
 
 ## Scene Configs and Live Editing
 
@@ -156,7 +156,7 @@ scene = load_scene_from_config(eng, Path("rheidos/examples/scene_configs/point_s
 # scene.objects -> list of SceneObject with .primitive/.surface/.wireframe
 ```
 
-Requirements: `pyyaml` for YAML, `trimesh` for mesh loading. `ui.scene_config_panel: true` in the config enables the live-edit ImGui panel (needs `p3dimgui` + `imgui-bundle`). The panel diffs by mesh name and rebuilds meshes/studio/lights/camera/custom components when those sections change; “Force Reload” tears everything down and rebuilds.
+Requirements: `pyyaml` for YAML, `trimesh` for mesh loading. `ui.scene_config_panel: true` in the config enables the live-edit ImGui panel (needs `panda3d-imgui` + `imgui-bundle`). The panel diffs by mesh name and rebuilds meshes/studio/lights/camera/custom components when those sections change; “Force Reload” tears everything down and rebuilds.
 
 ## ImGui Panels
 
@@ -182,12 +182,12 @@ Store-bound helpers: `rheidos.ui.panels.controls_base.StoreBoundControls` wraps 
 - Scene-config live edits rebuild or replace views/controllers; external references to old NodePaths will go stale after reloads.
 - `ScalarFieldView` expects 2D float32 values; large grids can stall uploads when textures resize.
 - `Texture2D.from_numpy_rgba` only accepts `(H, W, 4) uint8`; changing resolution reallocates the texture.
-- ImGui UI depends on `p3dimgui` + `imgui-bundle`; neither is included in the extras.
+- ImGui UI depends on `panda3d-imgui` + `imgui-bundle`; both are included in the default install.
 
 ## Doc Gaps Found (so you know what changed)
 
 - `docs/api.md` missed `PointSelectionView` and the Scene* point selectors; this guide covers them.
 - `docs/scene_config.md` listed only the `[config]` extra but scene loading also requires `trimesh`; dependency callouts above fix that.
-- ImGui dependencies (`p3dimgui` + `imgui-bundle`) were undocumented; they’re now spelled out here.
+- ImGui dependencies (`panda3d-imgui` + `imgui-bundle`) were undocumented; they’re now spelled out here.
 - The auto-start behavior of `Engine(interactive=True)` and exception-swallowing loop behavior were undocumented; see Caveats.
 - Live scene-config caveats (reloads rebuild components, stale references) were not surfaced; they’re noted above.

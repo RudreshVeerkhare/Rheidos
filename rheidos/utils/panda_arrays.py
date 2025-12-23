@@ -44,7 +44,13 @@ def copy_numpy_to_vertex_array(
         )
 
     dest = dest[:expected].reshape((n, cols))
-    np.copyto(dest, src)
+    try:
+        np.copyto(dest, src)
+    except ValueError as exc:
+        if "read-only" not in str(exc).lower():
+            raise
+        # Static vertex buffers may expose a read-only view; fall back to setData.
+        handle.setData(src.reshape(-1).tobytes())
 
 
 __all__ = ["copy_numpy_to_vertex_array"]

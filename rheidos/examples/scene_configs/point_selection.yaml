@@ -68,4 +68,4 @@ controllers:
 
 # Enable the live Scene Config panel (ImGui) for this config.
 ui:
-  scene_config_panel: false
+  scene_config_panel: true

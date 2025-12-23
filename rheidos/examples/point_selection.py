@@ -6,7 +6,6 @@ from pathlib import Path
 from panda3d.core import BitMask32
 
 from rheidos.engine import Engine
-from rheidos import scene_config as scene_config_mod
 from rheidos.scene_config import load_scene_from_config
 from rheidos.views import AxesView, PointSelectionView
 from rheidos.controllers import (
@@ -14,8 +13,6 @@ from rheidos.controllers import (
     SceneVertexPointSelector,
     ToggleViewController,
 )
-from rheidos.ui.panels.scene_config_panel import SceneConfigPanel
-
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Pick points on a mesh surface")
@@ -29,15 +26,6 @@ def main() -> None:
 
     scene_cfg = Path(args.scene_config).expanduser()
     pick_mask = BitMask32.bit(4)
-    cfg_data = None
-    panel_enabled = False
-    try:
-        cfg_data = scene_config_mod._read_config(scene_cfg)  # type: ignore[attr-defined]
-        panel_enabled = bool(cfg_data.get("ui", {}).get("scene_config_panel"))
-    except Exception:
-        cfg_data = None
-        panel_enabled = False
-
     eng = Engine(window_title="Mesh Point Selector", interactive=False)
     eng.add_view(AxesView(axis_length=1.5, sort=-10))
 
@@ -55,18 +43,6 @@ def main() -> None:
 
     surface_names = [obj.surface.name for obj in scene.objects if obj.surface]
     wireframe_names = [obj.wireframe.name for obj in scene.objects if obj.wireframe]
-
-    if panel_enabled:
-        # Register live scene-config panel; safe no-op if imgui is unavailable.
-        eng.add_imgui_panel_factory(
-            lambda session, store: SceneConfigPanel(
-                engine=eng,
-                config_path=scene_cfg,
-                default_pick_mask=pick_mask,
-                initial_config=cfg_data,
-                initial_result=scene,
-            )
-        )
 
     markers = PointSelectionView(name="selected_points", sort=5)
     eng.add_view(markers)
