@@ -9,6 +9,8 @@ Both share:
 - UI actions: enable/disable picking, clear selection.
 - Optional markers via `PointSelectionView` for hover/selected dots.
 - Selected points pushed into `engine.store` (`surface_points` / `vertex_points` by default) and exposed via `selected_points()` plus an `on_change` callback.
+- Controller names are unique; pass `name="..."` if you want explicit IDs when adding multiple selectors.
+- `select_button` can be a string or a list/tuple (e.g., `("mouse3", "mouse2")`) for trackpad/right-click compatibility.
 
 `SelectedPoint` fields:
 - `index`: nearest vertex index (None for surface selector)

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 from direct.showbase.MessengerGlobal import messenger
@@ -49,27 +49,66 @@ class _ScenePointSelectorBase(Controller):
     Derived classes decide whether to snap to vertices or keep surface hits.
     """
 
+    _name_counts: Dict[str, int] = {}
+
+    @classmethod
+    def _sanitize_name_part(cls, text: str) -> str:
+        if not text:
+            return ""
+        out = []
+        for ch in text:
+            if ch.isalnum() or ch in ("-", "_"):
+                out.append(ch)
+            else:
+                out.append("-")
+        return "".join(out).strip("-")
+
+    @classmethod
+    def _allocate_name(cls, base: str) -> str:
+        count = cls._name_counts.get(base, 0) + 1
+        cls._name_counts[base] = count
+        return base if count == 1 else f"{base}-{count}"
+
+    @classmethod
+    def _normalize_buttons(
+        cls, select_button: Union[str, Sequence[str], None]
+    ) -> list[str]:
+        if select_button is None:
+            return []
+        if isinstance(select_button, (list, tuple, set)):
+            return [str(btn) for btn in select_button if btn]
+        return [str(select_button)]
+
     def __init__(
         self,
-        name: str,
+        name: Optional[str],
         engine,
         markers_view: Optional[PointSelectionView] = None,
         store_key: Optional[str] = None,
         pick_root: Optional[object] = None,
         pick_mask: BitMask32 = BitMask32.bit(4),
-        select_button: str = "mouse1",
+        select_button: Union[str, Sequence[str]] = "mouse1",
         clear_shortcut: str = "c",
         on_change: Optional[Callable[[List[SelectedPoint]], None]] = None,
         snap_to_vertex: bool = False,
         ui_order: int = -8,
     ) -> None:
-        super().__init__(name=name)
+        resolved_name = name
+        if resolved_name is None:
+            base = self.__class__.__name__
+            if store_key:
+                safe_key = self._sanitize_name_part(str(store_key))
+                if safe_key:
+                    base = f"{base}-{safe_key}"
+            resolved_name = self._allocate_name(base)
+        super().__init__(name=resolved_name)
         self.engine = engine
         self.markers_view = markers_view
         self.store_key = store_key
         self.pick_root = pick_root
         self.pick_mask = pick_mask
         self.select_button = select_button
+        self._select_buttons = self._normalize_buttons(select_button)
         self.clear_shortcut = clear_shortcut
         self.on_change = on_change
         self.snap_to_vertex = bool(snap_to_vertex)
@@ -130,10 +169,13 @@ class _ScenePointSelectorBase(Controller):
 
         self._build_picker()
 
-        if self.select_button:
+        if self._select_buttons:
             # Use messenger with a unique object (self) so other controllers can bind the same event.
-            messenger.accept(self.select_button, self, self._on_click)
-            self._accepted.append(self.select_button)
+            for button in self._select_buttons:
+                if not button:
+                    continue
+                messenger.accept(button, self, self._on_click)
+                self._accepted.append(button)
 
         self._task_name = f"scene-point-hover-{id(self)}"
         session.task_mgr.add(self._hover_task, self._task_name, sort=-45)
@@ -463,9 +505,10 @@ class SceneSurfacePointSelector(_ScenePointSelectorBase):
         select_button: str = "mouse1",
         clear_shortcut: str = "c",
         on_change: Optional[Callable[[List[SelectedPoint]], None]] = None,
+        name: Optional[str] = None,
     ) -> None:
         super().__init__(
-            name="SceneSurfacePointSelector",
+            name=name,
             engine=engine,
             markers_view=markers_view,
             store_key=store_key,
@@ -492,9 +535,10 @@ class SceneVertexPointSelector(_ScenePointSelectorBase):
         select_button: str = "mouse1",
         clear_shortcut: str = "c",
         on_change: Optional[Callable[[List[SelectedPoint]], None]] = None,
+        name: Optional[str] = None,
     ) -> None:
         super().__init__(
-            name="SceneVertexPointSelector",
+            name=name,
             engine=engine,
             markers_view=markers_view,
             store_key=store_key,

@@ -51,8 +51,8 @@ Controllers (rheidos/controllers)
 - `PauseController(engine, key="space")`
 - `ScreenshotController(engine, key="s", filename="screenshot.png")`
 - `ExitController(engine, key="escape")`
-- `SceneSurfacePointSelector(engine, pick_mask=BitMask32.bit(4), select_button="mouse1", clear_shortcut="c", markers_view=None, store_key="surface_points")`
-- `SceneVertexPointSelector(engine, pick_mask=BitMask32.bit(4), select_button="mouse1", clear_shortcut="c", markers_view=None, store_key="vertex_points")`
+- `SceneSurfacePointSelector(engine, pick_mask=BitMask32.bit(4), select_button="mouse1", clear_shortcut="c", markers_view=None, store_key="surface_points", name=None)` (`select_button` accepts a string or a list/tuple)
+- `SceneVertexPointSelector(engine, pick_mask=BitMask32.bit(4), select_button="mouse1", clear_shortcut="c", markers_view=None, store_key="vertex_points", name=None)` (`select_button` accepts a string or a list/tuple)
 
 UI helpers
 - `StoreBoundControls(store)` for imgui-bound sliders/checkboxes that read/write `StoreState` keys.

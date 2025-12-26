@@ -44,7 +44,8 @@ class ControllerActionsPanel:
             )
 
             for act in sorted_actions:
-                label = act.label or act.id
+                visible = act.label or act.id
+                label = visible if "##" in visible else f"{visible}##{act.id}"
                 tooltip = act.tooltip
                 if act.kind == "toggle":
                     current = False

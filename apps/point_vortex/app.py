@@ -5,6 +5,10 @@ from rheidos.scene_config import load_scene_from_config
 from rheidos.views import PointSelectionView
 from rheidos.controllers.point_selector import SceneSurfacePointSelector
 
+
+
+
+
 def main():
     cfg_path = Path("/Users/codebox/dev/kung_fu_panda/apps/point_vortex/scene_configs/vortex.yaml")
     eng = Engine(window_title="Vortex Tutorial", interactive=False)
