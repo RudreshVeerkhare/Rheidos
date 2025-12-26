@@ -8,6 +8,9 @@ from rheidos.views import PointSelectionView
 from panda3d.core import BitMask32
 
 
+from rheidos.compute.world import World
+
+
 def main() -> None:
     cfg_path = Path(__file__).resolve().parent / "scene_configs" / "poisson.yaml"
     eng = Engine(window_title="Poisson Mesh Demo", interactive=False)
@@ -42,7 +45,7 @@ def main() -> None:
         pick_mask=pick_mask,
         markers_view=neg_markers,
         store_key="poisson/neg_points",
-        select_button="mouse1",
+        select_button="mouse3",
         clear_shortcut="v",
     )
 

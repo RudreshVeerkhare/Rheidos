@@ -1,0 +1,1 @@
+from rheidos.compute.registry import ModuleBase
