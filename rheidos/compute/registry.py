@@ -1,67 +1,11 @@
-from .world import ModuleBase
-from typing import Tuple, Set, List, Any, Sequence, Optional, Iterable, Callable, TypeVar, Dict, TYPE_CHECKING
+from typing import Tuple, Set, List, Any, Sequence, Optional, Iterable, Callable, TypeVar, Dict
 from dataclasses import dataclass, field
 import numpy as np
-from .resource import Resource
+from .resource import Resource, ResourceSpec
+from .typing import ResourceName
 
-ResourceName = str
 T = TypeVar("T")
-M = TypeVar("M", bound="ModuleBase")
 
-Shape = Tuple[int, ...]
-ShapeFn = Callable[["Registry"], Optional[Shape]]
-
-
-@dataclass(frozen=True)
-class ResourceSpec:
-    """
-    Lightweight runtime schema for buffers.
-
-    kind:
-      - "taichi_field": ti.field / ti.Vector.field / ti.Matrix.field (best-effort checks)
-      - "numpy":        np.ndarray
-      - "python":       any (no checks unless you extend)
-
-    dtype:
-      - For taichi_field: ti.f32, ti.i32, ...
-      - For numpy: np.float32, np.int32, ...
-
-    lanes:
-      - For ti.Vector.field(n, ...): lanes=n (best effort; if unknown, we skip)
-
-    shape / shape_fn:
-      - If provided, enforce exact .shape match.
-      - shape_fn lets you compute expected shape from deps at commit-time.
-
-    allow_none:
-      - if False, disallow None buffer.
-
-    Notes:
-      - This is runtime validation, not static typing.
-      - Taichi fields are intentionally treated "field-like" (best effort).
-    """
-
-    kind: str  # "taichi_field" | "numpy" | "python"
-    dtype: Optional[Any] = None
-    lanes: Optional[int] = None
-    shape: Optional[Shape] = None
-    shape_fn: Optional[ShapeFn] = None
-    allow_none: bool = True
-
-
-@dataclass
-class Resource:
-    name: ResourceName
-    buffer: Any = None
-
-    deps: Tuple[ResourceName, ...] = ()
-    producer: Optional["ProducerBase"] = None
-
-    version: int = 0
-    dep_sig: Tuple[Tuple[ResourceName, int], ...] = ()
-
-    description: str = ""
-    spec: Optional[ResourceSpec] = None
 
 
 class ProducerBase:
@@ -130,12 +74,12 @@ class Registry:
             self.ensure(name)
         return self.get(name).buffer
 
-    def set_buffer(self, name: ResourceName, buffer: Any, *, bump: bool = True, unsafe: bool = False) -> None:
+    def set_buffer(self, name: ResourceName, buffer: Any, *, bump: bool = False, unsafe: bool = False) -> None:
         """
         Replace buffer, optionally bumping version.
 
-        - bump=True  : validates (unless unsafe), sets buffer, bumps
-        - bump=False : validates (unless unsafe), sets buffer WITHOUT bump (allocation-before-fill)
+        - bump=True           : validates (unless unsafe), sets buffer, bumps
+        - bump=False (default): validates (unless unsafe), sets buffer WITHOUT bump (allocation-before-fill)
         """
         r = self.get(name)
         if not unsafe:
@@ -172,13 +116,16 @@ class Registry:
 
     def _validate_buffer(self, r: Resource, buf: Any) -> None:
         spec = r.spec
-        if spec is None or spec.kind == "python":
+        if spec is None:
             return
 
         if buf is None:
             if spec.allow_none:
                 return
             raise TypeError(f"[{r.name}] buffer is None but allow_none=False")
+
+        if spec.kind == "python":
+            return
 
         if spec.kind == "numpy":
             if not isinstance(buf, np.ndarray):

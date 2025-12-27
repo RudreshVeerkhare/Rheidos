@@ -1,491 +1,230 @@
-# Compute DAG Architecture
-*A resource–producer–module system for Taichi-first simulation tooling (with explicit wiring, lazy evaluation, and minimal string plumbing).*
-
-This doc explains the architecture, the design philosophy behind it, and how to use it effectively.
+# Compute Module: A Gentle Tour
+*A beginner-friendly guide to the compute DAG: why it exists, how to think about it, and how to use it.*
 
 ---
 
-## 1. What this framework is trying to be
+## Why this module exists
 
-You want three things at once:
+When you build simulations, you keep hitting the same pain points:
 
-1. **Lazy computation**: derived things (edges, DEC stars, Poisson solve) should compute only when needed.
-2. **Explicit wiring**: no magical “module-to-module string plumbing” inside producers.
-3. **Fast prototyping**: you should be able to mutate any resource, even if it’s “derived”, without fighting the framework.
+- You want **derived data** (edges, cotan weights, Poisson solves) to update only when needed.
+- You want **clear wiring** between pieces of data and the code that produces them.
+- You want **freedom** to override caches or inject values while prototyping.
 
-This architecture is a compromise that aims to be:
-- **Structured enough** to prevent a messy dependency jungle,
-- **Loose enough** to allow research-grade experimentation,
-- **Honest enough** to surface mistakes early (stale data, missing commits, cycles).
+The compute module is a small framework that hits those goals without being rigid.
+It is not a heavy ECS or a full reactive system. It is a pragmatic tool for research code.
 
 ---
 
-## 2. Core mental model (the three nouns)
+## The mental model (three nouns)
 
-### 2.1 Resource
-A **Resource** is a named piece of state in the registry. It stores:
+### 1) Resource = a named piece of state
+A resource is a value stored in the registry. It can be a Taichi field, a numpy array, or a plain Python object.
 
-- `buffer`: the actual data (Taichi field, numpy array, python object…)
-- `deps`: a tuple of other resource names this resource depends on
-- `producer`: optional compute node that can produce/update it
-- `version`: integer “freshness stamp”
-- `dep_sig`: snapshot of dependency versions when it was last marked fresh
-- `spec`: optional runtime schema/validation
+Think of it as a labeled container:
 
-> A resource can be user-set (“input”) or derived (“produced”),  the system does not enforce a distinction.
+- It has a name (like `mesh.V_pos`).
+- It has a buffer (the actual data).
+- It may be produced by code (a producer).
 
-### 2.2 Producer
-A **Producer** is a computation node.
+Resources can be inputs or derived outputs. The system does not force a strict separation.
 
-Contract:
-- It has `outputs: tuple[str, ...]`
-- It has `compute(reg) -> None`
-- It must call `reg.commit(output)` or `reg.bump(output)` for each output it updates
+### 2) Producer = code that fills resources
+A producer is a small computation that knows how to build one or more resources.
 
-Producers are intended to be:
-- **Name-blind** (they don’t invent resource strings),
-- **Wired once** to actual `ResourceRef` handles via a typed IO dataclass,
-- **Triggered lazily** by `reg.ensure(...)`.
+It is **wired** to real `ResourceRef`s through an IO dataclass, so it does not invent string names.
+That makes it easy to read and easy to reuse.
 
-### 2.3 Module
-A **Module** groups related resources and producers under a scoped namespace, e.g.:
-
-- `mesh.V_pos`
-- `mesh.E_verts`
-- `dec.star1`
-- `poisson.u`
-
-Modules provide:
-- naming conventions + scoping
-- ergonomic `self.resource(...)` helpers
-- a place to build producers and declare registry nodes
-
-Modules are instantiated by the `World`.
+### 3) Module = a namespace and a home for related resources
+A module groups a set of resources and producers under a stable prefix, like `mesh` or `poisson`.
+Modules help you keep your graph organized and avoid name collisions.
 
 ---
 
-## 3. The registry: freshness, staleness, and “ensure”
+## The promise: lazy computation
 
-### 3.1 Freshness rule
-A resource is considered **fresh** if:
+The registry tracks freshness automatically. If you ask for `poisson.u`:
 
-- it has a producer and has been committed at least once (`version > 0`)
-- and its stored `dep_sig` matches current versions of its deps
+- It checks whether `poisson.u` is stale.
+- If stale, it runs the producer that owns it.
+- It ensures the producer's dependencies are up to date first.
 
-It is **stale** if:
-
-- `version == 0` (never committed)
-- or dependency versions changed since last commit
-
-### 3.2 `ensure(name)`
-When you call `reg.ensure("poisson.u")`:
-
-1. It recursively ensures dependencies first.
-2. If the resource is stale and has a producer, it runs the producer.
-3. It verifies the producer actually committed all its outputs.
-4. It errors on dependency cycles (resource-level cycles).
-
-This is the engine that turns your code into a lazy DAG.
-
-### 3.3 Multi-output producers
-A producer can output many resources. The registry handles this by:
-
-- ensuring deps for every output of the producer before running
-- requiring that each output is committed/bumped after compute
-- marking the producer “ran” to avoid repeated work in a single ensure pass
-
-This allows fused computations like:
-- topology builder produces `E_verts`, `E_faces`, `E_opp` together
+This is how a compute DAG becomes "compute on demand".
 
 ---
 
-## 4. How not to shoot yourself
+## A first example (Poisson app)
 
-### 4.1 What does it mean ?
-The registry does **not** treat “produced resources” as read-only.
-
-You can:
-- replace a derived resource’s buffer manually
-- call `commit()` on it even if it has a producer
-
-This is intentional: research workflows often require overriding caches and injecting intermediate results.
-
-### 4.2 Trade-offs
-This gives speed and flexibility, but it shifts responsibility:
-
-- You can accidentally mark `None` as fresh (if `allow_none=True`).
-- You can bypass producers and forget to recompute something.
-- You can hide a bug by manually committing a broken buffer.
-
-### 4.3 Safety knobs already present
-- `ResourceSpec` validation (dtype, lanes, shape, shape_fn)
-- `unsafe=True` flags to bypass validation (explicit)
-
-### 4.4 Recommended discipline
-Use these conventions:
-
-- For normal code paths, always:
-  - write buffer data
-  - then call `ref.commit()`
-
-- For allocation-before-fill patterns:
-  - `ref.set_buffer(field, bump=False)`
-  - fill
-  - `ref.commit()`
-
-- Avoid `unsafe=True` unless you’re explicitly spiking something.
-
----
-
-## 5. ResourceSpec validation
-
-`ResourceSpec` is runtime validation, not static typing.
-
-Supported “kinds”:
-
-- `taichi_field`: best-effort check for Taichi-like fields
-- `numpy`: np.ndarray check
-- `python`: no validation
-
-Validation checks:
-- dtype equality
-- lanes for vector fields (`buf.n` if available)
-- shape exact match
-- dynamic shape via `shape_fn(reg)`
-
-### 5.1 Dynamic shape (`shape_fn`)
-This is how derived buffers can validate against upstream buffers without hardcoding sizes.
-
-Example:
-- `dec.star1` shape should match `mesh.E_verts.shape`
-
-Implementation pattern:
-- `_shape_of(mesh.E_verts)` returns a function that reads the buffer and returns its shape
-
----
-
-## 6. Typed handles: ResourceKey + ResourceRef
-
-### 6.1 Problem being solved
-You don’t want user code to do string plumbing like:
+Below is a tiny example mirroring `apps/poisson_dec`:
 
 ```py
-reg.read("scope.mesh.V_pos")
-````
+from rheidos.compute import World
+from apps.poisson_dec.compute.mesh import MeshModule
+from apps.poisson_dec.compute.dec import DECModule
+from apps.poisson_dec.compute.poisson import PoissonSolverModule
 
-It kills IDE hints and encourages string bugs.
+world = World()
+mesh = world.require(MeshModule)
+dec = world.require(DECModule)
+poisson = world.require(PoissonSolverModule)
 
-### 6.2 ResourceRef
+# Provide inputs
+mesh.V_pos.set(V_field)
+mesh.F_verts.set(F_field)
+poisson.constraint_mask.set(mask)
+poisson.constraint_value.set(val)
 
-`ResourceRef[T]` wraps `(registry, ResourceKey)`:
+# Ask for the solution (triggers lazy compute)
+u = poisson.u.get()
+```
 
-* `.get()` reads (and ensures by default)
-* `.set(value)` replaces buffer and commits
-* `.set_buffer(value, bump=False)` sets buffer without freshness bump
-* `.commit()` marks fresh relative to deps
-
-This gives:
-
-* strong-ish ergonomics
-* no strings in user code
-* a single “official place” for committing state
+You never call the solver directly. You ask for `u`, and the graph figures it out.
 
 ---
 
-## 7. Namespacing and scoping
+## Wiring a producer (IO dataclass)
 
-### 7.1 Namespace
-
-A module has a namespace derived from:
-
-* optional `scope` (instance name)
-* module `NAME`
-
-So:
-
-* scope = `"simA"`, module NAME `"mesh"` → prefix `"simA.mesh"`
-* scope = `""`, module NAME `"mesh"` → prefix `"mesh"`
-
-### 7.2 Why scope exists
-
-You can instantiate multiple copies of a module graph:
+This is the pattern used by the mesh, DEC, and Poisson builders:
 
 ```py
-appA = world.require(PoissonApp, scope="simA")
-appB = world.require(PoissonApp, scope="simB")
-```
+from dataclasses import dataclass
+from rheidos.compute import ResourceRef, WiredProducer, out_field
 
-Their resources won’t collide:
-
-* `simA.mesh.V_pos` vs `simB.mesh.V_pos`
-
----
-
-## 8. World and module lifecycle
-
-### 8.1 World.require(module_cls)
-
-The world memoizes modules by `(scope, module_cls)`.
-
-Important properties:
-
-* Only one instance of a module class per scope
-* Modules can call `self.require(OtherModule)` to express dependencies dynamically
-
-### 8.2 Cycle detection (module-level)
-
-Since dependencies are discovered by executing `__init__`, cycles can happen.
-
-Example cycle:
-
-* `A.__init__()` calls `require(B)`
-* `B.__init__()` calls `require(A)`
-
-The `World` detects this with a build stack and raises a readable error:
-
-```
-Module dependency cycle detected: <root>:A -> <root>:B -> <root>:A
-```
-
----
-
-## 9. Producers: WiredProducer + IO dataclasses
-
-### 9.1 Why IO dataclasses exist
-
-We want producers to:
-
-* be reusable
-* avoid string plumbing
-* be explicit about inputs/outputs
-
-So we define an IO dataclass:
-
-```py
 @dataclass
 class BuildDECIO:
-    V_pos: ResourceRef[Any]
-    F_verts: ResourceRef[Any]
-    ...
-    star1: ResourceRef[Any] = out_field()
-```
+    V_pos: ResourceRef
+    F_verts: ResourceRef
+    E_verts: ResourceRef
+    E_opp: ResourceRef
+    star0: ResourceRef = out_field()
+    star1: ResourceRef = out_field()
+    star2: ResourceRef = out_field()
 
-Fields marked with `out_field()` are considered outputs.
-
-### 9.2 WiredProducer
-
-`WiredProducer(io)`:
-
-* stores `self.io`
-* introspects output fields and sets `self.outputs`
-
-This enforces:
-
-* if it’s a producer instance, it’s already wired
-* no two-phase “bind IO later”
-
-### 9.3 Producer compute style
-
-Inside `compute` you typically:
-
-* read required inputs using `.get(ensure=False|True)`
-* allocate outputs if needed
-* fill outputs
-* call `.commit()` on each output
-
----
-
-## 10. Typical usage guide
-
-### 10.1 Basic flow
-
-A typical “app” flow looks like:
-
-1. Create `World`
-2. Require some top-level module (app)
-3. Set input resources (buffers)
-4. Read derived resource → triggers entire chain
-
-Example:
-
-```py
-world = World()
-app = world.require(PoissonApp)
-
-# set inputs
-app.mesh.V_pos.set(V_field)
-app.mesh.F_verts.set(F_field)
-
-app.poisson.constraint_mask.set(mask)
-app.poisson.constraint_value.set(val)
-
-# get output (lazy triggers)
-u = app.poisson.u.get()
-```
-
-### 10.2 Debugging the DAG
-
-Use:
-
-```py
-print(world.reg.explain(app.poisson.u.name, depth=7))
-```
-
-You’ll see:
-
-* each node version
-* whether it’s stale
-* which producer owns it
-
----
-
-## 11. How to add your own module
-
-### 11.1 Create module
-
-```py
-class MyModule(ModuleBase):
-    NAME = "my"
-
-    def __init__(self, world: World, *, scope: str = ""):
-        super().__init__(world, scope=scope)
-
-        mesh = self.require(MeshModule)
-
-        self.foo = self.resource("foo", spec=..., declare=True)
-        self.bar = self.resource("bar", spec=..., declare=False)
-
-        prod = MyProducer(MyIO.from_modules(mesh, self))
-        self.declare_resource(self.bar, deps=(mesh.V_pos.name, self.foo.name), producer=prod)
-```
-
-### 11.2 Create IO and producer
-
-```py
-@dataclass
-class MyIO:
-    V_pos: ResourceRef[Any]
-    foo: ResourceRef[Any]
-    bar: ResourceRef[Any] = out_field()
-
-@ti.data_oriented
-class MyProducer(WiredProducer[MyIO]):
-    def compute(self, reg: Registry):
+class BuildDEC(WiredProducer[BuildDECIO]):
+    def compute(self, reg):
         io = self.io
-        V = io.V_pos.get(ensure=True)
-        foo = io.foo.get(ensure=True)
-
-        # allocate/fill bar
-        bar = io.bar.get(ensure=False)
-        if bar is None or bar.shape != (V.shape[0],):
-            bar = ti.field(dtype=ti.f32, shape=(V.shape[0],))
-            io.bar.set_buffer(bar, bump=False)
-
-        # ... fill bar ...
-        io.bar.commit()
+        V = io.V_pos.get(ensure=False)
+        F = io.F_verts.get(ensure=False)
+        E = io.E_verts.get(ensure=False)
+        EO = io.E_opp.get(ensure=False)
+        # ... allocate / fill ...
+        io.star0.commit()
+        io.star1.commit()
+        io.star2.commit()
 ```
+
+Key idea: inputs are already ensured by the registry before `compute()` runs,
+so producers should usually use `ensure=False` for their reads.
 
 ---
 
-## 12. Best practices (so your future self doesn’t hate you)
+## Allocation-before-fill (common pattern)
 
-### 12.1 Always commit outputs
-
-If your producer writes an output but forgets to commit, `ensure()` will throw.
-That’s good. Keep it that way.
-
-### 12.2 Prefer “read ensure=True” inside producers for upstream derived inputs
-
-If an input is derived (like `mesh.E_verts`), read it with `ensure=True`:
+When you need to allocate a Taichi field before filling it:
 
 ```py
-E = io.E_verts.get(ensure=True)
+bar = io.bar.get(ensure=False)
+if bar is None or bar.shape != (n,):
+    bar = ti.field(dtype=ti.f32, shape=(n,))
+    io.bar.set_buffer(bar, bump=False)
+
+# fill bar...
+io.bar.commit()
 ```
 
-That keeps producers robust even if called independently.
-
-### 12.3 Use `set_buffer(..., bump=False)` for allocation-before-fill
-
-This prevents marking fresh before values exist.
-
-### 12.4 Keep producers deterministic
-
-Producers should ideally:
-
-* be pure functions of their deps (plus module config)
-* not depend on hidden global state
-
-If you need time-dependent behavior, make “time” a resource dependency.
-
-### 12.5 Put “parameters” in resources too
-
-Instead of storing parameters inside modules, prefer resources:
-
-* makes dependencies explicit
-* makes caching/freshness correct
-
-Example:
-
-* viscosity, timestep, solver iterations → resources
+`set_buffer(..., bump=False)` stores the buffer without marking it fresh.
+`commit()` marks it fresh after you actually filled the data.
 
 ---
 
-## 13. Philosophy summary
+## Debugging the graph
 
-This architecture intentionally leans into:
+If something feels stale or wrong, ask the registry for an explanation:
 
-* **Explicit state**: everything is a resource
-* **Lazy evaluation**: compute only when asked
-* **Explicit wiring**: producers do not do string plumbing
-* **Research flexibility**: the `.bump()` on any resources lets you override anything and tap into the DAGs auto-update.
-* **Fail-fast correctness**: stale checks + commit enforcement + cycle detection
+```py
+print(world.reg.explain(poisson.u.name, depth=6))
+```
 
-It’s not trying to be a rigid ECS, or a heavy DI container, or a magical reactive graph.
-It’s a pragmatic research tool: structured enough to scale, loose enough to explore.
+It will show which resources are stale and who produces them.
 
 ---
 
-## 14. FAQ
+## Freedom (and responsibility)
 
-### Q: Why not just call producers directly?
+A key design choice: **nothing is read-only**.
 
-You can, but then dependency order and recomputation become manual.
-The registry gives you automatic “compute-on-demand” with correctness checks.
+You are allowed to override a derived resource and commit it manually.
+This is a deliberate feature for research workflows.
 
-### Q: Why are resources still stored by string in the registry?
+That freedom means you should adopt a simple discipline:
 
-Because registries need a universal key.
-But you *don’t* expose strings to users; you expose `ResourceRef`.
-
-### Q: Can I swap Taichi out?
-
-Yes. `ResourceSpec.kind="python"` is totally legal, and producers can operate on python objects.
-Taichi is just one buffer backend.
-
-### Q: How do I build richer tooling (graph views, debug UI)?
-
-The registry already has:
-
-* resource metadata
-* deps
-* producer ownership
-* freshness state
-
-That’s enough to build a graph visualizer or inspector UI later.
+- If you write to a resource, call `commit()`.
+- Use `unsafe=True` only when you really want to skip validation.
 
 ---
 
-## 15. Minimal cheat sheet
+## ResourceSpec in one paragraph
 
-* Declare inputs with `declare=True`
-* Declare derived resources with `declare=False` then `declare_resource(...)` once wired
-* In producers:
+`ResourceSpec` provides runtime validation for buffers:
 
-  * read inputs
-  * allocate outputs if needed (`set_buffer(..., bump=False)`)
-  * write outputs
-  * `commit()` outputs
-* To compute something: `ref.get()` or `reg.ensure(name)`
-* To inspect: `reg.explain(name)`
+- Kind: `taichi_field`, `numpy`, or `python`.
+- Optional dtype, shape, and lane checks.
+
+It catches mistakes early without forcing heavy static typing.
 
 ---
+
+## Module scope (multiple instances)
+
+You can build multiple copies of the same module graph using scopes:
+
+```py
+app_a = world.require(PoissonApp, scope="simA")
+app_b = world.require(PoissonApp, scope="simB")
+```
+
+Their resources are isolated:
+
+- `simA.mesh.V_pos` vs `simB.mesh.V_pos`
+
+---
+
+## Recommended import style
+
+For a nice developer experience, import from the compute package root:
+
+```py
+from rheidos.compute import World, ModuleBase, ResourceRef, ResourceSpec, WiredProducer, out_field
+```
+
+Shared typing aliases live in:
+
+```py
+from rheidos.compute.typing import Shape, ShapeFn, ResourceName
+```
+
+---
+
+## A small checklist for new producers
+
+- Read inputs with `ensure=False`.
+- Allocate outputs if needed with `set_buffer(..., bump=False)`.
+- Fill outputs.
+- `commit()` every output.
+
+If you follow this, the graph will stay correct and easy to reason about.
+
+---
+
+## Summary
+
+The compute module is a small, focused system that gives you:
+
+- **Explicit data flow** via resources and producers.
+- **Lazy computation** via `ensure()`.
+- **Flexibility** for research code (manual overrides are allowed).
+
+If you want something to update automatically, connect it with deps and a producer.
+If you want to hack in a new value, just set and commit it.
+
+That balance is the core philosophy of the module.

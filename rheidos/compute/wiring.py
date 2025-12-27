@@ -1,9 +1,7 @@
 from dataclasses import field, is_dataclass, fields
 from typing import Any, Generic, List, TypeVar
-from typing import TYPE_CHECKING
-if TYPE_CHECKING:
-    from .resource import ResourceRef
-    from .registry import ProducerBase
+from .resource import ResourceRef
+from .registry import ProducerBase
 
 # =============================================================================
 # Producers: typed IO dataclasses + one-phase wiring

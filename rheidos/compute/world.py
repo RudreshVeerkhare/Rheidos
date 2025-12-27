@@ -1,12 +1,10 @@
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, Type, TypeVar, cast
-from typing import TYPE_CHECKING
-if TYPE_CHECKING:
-    from .registry import Registry, ResourceSpec, ProducerBase
-    from .resource import ResourceRef, ResourceKey
-    M = TypeVar("M", bound="ModuleBase")
-else:
-    M = TypeVar("M")
+
+from .resource import ResourceRef, ResourceKey
+from .registry import Registry, ResourceSpec, ProducerBase
+
+M = TypeVar("M", bound="ModuleBase")
 
 # =============================================================================
 # Implicit naming / scope
@@ -63,7 +61,7 @@ class ModuleBase:
         self,
         attr: str,
         *,
-        spec: Optional[ResourceSpec] = None,
+        spec: Optional["ResourceSpec"] = None,
         doc: str = "",
         declare: bool = False,
         buffer: Any = None,
@@ -150,4 +148,3 @@ class World:
             # Always unwind even if __init__ raises
             popped = self._building_stack.pop()
             self._building_set.remove(popped)
-

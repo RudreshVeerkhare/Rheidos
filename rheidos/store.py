@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import logging
 import threading
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict
+
+log = logging.getLogger(__name__)
 
 
 class StoreState:
@@ -26,11 +29,17 @@ class StoreState:
         with self._lock:
             self._set_path(parts, value)
             listeners = list(self._listeners.get(listener_key, ()))
+
         for fn in listeners:
             try:
                 fn(value)
             except Exception:
-                pass
+                log.exception(
+                    "StoreState listener failed: key=%r callback=%r value=%r",
+                    listener_key,
+                    getattr(fn, "__name__", repr(fn)),
+                    value,
+                )
 
     def update(self, **kwargs: Any) -> None:
         callbacks: list[tuple[str, Any]] = []
@@ -39,12 +48,18 @@ class StoreState:
                 parts = self._split_key(k)
                 self._set_path(parts, v)
                 callbacks.append((self._listener_key(k, parts), v))
+
         for listener_key, value in callbacks:
             for fn in list(self._listeners.get(listener_key, ())):
                 try:
                     fn(value)
                 except Exception:
-                    pass
+                    log.exception(
+                        "StoreState listener failed: key=%r callback=%r value=%r",
+                        listener_key,
+                        getattr(fn, "__name__", repr(fn)),
+                        value,
+                    )
 
     def subscribe(self, key: str, callback: Callable[[Any], None]) -> Callable[[], None]:
         listener_key = self._listener_key(key, self._split_key(key))
@@ -53,10 +68,7 @@ class StoreState:
 
         def unsubscribe() -> None:
             with self._lock:
-                if (
-                    listener_key in self._listeners
-                    and callback in self._listeners[listener_key]
-                ):
+                if listener_key in self._listeners and callback in self._listeners[listener_key]:
                     self._listeners[listener_key].remove(callback)
 
         return unsubscribe
