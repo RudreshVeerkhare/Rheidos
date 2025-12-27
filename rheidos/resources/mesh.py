@@ -91,6 +91,12 @@ class Mesh:
         self.node.addGeom(self.geom)
         self.node_path = NodePath(self.node)
 
+        self._raw_vertices: Optional[np.ndarray] = None
+        self._raw_normals: Optional[np.ndarray] = None
+        self._raw_colors: Optional[np.ndarray] = None
+        self._raw_texcoords: Optional[np.ndarray] = None
+        self._raw_indices: Optional[np.ndarray] = None
+
         if vertices is not None:
             self.set_vertices(vertices)
         if normals is not None:
@@ -109,14 +115,17 @@ class Mesh:
     # --- setters
     def set_vertices(self, vertices: np.ndarray) -> None:
         verts = _ensure_float32(vertices, 3)
+        self._raw_vertices = verts
         copy_numpy_to_vertex_array(self.vdata, 0, verts, 3)
 
     def set_normals(self, normals: np.ndarray) -> None:
         norms = _ensure_float32(normals, 3)
+        self._raw_normals = norms
         copy_numpy_to_vertex_array(self.vdata, 1, norms, 3)
 
     def set_colors(self, colors: np.ndarray) -> None:
         cols = _ensure_float32(colors, 4)
+        self._raw_colors = cols
         copy_numpy_to_vertex_array(self.vdata, 2, cols, 4)
 
     def set_colors_uint8(self, colors: np.ndarray) -> None:
@@ -127,18 +136,24 @@ class Mesh:
 
     def set_texcoords(self, texcoords: np.ndarray) -> None:
         uvs = _ensure_float32(texcoords, 2)
+        self._raw_texcoords = uvs
         copy_numpy_to_vertex_array(self.vdata, 3, uvs, 2)
 
     def set_indices(self, indices: np.ndarray) -> None:
         inds = np.ascontiguousarray(indices, dtype=np.int32)
-        if inds.ndim == 2:
+        if inds.ndim == 1:
+            if inds.size % 3 != 0:
+                raise ValueError(
+                    f"Triangle index buffer must be a multiple of 3 elements, got {inds.size}"
+                )
+            inds_2d = inds.reshape(-1, 3)
+        elif inds.ndim == 2:
+            if inds.shape[1] != 3:
+                raise ValueError(f"Triangle indices must have 3 columns, got {inds.shape}")
+            inds_2d = inds
             inds = inds.reshape(-1)
-        if inds.ndim != 1:
+        else:
             raise ValueError(f"Indices must be a 1D or 2D array, got shape {inds.shape}")
-        if inds.size % 3 != 0:
-            raise ValueError(
-                f"Triangle index buffer must be a multiple of 3 elements, got {inds.size}"
-            )
         if inds.size == 0:
             self.prim.clearVertices()
             return
@@ -180,6 +195,17 @@ class Mesh:
                 a, b, c = int(inds[i]), int(inds[i + 1]), int(inds[i + 2])
                 prim.addVertices(a, b, c)
             prim.closePrimitive()
+
+        self._raw_indices = inds_2d
+
+    def get_vertices(self) -> Optional[np.ndarray]:
+        return self._raw_vertices
+
+    def get_normals(self) -> Optional[np.ndarray]:
+        return self._raw_normals
+
+    def get_indices(self) -> Optional[np.ndarray]:
+        return self._raw_indices
 
     # --- scene helpers
     def reparent_to(self, parent: NodePath) -> None:

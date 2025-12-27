@@ -10,7 +10,13 @@ from .mesh import Mesh
 from .primitives import Primitive
 
 
-def load_mesh(path: str | Path, name: Optional[str] = None, center: bool = True) -> Primitive:
+def load_mesh(
+    path: str | Path,
+    name: Optional[str] = None,
+    center: bool = True,
+    *,
+    dynamic: bool = False,
+) -> Primitive:
     try:
         import trimesh  # type: ignore
     except Exception as exc:  # pragma: no cover
@@ -67,5 +73,12 @@ def load_mesh(path: str | Path, name: Optional[str] = None, center: bool = True)
         mins = vertices.min(axis=0)
         maxs = vertices.max(axis=0)
 
-    mesh_obj = Mesh(vertices=vertices, indices=faces, normals=normals, colors=colors, name=name or Path(path).stem, dynamic=False)
+    mesh_obj = Mesh(
+        vertices=vertices,
+        indices=faces,
+        normals=normals,
+        colors=colors,
+        name=name or Path(path).stem,
+        dynamic=dynamic,
+    )
     return Primitive(mesh=mesh_obj, bounds=(mins, maxs))

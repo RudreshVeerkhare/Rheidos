@@ -99,6 +99,9 @@ class ResourceRef(Generic[T]):
     def spec(self) -> Optional[ResourceSpec]:
         return self._key.spec
 
+    def version(self) -> int:
+        return int(self._reg.get(self.name).version)
+
     def ensure(self) -> None:
         self._reg.ensure(self.name)
 

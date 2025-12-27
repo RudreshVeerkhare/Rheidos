@@ -83,7 +83,7 @@ class BuildUniqueEdgesIO:
     
 from rheidos.compute.wiring import WiredProducer
 import numpy as np
-from typing import Dict, Tuple, List, Any
+from typing import Dict, Tuple, List
 
 @ti.data_oriented
 class BuildUniqueEdges(WiredProducer[BuildUniqueEdgesIO]):
@@ -161,28 +161,3 @@ class BuildUniqueEdges(WiredProducer[BuildUniqueEdgesIO]):
         io.E_faces.commit()
         io.E_opp.commit()
 
-
-### 
-### DEC Producer
-
-@dataclass
-class BuildDECIO:
-    V_pos: ResourceRef[Any]
-    F_verts: ResourceRef[Any]
-    E_verts: ResourceRef[Any]
-    E_opp: ResourceRef[Any]
-    star0: ResourceRef[Any] = out_field()
-    star1: ResourceRef[Any] = out_field()
-    star2: ResourceRef[Any] = out_field()
-
-    @classmethod
-    def from_modules(cls, mesh: "MeshModule", dec: "DECModule") -> "BuildDECIO":
-        return cls(
-            V_pos=mesh.V_pos,
-            F_verts=mesh.F_verts,
-            E_verts=mesh.E_verts,
-            E_opp=mesh.E_opp,
-            star0=dec.star0,
-            star1=dec.star1,
-            star2=dec.star2,
-        )

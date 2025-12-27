@@ -160,7 +160,12 @@ def _build_mesh(
     mesh_path = (cfg_path.parent / Path(str(raw_path))).expanduser().resolve()
 
     name = mesh_cfg.get("name") or mesh_path.stem or f"mesh{idx}"
-    primitive = load_mesh(mesh_path, name=name, center=mesh_cfg.get("center", True))
+    primitive = load_mesh(
+        mesh_path,
+        name=name,
+        center=mesh_cfg.get("center", True),
+        dynamic=bool(mesh_cfg.get("dynamic", False)),
+    )
 
     material = _material_from_cfg(mesh_cfg.get("material"))
     pick_mask = default_pick_mask if mesh_cfg.get("pickable", True) else None

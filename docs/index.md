@@ -52,6 +52,7 @@ Docs Map
 - Taichi: kernels, data flow, per-frame updates
 - Notebooks: interactive loop and workflow
 - Recipes: step-by-step examples
+- Bindings: adapter/binder tutorial + how-to + reference + explanation
 - Philosophy: how to build abstractions to move fast
 - FAQ: common hiccups and fixes
 
@@ -63,6 +64,7 @@ Links into this repo
 - Views: rheidos/views
 - Controllers: rheidos/controllers
 - Point selector controller: docs/point-selector.md
+- Binding system: docs/binding-tutorial.md, docs/binding-howto.md, docs/binding-reference.md, docs/binding-explanation.md
 - Resources (meshes/textures): rheidos/resources
 - Taichi bridge: rheidos/utils/taichi_bridge.py
 

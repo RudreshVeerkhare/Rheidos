@@ -2,6 +2,7 @@ meshes:
   - path: ../../../models/flat_mesh.obj
     name: domain
     pickable: true
+    dynamic: true
     surface: true
     wireframe: false
     two_sided: true
