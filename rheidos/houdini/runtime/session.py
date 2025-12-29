@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from types import ModuleType
 from typing import Any, Dict, Optional, Tuple, TYPE_CHECKING
 import time
 
@@ -42,9 +43,12 @@ def make_session_key(node: "hou.Node") -> SessionKey:
 @dataclass
 class WorldSession:
     world: Optional[World] = None
+    user_module: Optional[ModuleType] = None
+    user_module_key: Optional[str] = None
     did_setup: bool = False
     last_step_key: Optional[Tuple[Any, ...]] = None
     last_output_cache: Dict[str, np.ndarray] = field(default_factory=dict)
+    last_geo_snapshot: Optional[Any] = None
     last_error: Optional[BaseException] = None
     last_traceback: Optional[str] = None
     stats: Dict[str, Any] = field(default_factory=dict)
@@ -53,9 +57,12 @@ class WorldSession:
 
     def reset(self, reason: str) -> None:
         self.world = None
+        self.user_module = None
+        self.user_module_key = None
         self.did_setup = False
         self.last_step_key = None
         self.last_output_cache.clear()
+        self.last_geo_snapshot = None
         self.clear_error()
         self.stats.clear()
         self.last_cook_at = None

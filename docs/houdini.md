@@ -1,8 +1,10 @@
 # Houdini Integration Docs (Diataxis)
 
 This document follows the Diataxis model. Pick the section that matches your intent:
-learn by doing (Tutorials), solve a task (How-to guides), check facts (Reference), or
-understand design choices (Explanation).
+- Tutorials: learn by doing
+- How-to guides: solve a task
+- Reference: API facts
+- Explanation: design rationale
 
 ## Tutorials (teach me)
 
@@ -45,7 +47,9 @@ Prerequisites:
 - NumPy available in Houdini's Python.
 
 Steps:
-1) Action: Paste this into the Python SOP.
+1) Action: Create a Box SOP and connect it to a Python SOP.
+   Result: A Python SOP receives input geometry.
+2) Action: Paste this into the Python SOP.
    Snippet:
    ```python
    import hou
@@ -81,6 +85,51 @@ Steps:
 1) Put `packages/rheidos.json` in a Houdini packages folder.
 2) Update `RHEIDOS_REPO` to the absolute repo path.
 3) Restart Houdini.
+
+### Run a stateless cook script with the driver
+
+1) Create a Python SOP and connect input 0.
+2) Add spare parameters named: `script_path` (String), `module_path` (String),
+   `mode` (String), `reset_node` (Button), `nuke_all` (Button),
+   `profile` (Toggle), `debug_log` (Toggle).
+3) Set `script_path` to `rheidos/houdini/scripts/cook_demo.py`,
+   set `mode` to `cook`, and leave `module_path` empty.
+4) Paste this into the Python SOP:
+   ```python
+   from rheidos.houdini.scripts.cook_sop import main
+   main()
+   ```
+Result: The cook script runs on each cook; the demo colors the geometry.
+
+### Run a solver script with the driver
+
+1) Use a node that provides two inputs: input 0 = previous frame, input 1 = current input.
+2) Add the same spare parameters as the cook driver.
+3) Optional: add an integer parm named `substep` if you want substeps.
+4) Set `script_path` to `rheidos/houdini/scripts/solver_demo.py`.
+5) Paste this into the SOP:
+   ```python
+   from rheidos.houdini.scripts.solver_sop import main
+   main()
+   ```
+Result: The solver updates over time without double-stepping.
+
+### Switch user scripts safely (no hot reload)
+
+1) Change `script_path` or `module_path`.
+2) Press the `reset_node` button or call `get_runtime().reset_session(...)`.
+
+### Output geometry via `out.P`
+
+Publish point positions under `out.P` from your user script:
+
+```python
+def cook(ctx) -> None:
+    P = ctx.P()
+    ctx.publish("out.P", P * 2.0)
+```
+
+The driver applies `out.P` to point positions after the user function returns.
 
 ### Reset a node session from a node script
 
@@ -260,6 +309,8 @@ Exports:
 - `publish_group(ctx: CookContext, group_name: str, as_mask: bool = True) -> None`
 - `publish_point_attrib(ctx: CookContext, name: str) -> None`
 - `publish_prim_attrib(ctx: CookContext, name: str) -> None`
+- `run_cook(node, geo_in, geo_out) -> None`
+- `run_solver(node, geo_prev, geo_in, geo_out, substep=0) -> None`
 
 ### Module: `rheidos.houdini.geo`
 
@@ -309,9 +360,12 @@ Constants:
 
 `WorldSession` (dataclass)
 - `world: Optional[World]`
+- `user_module: Optional[ModuleType]`
+- `user_module_key: Optional[str]`
 - `did_setup: bool`
 - `last_step_key: Optional[Tuple[Any, ...]]`
 - `last_output_cache: Dict[str, np.ndarray]`
+- `last_geo_snapshot: Optional[Any]`
 - `last_error: Optional[BaseException]`
 - `last_traceback: Optional[str]`
 - `stats: Dict[str, Any]`
@@ -362,6 +416,17 @@ Module helpers:
 Functions:
 - `build_cook_context(node, geo_in, geo_out, session, substep=0) -> CookContext`
 
+### Module: `rheidos.houdini.runtime.driver`
+
+Functions:
+- `run_cook(node, geo_in, geo_out) -> None`
+- `run_solver(node, geo_prev, geo_in, geo_out, substep=0) -> None`
+
+### Module: `rheidos.houdini.runtime.user_script`
+
+Functions:
+- `resolve_user_module(session: WorldSession, config: NodeConfig, node: hou.Node) -> ModuleType`
+
 ### Module: `rheidos.houdini.runtime.resource_keys`
 
 Constants:
@@ -404,6 +469,23 @@ Functions:
 
 - `main() -> None`
 
+### Script: `rheidos.houdini.scripts.cook_sop`
+
+- `main() -> None`
+
+### Script: `rheidos.houdini.scripts.solver_sop`
+
+- `main() -> None`
+
+### Script: `rheidos.houdini.scripts.cook_demo`
+
+- `cook(ctx) -> None`
+
+### Script: `rheidos.houdini.scripts.solver_demo`
+
+- `setup(ctx) -> None`
+- `step(ctx) -> None`
+
 ## Explanation (help me understand why)
 
 ### Why GeometryIO is bulk and owner-based
@@ -424,7 +506,7 @@ A stable key schema makes scripts interchangeable and reduces string drift acros
 Keys like `geo.P` and `geo.triangles` act as a shared contract between Houdini and the
 compute modules.
 
-### Why there is cook-local caching
+### Why cook-local caching exists
 
 Repeated reads inside a single cook are common. A cook-local cache avoids repeated
 attribute pulls without hiding changes across cooks.
@@ -435,6 +517,22 @@ Houdini cooks can run repeatedly, often within a single UI session. The session 
 keeps compute state tied to a specific hip file and node path so that repeated cooks can
 re-use a world and maintain solver state when needed. This avoids accidental cross-node
 state sharing while preserving deterministic behavior per node.
+
+### Why cook and solver drivers are separate
+
+Cook is stateless and recalculates each time. Solver keeps state across frames and needs
+different control flow: setup once, step per frame, and deterministic skip behavior.
+
+### Why solver uses a step key and geometry snapshot
+
+Houdini can re-cook the same frame/substep multiple times. A stable step key prevents
+double-stepping, and the snapshot lets the driver re-emit the last result without
+re-running user code.
+
+### Why `out.P` exists alongside direct geometry writes
+
+Direct `ctx.write`/`ctx.set_P` keeps Houdini the source of truth. The `out.P` path is an
+optional bridge for users who prefer to push outputs into the compute registry.
 
 ### Why there is no hot reload
 
@@ -455,5 +553,5 @@ missing, which surfaces configuration errors early and keeps node scripts determ
 ### Current scope
 
 This package provides runtime session management, parameter parsing, geometry adapters,
-CookContext helpers, standardized resource keys, and basic publish utilities. Node
-drivers for cook/solver modes are not yet included.
+CookContext helpers, standardized resource keys, publish utilities, and node drivers
+for cook/solver modes (plus minimal demo scripts).

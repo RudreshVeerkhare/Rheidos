@@ -24,6 +24,8 @@ from .runtime import (
     publish_group,
     publish_point_attrib,
     publish_prim_attrib,
+    run_cook,
+    run_solver,
 )
 
 __all__ = [
@@ -48,4 +50,6 @@ __all__ = [
     "publish_group",
     "publish_point_attrib",
     "publish_prim_attrib",
+    "run_cook",
+    "run_solver",
 ]

@@ -1,0 +1,3 @@
+"""
+Houdini helper scripts.
+"""

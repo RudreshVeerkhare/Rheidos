@@ -3,6 +3,7 @@ Runtime session cache for Houdini nodes.
 """
 
 from .cook_context import CookContext, build_cook_context
+from .driver import run_cook, run_solver
 from .publish import publish_geometry_minimal, publish_group, publish_point_attrib, publish_prim_attrib
 from .resource_keys import (
     GEO_P,
@@ -40,4 +41,6 @@ __all__ = [
     "publish_group",
     "publish_point_attrib",
     "publish_prim_attrib",
+    "run_cook",
+    "run_solver",
 ]
