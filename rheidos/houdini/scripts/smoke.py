@@ -37,11 +37,27 @@ def _print_rheidos_imports() -> None:
     print("rheidos: import ok")
 
 
+def _print_houdini_helpers() -> None:
+    try:
+        from rheidos.houdini.geo import GeometryIO, GeometrySchema  # noqa: F401
+        from rheidos.houdini.runtime import (  # noqa: F401
+            CookContext,
+            GEO_P,
+            GEO_TRIANGLES,
+            publish_geometry_minimal,
+        )
+    except Exception as exc:
+        print(f"houdini helpers import failed: {exc}")
+        return
+    print("houdini helpers: import ok")
+
+
 def main() -> None:
     _print_houdini_version()
     _print_python_version()
     _print_taichi_version()
     _print_rheidos_imports()
+    _print_houdini_helpers()
 
 
 if __name__ == "__main__":

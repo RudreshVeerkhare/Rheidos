@@ -6,65 +6,73 @@ understand design choices (Explanation).
 
 ## Tutorials (teach me)
 
-### Run the smoke test in hython
+### Scale point positions with GeometryIO in a Python SOP
 
-Audience: Houdini users who want a quick end-to-end import check.
-
-Prerequisites:
-- Houdini installed with hython available.
-- The repository available on disk.
-- `packages/rheidos.json` placed in your Houdini packages folder.
-
-Steps:
-1) Action: Place the package file in a Houdini packages directory.
-   Context: This adds the repo to `PYTHONPATH` when Houdini starts.
-   Snippet:
-   ```json
-   {
-     "env": {
-       "RHEIDOS_REPO": "/Users/codebox/dev/kung_fu_panda",
-       "PYTHONPATH": "$PYTHONPATH:$RHEIDOS_REPO"
-     }
-   }
-   ```
-   Result: Houdini can import `rheidos` from this repo.
-2) Action: Run the smoke script with hython.
-   Context: This validates `hou`, `taichi`, and `rheidos` imports.
-   Snippet:
-   ```sh
-   hython rheidos/houdini/scripts/smoke.py
-   ```
-   Result: You see lines for Houdini, Python, Taichi, and "rheidos: import ok".
-
-### Create a runtime session in the Houdini Python Shell
-
-Audience: Houdini users who want to verify the session cache behavior.
+Audience: Houdini users who want a hands-on intro to the geometry adapter.
 
 Prerequisites:
-- A running Houdini session.
-- Any node in the scene (for example a Geometry node).
+- Houdini installed with `hython` available.
+- `rheidos` importable via `packages/rheidos.json`.
+- A Geometry network with a Box SOP feeding a Python SOP.
 
 Steps:
-1) Action: Select a node in the Houdini UI.
-   Context: The session key is derived from the hip file path and node path.
-   Result: A node is active/selected in the network editor.
-2) Action: Create or fetch a session from the Python Shell.
+1) Action: Create a Box SOP and connect it to a Python SOP.
+   Result: A Python SOP receives input geometry.
+2) Action: Paste this into the Python SOP.
    Snippet:
    ```python
    import hou
-   from rheidos.houdini.runtime import get_runtime
+   from rheidos.houdini.geo import GeometryIO, OWNER_POINT
 
-   node = hou.selectedNodes()[0]
-   session = get_runtime().get_or_create_session(node)
-   print(session)
+   node = hou.pwd()
+   geo_out = node.geometry()
+   geo_out.clear()
+   geo_in = node.inputs()[0].geometry()
+   geo_out.merge(geo_in)
+
+   io = GeometryIO(geo_in, geo_out)
+   P = io.read(OWNER_POINT, "P", components=3)
+   io.write(OWNER_POINT, "P", P * 1.1)
    ```
-   Result: A `WorldSession` object prints without errors.
-3) Action: Reset the session.
+   Result: The box scales up by 10% in the viewport.
+
+### Publish minimal geometry and write color with CookContext
+
+Audience: Houdini users who want to use the compute world bridge.
+
+Prerequisites:
+- The same setup as the previous tutorial.
+- NumPy available in Houdini's Python.
+
+Steps:
+1) Action: Paste this into the Python SOP.
    Snippet:
    ```python
-   get_runtime().reset_session(node, reason="tutorial reset")
+   import hou
+   import numpy as np
+   from rheidos.houdini.geo import OWNER_POINT
+   from rheidos.houdini.runtime import (
+       GEO_P,
+       build_cook_context,
+       get_runtime,
+       publish_geometry_minimal,
+   )
+
+   node = hou.pwd()
+   geo_out = node.geometry()
+   geo_out.clear()
+   geo_in = node.inputs()[0].geometry()
+   geo_out.merge(geo_in)
+
+   session = get_runtime().get_or_create_session(node)
+   ctx = build_cook_context(node, geo_in, geo_out, session)
+
+   publish_geometry_minimal(ctx)
+   P = ctx.fetch(GEO_P)
+   colors = (P - P.min(axis=0)) / (np.ptp(P, axis=0) + 1e-6)
+   ctx.write(OWNER_POINT, "Cd", colors)
    ```
-   Result: The session is cleared and ready for a clean next cook.
+   Result: The geometry shows a color gradient based on position.
 
 ## How-to guides (help me do X)
 
@@ -92,6 +100,130 @@ from rheidos.houdini.runtime import get_runtime
 get_runtime().nuke_all(reason="global reset")
 ```
 
+### Read a point attribute with GeometryIO
+
+In a Python SOP with input 0 connected:
+
+```python
+import hou
+from rheidos.houdini.geo import GeometryIO, OWNER_POINT
+
+node = hou.pwd()
+geo_in = node.inputs()[0].geometry()
+io = GeometryIO(geo_in, geo_in)
+P = io.read(OWNER_POINT, "P", components=3)
+```
+
+### Write a new point attribute with GeometryIO
+
+In a Python SOP with input 0 connected:
+
+```python
+import hou
+import numpy as np
+from rheidos.houdini.geo import GeometryIO, OWNER_POINT
+
+node = hou.pwd()
+geo_out = node.geometry()
+geo_out.clear()
+geo_in = node.inputs()[0].geometry()
+geo_out.merge(geo_in)
+
+io = GeometryIO(geo_in, geo_out)
+values = np.random.rand(len(geo_out.points()), 1)
+io.write(OWNER_POINT, "u", values, create=True)
+```
+
+### Read triangle indices
+
+In a Python SOP with input 0 connected:
+
+```python
+import hou
+from rheidos.houdini.geo import GeometryIO
+
+node = hou.pwd()
+geo_in = node.inputs()[0].geometry()
+io = GeometryIO(geo_in, geo_in)
+triangles = io.read_prims(arity=3)
+```
+
+### Read a point group as a mask
+
+In a Python SOP with input 0 connected:
+
+```python
+import hou
+from rheidos.houdini.geo import GeometryIO, OWNER_POINT
+
+node = hou.pwd()
+geo_in = node.inputs()[0].geometry()
+io = GeometryIO(geo_in, geo_in)
+mask = io.read_group(OWNER_POINT, "my_group", as_mask=True)
+```
+
+### Publish standard geometry keys
+
+In a Python SOP with input 0 connected:
+
+```python
+import hou
+from rheidos.houdini.runtime import build_cook_context, get_runtime, publish_geometry_minimal
+
+node = hou.pwd()
+geo_out = node.geometry()
+geo_out.clear()
+geo_in = node.inputs()[0].geometry()
+geo_out.merge(geo_in)
+
+session = get_runtime().get_or_create_session(node)
+ctx = build_cook_context(node, geo_in, geo_out, session)
+
+publish_geometry_minimal(ctx)
+```
+
+### Publish a point group mask
+
+In a Python SOP with input 0 connected:
+
+```python
+import hou
+from rheidos.houdini.runtime import build_cook_context, get_runtime, publish_group
+
+node = hou.pwd()
+geo_out = node.geometry()
+geo_out.clear()
+geo_in = node.inputs()[0].geometry()
+geo_out.merge(geo_in)
+
+session = get_runtime().get_or_create_session(node)
+ctx = build_cook_context(node, geo_in, geo_out, session)
+
+publish_group(ctx, "my_group", as_mask=True)
+```
+
+### Fetch a compute resource and write it to geometry
+
+In a Python SOP with input 0 connected:
+
+```python
+import hou
+from rheidos.houdini.geo import OWNER_POINT
+from rheidos.houdini.runtime import build_cook_context, get_runtime
+
+node = hou.pwd()
+geo_out = node.geometry()
+geo_out.clear()
+geo_in = node.inputs()[0].geometry()
+geo_out.merge(geo_in)
+
+session = get_runtime().get_or_create_session(node)
+ctx = build_cook_context(node, geo_in, geo_out, session)
+
+P = ctx.fetch("geo.P")
+ctx.write(OWNER_POINT, "P", P)
+```
+
 ### Parse node parameters into a NodeConfig
 
 This assumes the node has the required parms: `script_path`, `module_path`, `mode`,
@@ -111,11 +243,63 @@ print(config)
 ### Module: `rheidos.houdini`
 
 Exports:
+- `CookContext`
 - `ComputeRuntime`
+- `GEO_P`, `GEO_TRIANGLES`
+- `SIM_TIME`, `SIM_DT`, `SIM_FRAME`, `SIM_SUBSTEP`
 - `SessionKey`
 - `WorldSession`
+- `build_cook_context(node, geo_in, geo_out, session, substep=0) -> CookContext`
 - `get_runtime() -> ComputeRuntime`
 - `make_session_key(node: hou.Node) -> SessionKey`
+- `point_attrib(name: str) -> str`
+- `point_group_indices(name: str) -> str`
+- `point_group_mask(name: str) -> str`
+- `prim_attrib(name: str) -> str`
+- `publish_geometry_minimal(ctx: CookContext) -> None`
+- `publish_group(ctx: CookContext, group_name: str, as_mask: bool = True) -> None`
+- `publish_point_attrib(ctx: CookContext, name: str) -> None`
+- `publish_prim_attrib(ctx: CookContext, name: str) -> None`
+
+### Module: `rheidos.houdini.geo`
+
+Exports:
+- `AttribDesc`
+- `GeometryIO`
+- `GeometrySchema`
+- `OWNER_POINT`, `OWNER_PRIM`, `OWNER_VERTEX`, `OWNER_DETAIL`
+- `OWNERS`
+
+### Module: `rheidos.houdini.geo.schema`
+
+`AttribDesc` (dataclass, frozen)
+- `name: str`
+- `owner: str`
+- `storage_type: str`
+- `tuple_size: int`
+
+`GeometrySchema` (dataclass, frozen)
+- `point: Tuple[AttribDesc, ...]`
+- `prim: Tuple[AttribDesc, ...]`
+- `vertex: Tuple[AttribDesc, ...]`
+- `detail: Tuple[AttribDesc, ...]`
+- `by_owner(owner: str) -> Tuple[AttribDesc, ...]`
+
+Constants:
+- `OWNER_POINT`, `OWNER_PRIM`, `OWNER_VERTEX`, `OWNER_DETAIL`
+- `OWNERS`
+
+### Module: `rheidos.houdini.geo.adapter`
+
+`GeometryIO` (dataclass)
+- `geo_in: hou.Geometry`
+- `geo_out: Optional[hou.Geometry]`
+- `clear_cache() -> None`
+- `describe(owner: Optional[str] = None) -> GeometrySchema`
+- `read(owner: str, name: str, dtype=None, components: Optional[int] = None) -> np.ndarray`
+- `write(owner: str, name: str, values, create: bool = True) -> None`
+- `read_prims(arity: int = 3) -> np.ndarray`
+- `read_group(owner: str, group_name: str, as_mask: bool = False) -> np.ndarray`
 
 ### Module: `rheidos.houdini.runtime.session`
 
@@ -147,6 +331,57 @@ Module helpers:
 - `get_runtime() -> ComputeRuntime`
 - `make_session_key(node: hou.Node) -> SessionKey`
 
+### Module: `rheidos.houdini.runtime.cook_context`
+
+`CookContext` (dataclass)
+- `node: hou.Node`
+- `frame: float`
+- `time: float`
+- `dt: float`
+- `substep: int`
+- `session: WorldSession`
+- `geo_in: hou.Geometry`
+- `geo_out: hou.Geometry`
+- `io: GeometryIO`
+- `schema: Optional[GeometrySchema]`
+- `world() -> World`
+- `clear_cache() -> None`
+- `describe(owner: Optional[str] = None) -> GeometrySchema`
+- `read(owner: str, name: str, dtype=None, components: Optional[int] = None) -> np.ndarray`
+- `write(owner: str, name: str, values, create: bool = True) -> None`
+- `read_prims(arity: int = 3) -> np.ndarray`
+- `read_group(owner: str, group_name: str, as_mask: bool = False) -> np.ndarray`
+- `P() -> np.ndarray`
+- `set_P(values) -> None`
+- `triangles() -> np.ndarray`
+- `publish(key: str, value) -> None`
+- `publish_many(items: Dict[str, Any]) -> None`
+- `fetch(key: str) -> Any`
+- `ensure(key: str) -> None`
+
+Functions:
+- `build_cook_context(node, geo_in, geo_out, session, substep=0) -> CookContext`
+
+### Module: `rheidos.houdini.runtime.resource_keys`
+
+Constants:
+- `GEO_P`, `GEO_TRIANGLES`
+- `SIM_TIME`, `SIM_DT`, `SIM_FRAME`, `SIM_SUBSTEP`
+
+Functions:
+- `point_attrib(name: str) -> str`
+- `prim_attrib(name: str) -> str`
+- `point_group_mask(name: str) -> str`
+- `point_group_indices(name: str) -> str`
+
+### Module: `rheidos.houdini.runtime.publish`
+
+Functions:
+- `publish_geometry_minimal(ctx: CookContext) -> None`
+- `publish_group(ctx: CookContext, group_name: str, as_mask: bool = True) -> None`
+- `publish_point_attrib(ctx: CookContext, name: str) -> None`
+- `publish_prim_attrib(ctx: CookContext, name: str) -> None`
+
 ### Module: `rheidos.houdini.runtime.taichi_reset`
 
 - `reset_taichi_hard() -> None`
@@ -170,6 +405,29 @@ Functions:
 - `main() -> None`
 
 ## Explanation (help me understand why)
+
+### Why GeometryIO is bulk and owner-based
+
+Houdini geometry is naturally segmented by owner (point, prim, vertex, detail). Using
+owner strings keeps the API predictable and avoids special cases, while bulk IO keeps
+attribute access fast and consistent across data types.
+
+### Why CookContext is thin
+
+CookContext is a narrow wrapper: it stores timing and session data, exposes geometry IO,
+and forwards to the compute world. This keeps node code small and makes it easy to test
+IO, publish, and fetch separately.
+
+### Why standardized resource keys exist
+
+A stable key schema makes scripts interchangeable and reduces string drift across nodes.
+Keys like `geo.P` and `geo.triangles` act as a shared contract between Houdini and the
+compute modules.
+
+### Why there is cook-local caching
+
+Repeated reads inside a single cook are common. A cook-local cache avoids repeated
+attribute pulls without hiding changes across cooks.
 
 ### Why a session cache exists
 
@@ -196,6 +454,6 @@ missing, which surfaces configuration errors early and keeps node scripts determ
 
 ### Current scope
 
-This package currently provides runtime session management, parameter parsing, and a
-smoke test. Geometry adapters, CookContext, and node drivers should be documented in
-their own tutorials, how-tos, and references once implemented.
+This package provides runtime session management, parameter parsing, geometry adapters,
+CookContext helpers, standardized resource keys, and basic publish utilities. Node
+drivers for cook/solver modes are not yet included.
