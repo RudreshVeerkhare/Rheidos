@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 from typing import Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
@@ -19,6 +20,14 @@ from panda3d.core import (
 from ..abc.action import Action
 from ..abc.controller import Controller
 from ..views.point_selection import PointSelectionView
+
+
+def _vec3_finite(v: Vec3) -> bool:
+    return (
+        math.isfinite(float(v.x))
+        and math.isfinite(float(v.y))
+        and math.isfinite(float(v.z))
+    )
 
 
 @dataclass(frozen=True)
@@ -302,6 +311,8 @@ class _ScenePointSelectorBase(Controller):
         if not self._mouse_watcher.hasMouse():
             return None
         mouse_pos = self._mouse_watcher.getMouse()
+        if not math.isfinite(float(mouse_pos.x)) or not math.isfinite(float(mouse_pos.y)):
+            return None
         self._picker_ray.setFromLens(self._cam_node, mouse_pos)
 
         self._picker_queue.clearEntries()
@@ -322,6 +333,10 @@ class _ScenePointSelectorBase(Controller):
                 geom_index = None
         except Exception:
             return None
+        if not _vec3_finite(surface_local) or not _vec3_finite(surface_world):
+            return None
+        if surface_normal is not None and not _vec3_finite(surface_normal):
+            surface_normal = None
 
         vertex_idx = None
         v_local = None
@@ -330,6 +345,10 @@ class _ScenePointSelectorBase(Controller):
             vertex_idx, v_local, v_world = self._nearest_vertex(
                 into_np, entry, surface_local, geom_index
             )
+            if v_local is not None and not _vec3_finite(v_local):
+                v_local = None
+            if v_world is not None and not _vec3_finite(v_world):
+                v_world = None
 
         return _PickResult(
             surface_world=surface_world,

@@ -39,7 +39,15 @@ class PoissonMeshDeformer(Observer):
         self._u_signal = u_signal
         self._scale = float(scale)
         self._base_vertices = self._load_vertices(mesh)
+        if not np.isfinite(self._base_vertices).all():
+            raise ValueError("Mesh vertices contain NaN/Inf; cannot deform.")
+        bounds_min = self._base_vertices.min(axis=0)
+        bounds_max = self._base_vertices.max(axis=0)
+        extent = float(np.linalg.norm(bounds_max - bounds_min))
+        self._max_displacement = extent * 10.0 if extent > 0.0 else 1.0
         self._normals = self._load_normals(mesh, self._base_vertices)
+        if not np.isfinite(self._normals).all():
+            raise ValueError("Mesh normals contain NaN/Inf; cannot deform.")
         self._last_version = -1
 
     def _load_vertices(self, mesh: Mesh) -> np.ndarray:
@@ -74,6 +82,13 @@ class PoissonMeshDeformer(Observer):
                 "Signal vertex count mismatch: "
                 f"{values.shape[0]} != {self._base_vertices.shape[0]}"
             )
-        displaced = self._base_vertices + (self._normals * values[:, None] * self._scale)
+        displacements = self._normals * values[:, None] * self._scale
+        if displacements.size == 0:
+            return
+        if float(np.abs(displacements).max()) > self._max_displacement:
+            return
+        displaced = self._base_vertices + displacements
+        if not np.isfinite(displaced).all():
+            return
         self._mesh.set_vertices(displaced)
         self._last_version = snapshot.version

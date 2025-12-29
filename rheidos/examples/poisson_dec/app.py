@@ -9,6 +9,7 @@ from rheidos.engine import Engine
 from rheidos.resources.mesh import Mesh
 from rheidos.scene_config import load_scene_from_config
 from rheidos.sim.interaction import AdapterBinder, BindingRule, ComputeScheduler
+from rheidos.utils.geom_guard import GeomNanGuard
 from rheidos.views import PointSelectionView
 
 from apps.poisson_dec.bindings import PoissonMeshDeformer
@@ -111,7 +112,12 @@ class PoissonScene:
 
 def main() -> None:
     cfg_path = Path(__file__).resolve().parent / "scene_configs" / "poisson.yaml"
-    eng = Engine(window_title="Poisson Mesh Demo", interactive=False)
+    eng = Engine(
+        window_title="Poisson Mesh Demo",
+        interactive=False,
+        enable_imgui=True,
+        imgui_use_glfw=False,
+    )
     scene_result = load_scene_from_config(eng, cfg_path)
     ti.init()
 
@@ -122,6 +128,7 @@ def main() -> None:
     adapter = PoissonAdapter(compute, instance="domain")
     scheduler = ComputeScheduler(adapter)
     eng.add_observer(scheduler)
+    eng.add_observer(GeomNanGuard())
 
     scene = PoissonScene(eng, scheduler, pick_mask=BitMask32.bit(4))
     scene.sync()

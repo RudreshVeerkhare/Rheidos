@@ -42,6 +42,8 @@ class Engine:
         auto_start: Optional[bool] = None,
         msaa_samples: Optional[int] = 4,
         imgui_panel_factories: Optional[Sequence[PanelFactory]] = None,
+        enable_imgui: bool = True,
+        imgui_use_glfw: bool = True,
     ) -> None:
         if ShowBase is None:
             raise RuntimeError("Panda3D is not available. Install 'panda3d'.")
@@ -75,19 +77,35 @@ class Engine:
         self._store = StoreState()
         self._input_router = InputRouter(self._session)
         self._imgui_ui: Optional[ImGuiUIManager] = None
-        try:
-            import p3dimgui  # type: ignore
+        disable_imgui = os.environ.get("RHEIDOS_DISABLE_IMGUI")
+        if disable_imgui:
+            enable_imgui = False
+        if os.environ.get("RHEIDOS_IMGUI_NO_GLFW"):
+            imgui_use_glfw = False
+        if enable_imgui:
+            try:
+                if not imgui_use_glfw:
+                    try:
+                        import imgui_bundle._imgui_bundle as _imgui_core  # type: ignore
 
-            p3dimgui.init()
-            panel_factories = imgui_panel_factories
-            if panel_factories is None:
-                panel_factories = (lambda session, store: StoreStatePanel(store=store),)
-            self._imgui_ui = ImGuiUIManager(
-                self._session, store=self._store, panel_factories=panel_factories
-            )
-            self._base.accept("imgui-new-frame", self._imgui_ui.draw_frame)
-        except Exception:
-            self._imgui_ui = None
+                        if "with_glfw" in _imgui_core.__bundle_submodules__:
+                            _imgui_core.__bundle_submodules__ = [
+                                m for m in _imgui_core.__bundle_submodules__ if m != "with_glfw"
+                            ]
+                    except Exception:
+                        pass
+                import p3dimgui  # type: ignore
+
+                p3dimgui.init()
+                panel_factories = imgui_panel_factories
+                if panel_factories is None:
+                    panel_factories = (lambda session, store: StoreStatePanel(store=store),)
+                self._imgui_ui = ImGuiUIManager(
+                    self._session, store=self._store, panel_factories=panel_factories
+                )
+                self._base.accept("imgui-new-frame", self._imgui_ui.draw_frame)
+            except Exception:
+                self._imgui_ui = None
 
         self._views: Dict[str, View] = {}
         self._view_tasks: Dict[str, str] = {}

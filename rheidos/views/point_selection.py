@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Optional, Sequence
+import math
 
 try:
     from panda3d.core import (
@@ -32,6 +33,14 @@ def _to_vec3(p: Vec3 | Sequence[float]) -> Vec3:
     if isinstance(p, Vec3):
         return p
     return Vec3(float(p[0]), float(p[1]), float(p[2]))
+
+
+def _vec3_finite(v: Vec3) -> bool:
+    return (
+        math.isfinite(float(v[0]))
+        and math.isfinite(float(v[1]))
+        and math.isfinite(float(v[2]))
+    )
 
 
 class PointSelectionView(View):
@@ -146,6 +155,8 @@ class PointSelectionView(View):
             try:
                 v = _to_vec3(p)
             except Exception:
+                continue
+            if not _vec3_finite(v):
                 continue
             writer.addData3f(v)
 

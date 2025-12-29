@@ -5,7 +5,7 @@ import numpy as np
 import taichi as ti
 
 from rheidos.compute import World
-from apps.poisson_dec.compute import DECModule, MeshModule, PoissonSolverModule
+from .compute import DECModule, MeshModule, PoissonSolverModule
 
 Charge = Tuple[int, float]
 
@@ -75,6 +75,30 @@ class PoissonSystem:
         mask.from_numpy(self._charge_buffer.mask)
         self.poisson.constraint_value.commit()
         self.poisson.constraint_mask.commit()
+
+    def apply_charge_dense(self, charge: np.ndarray, eps: float = 1e-12) -> None:
+        """
+        charge: (n,) float32. 0 -> unconstrained. Nonzero -> constrained with that value.
+        """
+        if self._n_vertices is None or self._charge_buffer is None:
+            raise RuntimeError("Mesh must be set before applying charges.")
+        if charge.shape != (self._n_vertices,):
+            raise ValueError(f"charge shape {charge.shape} != ({self._n_vertices},)")
+
+        # Build dense buffers
+        values = charge.astype(np.float32, copy=False)
+        mask = (np.abs(values) > eps).astype(np.int32)
+
+        value_f = self.poisson.constraint_value.get(ensure=False)
+        mask_f  = self.poisson.constraint_mask.get(ensure=False)
+        if value_f is None or mask_f is None:
+            raise RuntimeError("Constraint buffers are not initialized.")
+
+        value_f.from_numpy(values)
+        mask_f.from_numpy(mask)
+        self.poisson.constraint_value.commit()
+        self.poisson.constraint_mask.commit()
+
 
     def solve(self) -> Any:
         return self.poisson.u.get()
