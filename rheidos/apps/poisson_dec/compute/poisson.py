@@ -21,7 +21,7 @@ class SolvePoissonDirichletIO:
     def from_modules(cls, mesh: "MeshModule", dec: "DECModule", poisson: "PoissonSolverModule") -> "SolvePoissonDirichletIO":
         return cls(
             E_verts=mesh.E_verts,
-            w=dec.star1,
+            w=dec.star1,  
             mask=poisson.constraint_mask,
             value=poisson.constraint_value,
             u=poisson.u,
@@ -126,14 +126,13 @@ class SolvePoissonDirichlet(WiredProducer["SolvePoissonDirichletIO"]):
 
     @ti.kernel
     def _prefix_sum_offsets(self, deg: ti.template(), offsets: ti.template(), cursor: ti.template()):
-        # offsets[0]=0; offsets[i+1]=offsets[i]+deg[i]
         offsets[0] = 0
+        ti.loop_config(serialize=True)
         for i in range(deg.shape[0]):
             offsets[i + 1] = offsets[i] + deg[i]
-        # cursor starts at offsets[i] (used for fill with atomic_add)
         for i in range(deg.shape[0]):
             cursor[i] = offsets[i]
-
+    
     @ti.kernel
     def _fill_adjacency(
         self,
@@ -252,6 +251,9 @@ class SolvePoissonDirichlet(WiredProducer["SolvePoissonDirichletIO"]):
                 x[i] = val[i]
                 r[i] = 0.0
 
+
+
+    # --- Fix 2: no 'return' in non-static control flow ---
     @ti.kernel
     def _update_beta_check_stop(
         self,
@@ -264,29 +266,22 @@ class SolvePoissonDirichlet(WiredProducer["SolvePoissonDirichletIO"]):
         max_iter: ti.i32,
         tol2: ti.f32,
     ):
-        # stop codes:
-        #  0 run
-        #  1 converged
-        #  2 hit max_iter
-        #  3 breakdown (set elsewhere)
-        if stop[None] != 0:
-            return
+        s = stop[None]
 
-        it_val = it[None]
-        if it_val >= max_iter:
-            stop[None] = 2
-            return
+        if s == 0:
+            it_val = it[None]
 
-        # Convergence check
-        if rr_new[None] <= tol2 * rr0[None]:
-            rr[None] = rr_new[None]
-            stop[None] = 1
-            return
+            if it_val >= max_iter:
+                stop[None] = 2  # max_iter
+            else:
+                if rr_new[None] <= tol2 * rr0[None]:
+                    rr[None] = rr_new[None]
+                    stop[None] = 1  # converged
+                else:
+                    beta[None] = rr_new[None] / rr[None]
+                    rr[None] = rr_new[None]
+                    it[None] = it_val + 1
 
-        # Continue
-        beta[None] = rr_new[None] / rr[None]
-        rr[None] = rr_new[None]
-        it[None] = it_val + 1
 
     @ti.kernel
     def _p_update_free(self, p: ti.template(), r: ti.template(), beta: ti.template(), mask: ti.template()):

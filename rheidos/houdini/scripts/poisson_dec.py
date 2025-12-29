@@ -14,8 +14,8 @@ except Exception as exc:  # pragma: no cover - only runs in Houdini
 from rheidos.houdini.geo import OWNER_POINT
 from rheidos.houdini.runtime import GEO_P, GEO_TRIANGLES
 
-from apps.poisson_dec.compute.mesh import MeshModule
-from apps.poisson_dec.compute.poisson import PoissonSolverModule
+from rheidos.apps.poisson_dec.compute.mesh import MeshModule
+from rheidos.apps.poisson_dec.compute.poisson import PoissonSolverModule
 
 
 POS_GROUP = "poisson_pos"
