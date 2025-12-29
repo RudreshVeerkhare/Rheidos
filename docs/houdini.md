@@ -114,6 +114,63 @@ Result: The cook script runs on each cook; the demo colors the geometry.
    ```
 Result: The solver updates over time without double-stepping.
 
+### Run a Taichi simulation and visualize in Houdini (example)
+
+Prerequisites:
+- Taichi installed in Houdini's Python.
+- A solver-style SOP with two inputs (prev + current).
+
+Steps:
+1) Create a file `taichi_solver.py` (for example next to the hip file).
+2) Paste this into the file:
+   ```python
+   import numpy as np
+   import taichi as ti
+
+   STATE_ATTR = "ti_state"
+
+   @ti.kernel
+   def _advance(P: ti.template(), V: ti.template(), dt: float) -> None:
+       for i in P:
+           V[i].y += -9.8 * dt
+           P[i] += V[i] * dt
+
+   def _state(ctx):
+       state = getattr(ctx.session, STATE_ATTR, None)
+       if state is None:
+           try:
+               ti.init(arch=ti.cpu)
+           except Exception:
+               pass
+           P0 = ctx.P().astype(np.float32)
+           n = P0.shape[0]
+           P = ti.Vector.field(3, dtype=ti.f32, shape=n)
+           V = ti.Vector.field(3, dtype=ti.f32, shape=n)
+           P.from_numpy(P0)
+           V.from_numpy(np.zeros_like(P0))
+           state = {"P": P, "V": V}
+           setattr(ctx.session, STATE_ATTR, state)
+       return state
+
+   def setup(ctx) -> None:
+       _state(ctx)
+
+   def step(ctx) -> None:
+       state = _state(ctx)
+       _advance(state["P"], state["V"], ctx.dt)
+       ctx.set_P(state["P"].to_numpy())
+   ```
+3) In the SOP, set `script_path` to the file and run:
+   ```python
+   from rheidos.houdini.scripts.solver_sop import main
+   main()
+   ```
+Result: The points fall under gravity and update every frame.
+
+Notes:
+- If point count changes, press `reset_node` to reinitialize Taichi fields.
+- If Taichi complains about re-initialization, use `nuke_all` before reloading.
+
 ### Switch user scripts safely (no hot reload)
 
 1) Change `script_path` or `module_path`.
