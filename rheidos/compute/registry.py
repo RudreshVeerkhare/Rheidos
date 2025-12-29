@@ -1,4 +1,4 @@
-from typing import Tuple, Set, List, Any, Sequence, Optional, Iterable, Callable, TypeVar, Dict
+from typing import Tuple, Set, List, Any, Sequence, Optional, Iterable, Callable, TypeVar, Dict, Mapping
 from dataclasses import dataclass, field
 import numpy as np
 from .resource import Resource, ResourceSpec
@@ -98,6 +98,23 @@ class Registry:
         if buffer is not None:
             self.set_buffer(name, buffer, bump=False, unsafe=unsafe)
         self.bump(name, unsafe=unsafe)
+
+    def commit_many(
+        self,
+        names: Iterable[ResourceName],
+        *,
+        buffers: Optional[Mapping[ResourceName, Any]] = None,
+        unsafe: bool = False,
+    ) -> None:
+        if buffers is None:
+            for name in names:
+                self.commit(name, unsafe=unsafe)
+            return
+        for name in names:
+            if name in buffers:
+                self.commit(name, buffer=buffers[name], unsafe=unsafe)
+            else:
+                self.commit(name, unsafe=unsafe)
 
     def bump(self, name: ResourceName, unsafe: bool = False) -> None:
         """

@@ -4,6 +4,11 @@ from __future__ import annotations
 
 
 def _eval_substep(node) -> int:
+    """Read an optional integer substep parameter from a node.
+
+    Args:
+        node: Houdini node that may define a "substep" parameter.
+    """
     parm = node.parm("substep")
     if parm is None:
         return 0
@@ -14,6 +19,7 @@ def _eval_substep(node) -> int:
 
 
 def main() -> None:
+    """Run the solver driver using the current Houdini Python SOP context."""
     import hou  # type: ignore
 
     from rheidos.houdini.runtime import run_solver

@@ -1,10 +1,10 @@
 # Houdini Integration Docs (Diataxis)
 
-This document follows the Diataxis model. Pick the section that matches your intent:
+Pick the section that matches your intent:
 - Tutorials: learn by doing
 - How-to guides: solve a task
 - Reference: API facts
-- Explanation: design rationale
+- Explanation: design rationale and tradeoffs
 
 ## Tutorials (teach me)
 
@@ -82,101 +82,77 @@ Steps:
 
 ### Add the repo to Houdini's Python path
 
-1) Put `packages/rheidos.json` in a Houdini packages folder.
-2) Update `RHEIDOS_REPO` to the absolute repo path.
+1) Put `packages/rheidos.json` in a Houdini packages folder (or set
+   `HOUDINI_PACKAGE_DIR` to this repo's `packages` directory).
+2) If the repo moves, update the paths inside `packages/rheidos.json`.
 3) Restart Houdini.
 
-### Run a stateless cook script with the driver
+### Build and install Rheidos SOP HDAs
+
+1) Run the builder from hython:
+   ```bash
+   hython rheidos/houdini/nodes/build_hda.py
+   ```
+2) Confirm `rheidos/houdini/otls/rheidos_houdini.otl` exists.
+3) Restart Houdini so it scans the new OTL.
+4) In a Geometry network, create a node named "Rheidos Cook SOP" or
+   "Rheidos Solver SOP".
+
+### Run a stateless cook with the Cook SOP HDA
+
+1) Create a Rheidos Cook SOP and connect input 0 (optional).
+2) Set `script_path` to `rheidos/houdini/scripts/cook_demo.py`.
+3) Leave `module_path` empty and set `mode` to `cook`.
+4) Toggle `reset_node` once if you just changed scripts.
+
+### Run the Poisson DEC cook script
+
+1) Ensure the input geometry is triangulated (Triangulate SOP or Convert with "Triangulate").
+2) Add point groups `poisson_pos` and `poisson_neg` (or a float point attribute `poisson_charge`).
+3) Create a Rheidos Cook SOP and connect input 0.
+4) Set `script_path` to `rheidos/houdini/scripts/poisson_dec.py` and `mode` to `cook`.
+5) Read the output point attribute `poisson_u` for visualization or downstream processing.
+
+### Run a solver step with the Solver SOP HDA
+
+1) Create a Rheidos Solver SOP with input 0 = previous frame and input 1 = current
+   input (optional).
+2) Set `script_path` to `rheidos/houdini/scripts/solver_demo.py`.
+3) Set `mode` to `solver`.
+4) If you need substeps, set `substep` on the node.
+
+### Run the drivers without HDAs (manual Python SOP)
 
 1) Create a Python SOP and connect input 0.
-2) Add spare parameters named: `script_path` (String), `module_path` (String),
-   `mode` (String), `reset_node` (Button), `nuke_all` (Button),
-   `profile` (Toggle), `debug_log` (Toggle).
-3) Set `script_path` to `rheidos/houdini/scripts/cook_demo.py`,
-   set `mode` to `cook`, and leave `module_path` empty.
-4) Paste this into the Python SOP:
+2) Add spare parameters named: `script_path`, `module_path`, `mode`, `reset_node`,
+   `nuke_all`, `profile`, `debug_log`, `last_error` (read-only).
+3) Paste this into the Python SOP:
    ```python
    from rheidos.houdini.scripts.cook_sop import main
    main()
    ```
-Result: The cook script runs on each cook; the demo colors the geometry.
+4) Set `script_path` and cook the node.
 
-### Run a solver script with the driver
+### Prepare geometry for publish_geometry_minimal
 
-1) Use a node that provides two inputs: input 0 = previous frame, input 1 = current input.
-2) Add the same spare parameters as the cook driver.
-3) Optional: add an integer parm named `substep` if you want substeps.
-4) Set `script_path` to `rheidos/houdini/scripts/solver_demo.py`.
-5) Paste this into the SOP:
-   ```python
-   from rheidos.houdini.scripts.solver_sop import main
-   main()
-   ```
-Result: The solver updates over time without double-stepping.
-
-### Run a Taichi simulation and visualize in Houdini (example)
-
-Prerequisites:
-- Taichi installed in Houdini's Python.
-- A solver-style SOP with two inputs (prev + current).
-
-Steps:
-1) Create a file `taichi_solver.py` (for example next to the hip file).
-2) Paste this into the file:
-   ```python
-   import numpy as np
-   import taichi as ti
-
-   STATE_ATTR = "ti_state"
-
-   @ti.kernel
-   def _advance(P: ti.template(), V: ti.template(), dt: float) -> None:
-       for i in P:
-           V[i].y += -9.8 * dt
-           P[i] += V[i] * dt
-
-   def _state(ctx):
-       state = getattr(ctx.session, STATE_ATTR, None)
-       if state is None:
-           try:
-               ti.init(arch=ti.cpu)
-           except Exception:
-               pass
-           P0 = ctx.P().astype(np.float32)
-           n = P0.shape[0]
-           P = ti.Vector.field(3, dtype=ti.f32, shape=n)
-           V = ti.Vector.field(3, dtype=ti.f32, shape=n)
-           P.from_numpy(P0)
-           V.from_numpy(np.zeros_like(P0))
-           state = {"P": P, "V": V}
-           setattr(ctx.session, STATE_ATTR, state)
-       return state
-
-   def setup(ctx) -> None:
-       _state(ctx)
-
-   def step(ctx) -> None:
-       state = _state(ctx)
-       _advance(state["P"], state["V"], ctx.dt)
-       ctx.set_P(state["P"].to_numpy())
-   ```
-3) In the SOP, set `script_path` to the file and run:
-   ```python
-   from rheidos.houdini.scripts.solver_sop import main
-   main()
-   ```
-Result: The points fall under gravity and update every frame.
-
-Notes:
-- If point count changes, press `reset_node` to reinitialize Taichi fields.
-- If Taichi complains about re-initialization, use `nuke_all` before reloading.
+1) If your geometry is not triangles, insert a Triangulate SOP (or Convert with
+   "Triangulate") upstream.
+2) If you cannot triangulate, skip `publish_geometry_minimal(ctx)` and only read
+   what you need (for example `ctx.P()`).
 
 ### Switch user scripts safely (no hot reload)
 
 1) Change `script_path` or `module_path`.
-2) Press the `reset_node` button or call `get_runtime().reset_session(...)`.
+2) Toggle `reset_node` on (it auto-clears after the cook) or call
+   `get_runtime().reset_session(...)`.
 
-### Output geometry via `out.P`
+### Record diagnostics from user scripts
+
+1) Toggle `profile` to collect timing spans in `session.stats["last_timings"]`.
+2) Call `ctx.log("my message", value=123)` inside your script.
+3) Inspect `session.log_entries` in a Python shell.
+
+### Output geometry via out.P
 
 Publish point positions under `out.P` from your user script:
 
@@ -268,6 +244,16 @@ io = GeometryIO(geo_in, geo_in)
 mask = io.read_group(OWNER_POINT, "my_group", as_mask=True)
 ```
 
+### Read a point group with solver defaults
+
+In a Cook/Solver script:
+
+```python
+from rheidos.houdini.geo import OWNER_POINT
+
+mask = ctx.read_group_default(OWNER_POINT, "my_group")
+```
+
 ### Publish standard geometry keys
 
 In a Python SOP with input 0 connected:
@@ -355,7 +341,7 @@ Exports:
 - `SIM_TIME`, `SIM_DT`, `SIM_FRAME`, `SIM_SUBSTEP`
 - `SessionKey`
 - `WorldSession`
-- `build_cook_context(node, geo_in, geo_out, session, substep=0) -> CookContext`
+- `build_cook_context(node, geo_in, geo_out, session, substep=0, is_solver=False) -> CookContext`
 - `get_runtime() -> ComputeRuntime`
 - `make_session_key(node: hou.Node) -> SessionKey`
 - `point_attrib(name: str) -> str`
@@ -423,8 +409,12 @@ Constants:
 - `last_step_key: Optional[Tuple[Any, ...]]`
 - `last_output_cache: Dict[str, np.ndarray]`
 - `last_geo_snapshot: Optional[Any]`
+- `last_triangles: Optional[np.ndarray]`
+- `last_topology_sig: Optional[Tuple[int, int, int]]`
+- `last_topology_key: Optional[Tuple[Any, ...]]`
 - `last_error: Optional[BaseException]`
 - `last_traceback: Optional[str]`
+- `log_entries: Deque[Dict[str, Any]]`
 - `stats: Dict[str, Any]`
 - `created_at: float`
 - `last_cook_at: Optional[float]`
@@ -442,6 +432,13 @@ Module helpers:
 - `get_runtime() -> ComputeRuntime`
 - `make_session_key(node: hou.Node) -> SessionKey`
 
+### Module: `rheidos.houdini.nodes`
+
+Exports:
+- `build_assets(output_path: Optional[str] = None) -> str`
+- `NodeConfig`
+- `read_node_config(node: hou.Node) -> NodeConfig`
+
 ### Module: `rheidos.houdini.runtime.cook_context`
 
 `CookContext` (dataclass)
@@ -450,6 +447,7 @@ Module helpers:
 - `time: float`
 - `dt: float`
 - `substep: int`
+- `is_solver: bool`
 - `session: WorldSession`
 - `geo_in: hou.Geometry`
 - `geo_out: hou.Geometry`
@@ -462,6 +460,7 @@ Module helpers:
 - `write(owner: str, name: str, values, create: bool = True) -> None`
 - `read_prims(arity: int = 3) -> np.ndarray`
 - `read_group(owner: str, group_name: str, as_mask: bool = False) -> np.ndarray`
+- `read_group_default(owner: str, group_name: str, as_mask: Optional[bool] = None) -> np.ndarray`
 - `P() -> np.ndarray`
 - `set_P(values) -> None`
 - `triangles() -> np.ndarray`
@@ -469,9 +468,10 @@ Module helpers:
 - `publish_many(items: Dict[str, Any]) -> None`
 - `fetch(key: str) -> Any`
 - `ensure(key: str) -> None`
+- `log(message: str, **payload) -> None`
 
 Functions:
-- `build_cook_context(node, geo_in, geo_out, session, substep=0) -> CookContext`
+- `build_cook_context(node, geo_in, geo_out, session, substep=0, is_solver=False) -> CookContext`
 
 ### Module: `rheidos.houdini.runtime.driver`
 
@@ -545,6 +545,24 @@ Functions:
 
 ## Explanation (help me understand why)
 
+### Why HDAs and OTL files exist
+
+HDAs package a node's UI, scripts, and defaults into a reusable Houdini node type.
+The `.otl` file is an asset library that Houdini scans to register those node types.
+This removes manual Python SOP setup and guarantees the expected parameter names.
+
+### What geometry is required
+
+The HDA itself does not require any fixed attributes. The runtime expects point
+positions `P` (always present in Houdini geometry) and, when `publish_geometry_minimal`
+is used, triangle topology. Any other attributes are only required if your script
+reads or writes them.
+
+### Why triangles are required right now
+
+The compute bridge publishes `geo.triangles` as explicit topology for downstream
+compute nodes. That keeps the data contract clear and avoids hidden triangulation.
+
 ### Why GeometryIO is bulk and owner-based
 
 Houdini geometry is naturally segmented by owner (point, prim, vertex, detail). Using
@@ -610,5 +628,5 @@ missing, which surfaces configuration errors early and keeps node scripts determ
 ### Current scope
 
 This package provides runtime session management, parameter parsing, geometry adapters,
-CookContext helpers, standardized resource keys, publish utilities, and node drivers
-for cook/solver modes (plus minimal demo scripts).
+CookContext helpers, standardized resource keys, publish utilities, diagnostics hooks,
+HDA build tooling, and node drivers for cook/solver modes (plus minimal demo scripts).

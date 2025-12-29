@@ -4,6 +4,7 @@ from __future__ import annotations
 
 
 def main() -> None:
+    """Run the cook driver using the current Houdini Python SOP context."""
     import hou  # type: ignore
 
     from rheidos.houdini.runtime import run_cook

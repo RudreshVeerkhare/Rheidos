@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass, field
 from types import ModuleType
-from typing import Any, Dict, Optional, Tuple, TYPE_CHECKING
+from typing import Any, Deque, Dict, Optional, Tuple, TYPE_CHECKING
 import time
 
 import numpy as np
@@ -49,8 +50,12 @@ class WorldSession:
     last_step_key: Optional[Tuple[Any, ...]] = None
     last_output_cache: Dict[str, np.ndarray] = field(default_factory=dict)
     last_geo_snapshot: Optional[Any] = None
+    last_triangles: Optional[np.ndarray] = None
+    last_topology_sig: Optional[Tuple[int, int, int]] = None
+    last_topology_key: Optional[Tuple[Any, ...]] = None
     last_error: Optional[BaseException] = None
     last_traceback: Optional[str] = None
+    log_entries: Deque[Dict[str, Any]] = field(default_factory=lambda: deque(maxlen=200))
     stats: Dict[str, Any] = field(default_factory=dict)
     created_at: float = field(default_factory=time.time)
     last_cook_at: Optional[float] = None
@@ -63,7 +68,11 @@ class WorldSession:
         self.last_step_key = None
         self.last_output_cache.clear()
         self.last_geo_snapshot = None
+        self.last_triangles = None
+        self.last_topology_sig = None
+        self.last_topology_key = None
         self.clear_error()
+        self.clear_log()
         self.stats.clear()
         self.last_cook_at = None
         self.stats["last_reset_reason"] = reason
@@ -77,6 +86,14 @@ class WorldSession:
     def clear_error(self) -> None:
         self.last_error = None
         self.last_traceback = None
+
+    def log_event(self, message: str, **payload: Any) -> None:
+        entry = {"message": message, "ts": time.time()}
+        entry.update(payload)
+        self.log_entries.append(entry)
+
+    def clear_log(self) -> None:
+        self.log_entries.clear()
 
 
 class ComputeRuntime:

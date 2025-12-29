@@ -47,6 +47,7 @@ class CookContext:
     time: float
     dt: float
     substep: int
+    is_solver: bool
     session: WorldSession
     geo_in: "hou.Geometry"
     geo_out: "hou.Geometry"
@@ -86,6 +87,17 @@ class CookContext:
     def read_group(self, owner: str, group_name: str, *, as_mask: bool = False) -> np.ndarray:
         return self.io.read_group(owner, group_name, as_mask=as_mask)
 
+    def read_group_default(
+        self,
+        owner: str,
+        group_name: str,
+        *,
+        as_mask: Optional[bool] = None,
+    ) -> np.ndarray:
+        if as_mask is None:
+            as_mask = bool(self.is_solver)
+        return self.read_group(owner, group_name, as_mask=as_mask)
+
     def P(self) -> np.ndarray:
         return self.read(OWNER_POINT, "P", components=3)
 
@@ -104,14 +116,41 @@ class CookContext:
         reg.commit(key, buffer=value)
 
     def publish_many(self, items: Dict[str, Any]) -> None:
-        for key in sorted(items.keys()):
-            self.publish(key, items[key])
+        reg = self.world().reg
+        keys = sorted(items.keys())
+        pending: Dict[str, Any] = {}
+        for key in keys:
+            value = items[key]
+            if not _resource_exists(reg, key):
+                reg.declare(key, buffer=value, spec=_spec_for_value(value))
+                reg.commit(key)
+            else:
+                pending[key] = value
+        if not pending:
+            return
+        commit_many = getattr(reg, "commit_many", None)
+        if callable(commit_many):
+            commit_many(pending.keys(), buffers=pending)
+            return
+        for key, value in pending.items():
+            reg.commit(key, buffer=value)
 
     def fetch(self, key: str) -> Any:
         return self.world().reg.read(key, ensure=True)
 
     def ensure(self, key: str) -> None:
         self.world().reg.ensure(key)
+
+    def log(self, message: str, **payload: Any) -> None:
+        self.session.log_event(
+            message,
+            node_path=self.node.path(),
+            frame=self.frame,
+            time=self.time,
+            dt=self.dt,
+            substep=self.substep,
+            **payload,
+        )
 
 
 def build_cook_context(
@@ -121,6 +160,7 @@ def build_cook_context(
     session: WorldSession,
     *,
     substep: int = 0,
+    is_solver: bool = False,
 ) -> CookContext:
     hou = _get_hou()
     fps = hou.fps()
@@ -131,6 +171,7 @@ def build_cook_context(
         time=hou.time(),
         dt=dt,
         substep=substep,
+        is_solver=is_solver,
         session=session,
         geo_in=geo_in,
         geo_out=geo_out,

@@ -8,6 +8,11 @@ from rheidos.houdini.geo import OWNER_POINT
 
 
 def cook(ctx) -> None:
+    """Color points based on normalized position.
+
+    Args:
+        ctx: Cook context providing access to geometry IO.
+    """
     P = ctx.P()
     if P.size == 0:
         return

@@ -1,0 +1,10 @@
+{
+  "env": [
+    {
+      "PYTHONPATH": "$PACKAGE_DIR/..;&"
+    },
+    {
+      "HOUDINI_OTLSCAN_PATH": "$PACKAGE_DIR/../rheidos/houdini/otls;&"
+    }
+  ]
+}
