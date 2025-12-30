@@ -98,6 +98,40 @@ Exports:
 - `point_group_mask(name) -> str`
 - `point_group_indices(name) -> str`
 
+## Module: rheidos.houdini.debug
+
+### DebugConfig (dataclass, frozen)
+- `enabled: bool`
+- `host: str`
+- `port: int`
+- `port_strategy: Literal["fixed", "fallback", "auto"]`
+- `allow_remote: bool`
+- `take_ownership: bool`
+- `owner_hint: Optional[str]`
+- `log: bool`
+
+### DebugState (dataclass)
+- `started: bool`
+- `host: str`
+- `port: int`
+- `owner_node_path: Optional[str]`
+- `pid: int`
+- `warned_missing_debugpy: bool`
+- `warned_port_bind: bool`
+- `warned_remote_host: bool`
+- `warned_break_unattached: bool`
+- `warned_break_failed: bool`
+- `break_next: bool`
+- `break_owner: Optional[str]`
+- `info_printed: bool`
+
+Functions:
+- `debug_config_from_node(node) -> DebugConfig`
+- `ensure_debug_server(cfg, node=None) -> DebugState`
+- `request_break_next(node=None) -> None`
+- `maybe_break_now(node=None) -> None`
+- `consume_break_next_button(node) -> bool`
+
 ## Module: rheidos.houdini.geo
 
 Exports:

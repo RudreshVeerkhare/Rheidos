@@ -10,6 +10,13 @@ import traceback
 import numpy as np
 
 from ..nodes.config import read_node_config
+from ..debug import (
+    consume_break_next_button,
+    debug_config_from_node,
+    ensure_debug_server,
+    maybe_break_now,
+    request_break_next,
+)
 from .cook_context import CookContext, build_cook_context
 from .publish import publish_geometry_minimal
 from .resource_keys import SIM_DT, SIM_FRAME, SIM_SUBSTEP, SIM_TIME
@@ -239,6 +246,17 @@ def _time_span(
         session.stats["last_timings"] = timings
 
 
+def _maybe_debug(node: "hou.Node") -> None:
+    try:
+        cfg = debug_config_from_node(node)
+        ensure_debug_server(cfg, node=node)
+        if consume_break_next_button(node):
+            request_break_next(node=node)
+        maybe_break_now(node=node)
+    except Exception:
+        return
+
+
 def run_cook(
     node: "hou.Node",
     geo_in: Optional["hou.Geometry"],
@@ -258,6 +276,7 @@ def run_cook(
         session.clear_error()
         _warn_mode_mismatch(node, config.mode, "cook")
         timings = _start_timings(session, config.profile)
+        _maybe_debug(node)
 
         module = resolve_user_module(session, config, node)
         cook_fn = _get_callable(module, "cook", required=True)
@@ -311,6 +330,7 @@ def run_solver(
         session.clear_error()
         _warn_mode_mismatch(node, config.mode, "solver")
         timings = _start_timings(session, config.profile)
+        _maybe_debug(node)
 
         module = resolve_user_module(session, config, node)
         setup_fn = _get_callable(module, "setup", required=False)

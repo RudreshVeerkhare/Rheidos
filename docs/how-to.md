@@ -133,3 +133,43 @@ Steps:
 2) Inspect `session.log_entries` in a Houdini Python shell.
 
 Result: The session contains structured log entries with timestamps.
+
+## Houdini: Attach a debugger with debugpy
+
+Goal: Attach VS Code (or any debugpy client) to a running Houdini cook without blocking.
+
+Steps:
+1) Install `debugpy` into Houdini's Python.
+   ```python
+   import sys
+   print(sys.executable)
+   ```
+   Then in a terminal:
+   ```bash
+   <hython> -m pip install --user debugpy
+   ```
+2) Add the debug parameters to your Python SOP/Solver SOP (or HDA):
+   - `debug_enable` (toggle)
+   - `debug_port` (int, default 5678)
+   - `debug_port_strategy` (menu: Fixed/Fallback/Auto)
+   - `debug_take_ownership` (toggle)
+   - `debug_break_next` (button)
+   - `debug_allow_remote` (toggle, optional)
+3) Enable debugging on a node and cook once.
+   Result: The Houdini console prints the attach host/port once per session.
+4) Attach from VS Code with:
+   ```json
+   {
+     "type": "python",
+     "request": "attach",
+     "host": "127.0.0.1",
+     "port": 5678
+   }
+   ```
+5) Press `debug_break_next` and recook to break at the next cook when attached.
+
+Notes:
+- Environment overrides are supported: `RHEIDOS_DEBUG=1`, `RHEIDOS_DEBUG_PORT=5678`,
+  `RHEIDOS_DEBUG_HOST=127.0.0.1`, `RHEIDOS_DEBUG_PORT_STRATEGY=fallback`,
+  `RHEIDOS_DEBUG_REMOTE=1` (aliases with `RHEDIOS_` also work).
+- Remote attach is blocked unless `debug_allow_remote` or `*_DEBUG_REMOTE=1` is set.

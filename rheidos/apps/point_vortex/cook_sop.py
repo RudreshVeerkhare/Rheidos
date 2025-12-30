@@ -8,6 +8,13 @@
 
 import hou
 
+from rheidos.houdini.debug import (
+    consume_break_next_button,
+    debug_config_from_node,
+    ensure_debug_server,
+    maybe_break_now,
+    request_break_next,
+)
 from rheidos.houdini.runtime import (
     build_cook_context,
     get_runtime,
@@ -33,9 +40,15 @@ def _seed_output(geo_out: hou.Geometry, geo_in: hou.Geometry) -> None:
     geo_out.merge(geo_in)
 
 
-def main() -> None:
+def run_cook() -> None:
     node = hou.pwd()
     geo_out = node.geometry()
+
+    cfg = debug_config_from_node(node)
+    ensure_debug_server(cfg, node=node)
+    if consume_break_next_button(node):
+        request_break_next(node=node)
+    maybe_break_now(node=node)
 
     # 1) Read input geometry and pass-through to output
     geo_in = _get_input_geo(node)

@@ -12,6 +12,13 @@
 
 import hou
 
+from rheidos.houdini.debug import (
+    consume_break_next_button,
+    debug_config_from_node,
+    ensure_debug_server,
+    maybe_break_now,
+    request_break_next,
+)
 from rheidos.houdini.runtime import (
     build_cook_context,
     get_runtime,
@@ -59,9 +66,15 @@ def _publish_sim_keys(ctx) -> None:
     ctx.publish(SIM_SUBSTEP, ctx.substep)
 
 
-def main() -> None:
+def run_solver() -> None:
     node = hou.pwd()
     geo_out = node.geometry()
+
+    cfg = debug_config_from_node(node)
+    ensure_debug_server(cfg, node=node)
+    if consume_break_next_button(node):
+        request_break_next(node=node)
+    maybe_break_now(node=node)
 
     geo_prev = _geo_from_input(node, 0)  # solver feedback
     geo_in = _geo_from_input(node, 1)  # optional external input this frame
