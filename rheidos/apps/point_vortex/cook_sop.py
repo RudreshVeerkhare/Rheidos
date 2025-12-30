@@ -66,7 +66,3 @@ def main() -> None:
     # Example: if your app produces primitive color "out.Cd_prim"
     # if ctx.exists("out.Cd_prim"):
     #     ctx.set_prim_Cd(ctx.fetch("out.Cd_prim"))  # adjust to your API
-
-
-# Houdini executes the SOP by running this script.
-main()
