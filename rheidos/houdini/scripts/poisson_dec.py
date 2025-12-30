@@ -51,7 +51,7 @@ def _ensure_taichi_init(session) -> None:
 
 
 def _ensure_vector_field(ref, count: int, *, lanes: int, dtype) -> "ti.Field":
-    field = ref.get(ensure=False)
+    field = ref.peek()
     if field is None or tuple(field.shape) != (count,) or getattr(field, "n", lanes) != lanes:
         field = ti.Vector.field(lanes, dtype=dtype, shape=(count,))
         ref.set_buffer(field, bump=False)
@@ -59,7 +59,7 @@ def _ensure_vector_field(ref, count: int, *, lanes: int, dtype) -> "ti.Field":
 
 
 def _ensure_scalar_field(ref, count: int, *, dtype) -> "ti.Field":
-    field = ref.get(ensure=False)
+    field = ref.peek()
     if field is None or tuple(field.shape) != (count,):
         field = ti.field(dtype=dtype, shape=(count,))
         ref.set_buffer(field, bump=False)

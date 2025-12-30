@@ -1,10 +1,19 @@
 from typing import Tuple, Set, List, Any, Sequence, Optional, Iterable, Callable, TypeVar, Dict, Mapping
 from dataclasses import dataclass, field
 import numpy as np
-from .resource import Resource, ResourceSpec
+from .resource import Resource, ResourceSpec, ResourceRef, ResourceKey
 from .typing import ResourceName
 
 T = TypeVar("T")
+DepLike = ResourceName | ResourceRef[Any] | ResourceKey[Any]
+
+
+def _dep_name(dep: DepLike) -> ResourceName:
+    if isinstance(dep, ResourceRef):
+        return dep.name
+    if isinstance(dep, ResourceKey):
+        return dep.full_name
+    return dep
 
 
 
@@ -41,7 +50,7 @@ class Registry:
         name: ResourceName,
         *,
         buffer: Any = None,
-        deps: Sequence[ResourceName] = (),
+        deps: Sequence[DepLike] = (),
         producer: Optional[ProducerBase] = None,
         description: str = "",
         spec: Optional[ResourceSpec] = None,
@@ -51,7 +60,7 @@ class Registry:
         r = Resource(
             name=name,
             buffer=buffer,
-            deps=tuple(deps),
+            deps=tuple(_dep_name(d) for d in deps),
             producer=producer,
             description=description,
             spec=spec,

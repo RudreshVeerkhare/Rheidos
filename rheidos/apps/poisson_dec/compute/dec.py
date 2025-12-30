@@ -104,10 +104,10 @@ class BuildDEC(WiredProducer[BuildDECIO]):
 
     def compute(self, reg: Registry) -> None:
         io = self.io
-        V = io.V_pos.get(ensure=False)
-        F = io.F_verts.get(ensure=False)
-        E = io.E_verts.get(ensure=False)
-        EO = io.E_opp.get(ensure=False)
+        V = io.V_pos.peek()
+        F = io.F_verts.peek()
+        E = io.E_verts.peek()
+        EO = io.E_opp.peek()
         if V is None or F is None or E is None or EO is None:
             raise RuntimeError("Missing mesh buffers for DEC build.")
 
@@ -115,9 +115,9 @@ class BuildDEC(WiredProducer[BuildDECIO]):
         nF = F.shape[0]
         nE = E.shape[0]
 
-        s0 = io.star0.get(ensure=False)
-        s1 = io.star1.get(ensure=False)
-        s2 = io.star2.get(ensure=False)
+        s0 = io.star0.peek()
+        s1 = io.star1.peek()
+        s2 = io.star2.peek()
 
         needs_alloc = (
             s0 is None or s1 is None or s2 is None

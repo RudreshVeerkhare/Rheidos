@@ -96,7 +96,7 @@ class BuildUniqueEdges(WiredProducer[BuildUniqueEdgesIO]):
 
     def compute(self, reg: Registry) -> None:
         io = self.io
-        F = io.F_verts.get(ensure=False)
+        F = io.F_verts.peek()
         if F is None:
             raise RuntimeError("F_verts not set.")
 
@@ -134,9 +134,9 @@ class BuildUniqueEdges(WiredProducer[BuildUniqueEdgesIO]):
         E_opp_np = np.array(E_opp, dtype=np.int32)      # (nE,2)
         nE = E_verts_np.shape[0]
 
-        E = io.E_verts.get(ensure=False)
-        EF = io.E_faces.get(ensure=False)
-        EO = io.E_opp.get(ensure=False)
+        E = io.E_verts.peek()
+        EF = io.E_faces.peek()
+        EO = io.E_opp.peek()
 
         needs_alloc = (
             E is None or EF is None or EO is None

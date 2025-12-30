@@ -299,10 +299,10 @@ class SolvePoissonDirichlet(WiredProducer["SolvePoissonDirichletIO"]):
     def compute(self, reg: "Registry") -> None:
         io = self.io
 
-        E = io.E_verts.get(ensure=False)
-        w = io.w.get(ensure=False)
-        mask = io.mask.get(ensure=False)
-        val = io.value.get(ensure=False)
+        E = io.E_verts.peek()
+        w = io.w.peek()
+        mask = io.mask.peek()
+        val = io.value.peek()
 
         if E is None or w is None or mask is None or val is None:
             raise RuntimeError("Missing inputs for Poisson solve.")
@@ -324,7 +324,7 @@ class SolvePoissonDirichlet(WiredProducer["SolvePoissonDirichletIO"]):
         nV = int(mask.shape[0])
 
         # ---- Ensure output u exists and matches nV ----
-        u = io.u.get(ensure=False)
+        u = io.u.peek()
         if u is None or u.shape != (nV,):
             u = ti.field(dtype=ti.f32, shape=(nV,))
             io.u.set_buffer(u, bump=False)

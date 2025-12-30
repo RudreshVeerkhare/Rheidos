@@ -5,10 +5,12 @@ from .resource import ResourceRef, ResourceKey
 from .registry import Registry, ResourceSpec, ProducerBase
 
 M = TypeVar("M", bound="ModuleBase")
+DepLike = str | ResourceRef[Any] | ResourceKey[Any]
 
 # =============================================================================
 # Implicit naming / scope
 # =============================================================================
+
 
 @dataclass(frozen=True)
 class Namespace:
@@ -28,6 +30,7 @@ class Namespace:
 # =============================================================================
 # Modules + World (NO REQUIRES; dynamic deps only) + cycle detection
 # =============================================================================
+
 
 class ModuleBase:
     NAME: str = "Module"
@@ -65,7 +68,7 @@ class ModuleBase:
         doc: str = "",
         declare: bool = False,
         buffer: Any = None,
-        deps: Sequence[str] = (),
+        deps: Sequence[DepLike] = (),
         producer: Optional["ProducerBase"] = None,
         description: str = "",
     ) -> ResourceRef[Any]:
@@ -90,7 +93,7 @@ class ModuleBase:
         ref: ResourceRef[Any],
         *,
         buffer: Any = None,
-        deps: Sequence[str] = (),
+        deps: Sequence[DepLike] = (),
         producer: Optional["ProducerBase"] = None,
         description: str = "",
     ) -> None:

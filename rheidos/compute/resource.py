@@ -15,6 +15,7 @@ from .typing import ResourceName, Shape, ShapeFn
 T = TypeVar("T")
 ResourceKind = Literal["taichi_field", "numpy", "python"]
 
+
 @dataclass(frozen=True)
 class ResourceSpec:
     """
@@ -76,7 +77,6 @@ class Resource:
     spec: Optional[ResourceSpec] = None
 
 
-
 @dataclass(frozen=True)
 class ResourceKey(Generic[T]):
     full_name: str
@@ -102,8 +102,11 @@ class ResourceRef(Generic[T]):
     def ensure(self) -> None:
         self._reg.ensure(self.name)
 
-    def get(self, *, ensure: bool = True) -> T:
-        return cast(T, self._reg.read(self.name, ensure=ensure))
+    def get(self) -> T:
+        return cast(T, self._reg.read(self.name, ensure=True))
+
+    def peek(self) -> T:
+        return cast(T, self._reg.read(self.name, ensure=False))
 
     def set(self, value: T, *, unsafe: bool = False) -> None:
         # "Replace buffer + mark fresh"
