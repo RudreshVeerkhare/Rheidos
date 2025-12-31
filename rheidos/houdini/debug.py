@@ -94,7 +94,9 @@ def debug_config_from_node(node: "hou.Node") -> DebugConfig:
     )
 
 
-def ensure_debug_server(cfg: DebugConfig, *, node: Optional["hou.Node"] = None) -> DebugState:
+def ensure_debug_server(
+    cfg: DebugConfig, *, node: Optional["hou.Node"] = None
+) -> DebugState:
     state = _get_state()
     if not cfg.enabled:
         return state
@@ -125,7 +127,7 @@ def ensure_debug_server(cfg: DebugConfig, *, node: Optional["hou.Node"] = None) 
     for port in _candidate_ports(cfg, host):
         attempted_ports.append(port)
         try:
-            debugpy.listen((host, port))
+            debugpy.listen((host, port), in_process_debug_adapter=True)
         except Exception:
             continue
         state.started = True
@@ -259,7 +261,9 @@ def _owner_is_stale(owner_path: Optional[str]) -> bool:
         return False
 
 
-def _update_owner(state: DebugState, cfg: DebugConfig, *, node: Optional["hou.Node"]) -> None:
+def _update_owner(
+    state: DebugState, cfg: DebugConfig, *, node: Optional["hou.Node"]
+) -> None:
     owner_hint = cfg.owner_hint or _node_path(node)
     if state.owner_node_path is None and owner_hint:
         state.owner_node_path = owner_hint
@@ -288,8 +292,7 @@ def _print_startup_message(state: DebugState) -> None:
     print(f"[rheidos] Owner: {owner}")
     print(f"[rheidos] Attach: {state.host}:{state.port}")
     print(
-        "[rheidos] VS Code: Python: Attach -> "
-        f"host {state.host} port {state.port}"
+        "[rheidos] VS Code: Python: Attach -> " f"host {state.host} port {state.port}"
     )
     _maybe_show_ui_message(
         "\n".join(
@@ -487,4 +490,3 @@ def _parse_bool(value: Optional[str]) -> Optional[bool]:
     if text in ("0", "false", "no", "off", "n"):
         return False
     return None
-
