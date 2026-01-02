@@ -1,8 +1,8 @@
 from rheidos.compute import ModuleBase, World, ResourceSpec
 import taichi as ti
 
-from ..producers.topology import TopologyProducer
-from ..producers.geometry import GeometryProducer
+from ..producers.mesh_topology import TopologyProducer
+from ..producers.mesh_geometry import GeometryProducer
 
 
 class SurfaceMeshModule(ModuleBase):
@@ -56,17 +56,37 @@ class SurfaceMeshModule(ModuleBase):
             doc="Opposite vertex per edge side of adjacent triangles. Shape: (nE, vec2i)",
         )
 
+        self.F_edges = self.resource(
+            "F_edges",
+            spec=ResourceSpec(
+                kind="taichi_field", dtype=ti.i32, lanes=3, allow_none=True
+            ),
+            doc="Edge id per face directed edge (a->b, b->c, c->a). Shape: (nF, vec3i)",
+        )
+
+        self.F_edge_sign = self.resource(
+            "F_edge_sign",
+            spec=ResourceSpec(
+                kind="taichi_field", dtype=ti.i32, lanes=3, allow_none=True
+            ),
+            doc="Sign +1/-1 per face directed edge relative to canonical E_verts orientation. Shape: (nF, vec3i)",
+        )
+
         topology_producer = TopologyProducer(
             F_verts=self.F_verts,
             E_verts=self.E_verts,
             E_faces=self.E_faces,
             E_opp=self.E_opp,
+            F_edges=self.F_edges,
+            F_edge_sign=self.F_edge_sign,
         )
         deps = (self.F_verts,)
 
         self.declare_resource(self.E_verts, deps=deps, producer=topology_producer)
         self.declare_resource(self.E_faces, deps=deps, producer=topology_producer)
         self.declare_resource(self.E_opp, deps=deps, producer=topology_producer)
+        self.declare_resource(self.F_edges, deps=deps, producer=topology_producer)
+        self.declare_resource(self.F_edge_sign, deps=deps, producer=topology_producer)
 
         # Geometry/Metric dependant resources
         self.F_area = self.resource(
