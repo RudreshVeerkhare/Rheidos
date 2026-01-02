@@ -44,6 +44,23 @@ def _geo_from_input(node: hou.Node, idx: int) -> hou.Geometry | None:
     return g
 
 
+def _collect_input_geos(node: hou.Node) -> list[hou.Geometry | None]:
+    inputs = node.inputs()
+    if not inputs:
+        return []
+    geos: list[hou.Geometry | None] = []
+    for input_node in inputs:
+        if input_node is None:
+            geos.append(None)
+            continue
+        try:
+            geo = input_node.geometry()
+        except Exception:
+            geo = None
+        geos.append(geo)
+    return geos
+
+
 def _seed_output(geo_out: hou.Geometry, source: hou.Geometry) -> None:
     geo_out.clear()
     geo_out.merge(source)
@@ -96,11 +113,19 @@ def run_solver() -> None:
     substep = int(node.evalParm("substep")) if node.parm("substep") else 0
 
     # 4) Build a solver context
+    input_geos = _collect_input_geos(node)
+    if input_geos:
+        input_geos[0] = geo_prev
+        if len(input_geos) > 1:
+            input_geos[1] = geo_in
+    else:
+        input_geos = [geo_prev, geo_in]
     ctx = build_cook_context(
         node,
         source,  # input snapshot for reading
         geo_out,  # output geometry to write
         session,
+        geo_inputs=input_geos,
         substep=substep,
         is_solver=True,
     )

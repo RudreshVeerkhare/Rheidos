@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import dataclass, field
 from types import ModuleType
-from typing import Any, Deque, Dict, Optional, Tuple, TYPE_CHECKING
+from typing import Any, Deque, Dict, Optional, Tuple, TYPE_CHECKING, Literal
 import time
 
 import numpy as np
@@ -18,11 +18,14 @@ if TYPE_CHECKING:
     import hou
 
 __all__ = [
+    "AccessMode",
     "ComputeRuntime",
+    "SessionAccess",
     "SessionKey",
     "WorldSession",
     "get_runtime",
     "make_session_key",
+    "make_session_key_for_path",
 ]
 
 
@@ -41,6 +44,18 @@ def make_session_key(node: "hou.Node") -> SessionKey:
     return SessionKey(hip_path=hou.hipFile.path(), node_path=node.path())
 
 
+def make_session_key_for_path(node_path: str) -> SessionKey:
+    try:
+        import hou  # type: ignore
+    except Exception as exc:  # pragma: no cover - only runs in Houdini
+        raise RuntimeError("Houdini 'hou' module not available") from exc
+
+    return SessionKey(hip_path=hou.hipFile.path(), node_path=node_path)
+
+
+AccessMode = Literal["read", "write"]
+
+
 @dataclass
 class WorldSession:
     world: Optional[World] = None
@@ -53,9 +68,14 @@ class WorldSession:
     last_triangles: Optional[np.ndarray] = None
     last_topology_sig: Optional[Tuple[int, int, int]] = None
     last_topology_key: Optional[Tuple[Any, ...]] = None
+    last_triangles_by_input: Dict[int, np.ndarray] = field(default_factory=dict)
+    last_topology_sig_by_input: Dict[int, Tuple[int, int, int]] = field(default_factory=dict)
+    last_topology_key_by_input: Dict[int, Tuple[Any, ...]] = field(default_factory=dict)
     last_error: Optional[BaseException] = None
     last_traceback: Optional[str] = None
-    log_entries: Deque[Dict[str, Any]] = field(default_factory=lambda: deque(maxlen=200))
+    log_entries: Deque[Dict[str, Any]] = field(
+        default_factory=lambda: deque(maxlen=200)
+    )
     stats: Dict[str, Any] = field(default_factory=dict)
     created_at: float = field(default_factory=time.time)
     last_cook_at: Optional[float] = None
@@ -71,6 +91,9 @@ class WorldSession:
         self.last_triangles = None
         self.last_topology_sig = None
         self.last_topology_key = None
+        self.last_triangles_by_input.clear()
+        self.last_topology_sig_by_input.clear()
+        self.last_topology_key_by_input.clear()
         self.clear_error()
         self.clear_log()
         self.stats.clear()
@@ -96,6 +119,72 @@ class WorldSession:
         self.log_entries.clear()
 
 
+class RegistryAccess:
+    def __init__(self, reg: Any, *, mode: AccessMode) -> None:
+        self._reg = reg
+        self._mode = mode
+
+    def _require_write(self) -> None:
+        if self._mode != "write":
+            raise PermissionError("Session access is read-only; use mode='write'")
+
+    def read(self, name: str, *, ensure: bool = True) -> Any:
+        return self._reg.read(name, ensure=ensure)
+
+    def ensure(self, name: str) -> None:
+        self._reg.ensure(name)
+
+    def declare(self, *args: Any, **kwargs: Any) -> Any:
+        self._require_write()
+        return self._reg.declare(*args, **kwargs)
+
+    def commit(self, *args: Any, **kwargs: Any) -> Any:
+        self._require_write()
+        return self._reg.commit(*args, **kwargs)
+
+    def commit_many(self, *args: Any, **kwargs: Any) -> Any:
+        self._require_write()
+        return self._reg.commit_many(*args, **kwargs)
+
+    def bump(self, *args: Any, **kwargs: Any) -> Any:
+        self._require_write()
+        return self._reg.bump(*args, **kwargs)
+
+    def set_buffer(self, *args: Any, **kwargs: Any) -> Any:
+        self._require_write()
+        return self._reg.set_buffer(*args, **kwargs)
+
+
+@dataclass
+class SessionAccess:
+    session: WorldSession
+    node_path: str
+    mode: AccessMode = "read"
+
+    def __post_init__(self) -> None:
+        if self.mode not in ("read", "write"):
+            raise ValueError(f"Unknown session access mode: {self.mode}")
+        self._reg_view = RegistryAccess(self._get_world().reg, mode=self.mode)
+
+    def _get_world(self) -> World:
+        if self.session.world is None:
+            self.session.world = World()
+        return self.session.world
+
+    @property
+    def reg(self) -> RegistryAccess:
+        return self._reg_view
+
+    def log(self, message: str, **payload: Any) -> None:
+        self.session.log_event(message, node_path=self.node_path, **payload)
+
+    def __enter__(self) -> "SessionAccess":
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        return False
+
+
 class ComputeRuntime:
     def __init__(self) -> None:
         self.sessions: Dict[SessionKey, WorldSession] = {}
@@ -107,6 +196,28 @@ class ComputeRuntime:
             session = WorldSession()
             self.sessions[key] = session
         return session
+
+    def get_session_by_path(
+        self, node_path: str, *, create: bool = False
+    ) -> WorldSession:
+        key = make_session_key_for_path(node_path)
+        session = self.sessions.get(key)
+        if session is None:
+            if not create:
+                raise KeyError(f"No session for node_path='{node_path}'")
+            session = WorldSession()
+            self.sessions[key] = session
+        return session
+
+    def session_access(
+        self,
+        node_path: str,
+        *,
+        mode: AccessMode = "read",
+        create: bool = False,
+    ) -> SessionAccess:
+        session = self.get_session_by_path(node_path, create=create)
+        return SessionAccess(session=session, node_path=node_path, mode=mode)
 
     def reset_session(self, node: "hou.Node", reason: str) -> None:
         key = make_session_key(node)

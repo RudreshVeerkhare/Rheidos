@@ -106,3 +106,33 @@ Steps:
    Result: The script colors the mesh by height.
 5) Action: Cook the node (or press Enter in the viewport).
    Result: The geometry displays a red-to-green gradient.
+
+Optional: Multi-input geometry in the same SOP.
+
+6) Action: Add a second input to the Python SOP (e.g., a Scatter SOP) and connect it to input 1.
+   Result: The Python SOP now has two connected inputs.
+7) Action: Update `my_cook.py` to read input 1 with `ctx.input_io(1)` and write a detail attribute.
+   Snippet:
+   ```python
+   import numpy as np
+   from rheidos.houdini.geo import OWNER_DETAIL, OWNER_POINT
+
+
+   def cook(ctx) -> None:
+       P = ctx.P()
+       z = P[:, 2]
+       z_min = float(z.min())
+       z_ptp = float(z.max() - z_min) or 1.0
+       t = (z - z_min) / z_ptp
+       Cd = np.stack([t, 1.0 - t, 0.2], axis=1).astype(np.float32)
+       ctx.write(OWNER_POINT, "Cd", Cd, create=True)
+
+       io1 = ctx.input_io(1)
+       P1 = io1.read(OWNER_POINT, "P", components=3)
+       if P1.size:
+           center = np.mean(P1, axis=0).astype(np.float32)
+       else:
+           center = np.zeros((3,), dtype=np.float32)
+       ctx.write(OWNER_DETAIL, "input1_center", center, create=True)
+   ```
+   Result: The output geometry stores the input-1 centroid as a detail attribute.

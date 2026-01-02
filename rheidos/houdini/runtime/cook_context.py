@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, TYPE_CHECKING
+from typing import Any, Dict, Optional, Sequence, TYPE_CHECKING
 
 import numpy as np
 
@@ -16,6 +16,7 @@ from .session import WorldSession
 
 if TYPE_CHECKING:
     import hou
+    from .session import AccessMode, SessionAccess
 
 
 def _get_hou() -> "hou":
@@ -40,6 +41,13 @@ def _spec_for_value(value: Any) -> ResourceSpec:
     return ResourceSpec(kind="python")
 
 
+def _make_read_only_io(geo: "hou.Geometry") -> GeometryIO:
+    io = GeometryIO(geo)
+    # Prevent accidental writes to input geometry.
+    io.geo_out = None
+    return io
+
+
 @dataclass
 class CookContext:
     node: "hou.Node"
@@ -52,6 +60,8 @@ class CookContext:
     geo_in: "hou.Geometry"
     geo_out: "hou.Geometry"
     io: GeometryIO
+    geo_inputs: tuple[Optional["hou.Geometry"], ...] = ()
+    io_inputs: tuple[Optional[GeometryIO], ...] = ()
     schema: Optional[GeometrySchema] = None
 
     def world(self) -> World:
@@ -61,12 +71,37 @@ class CookContext:
 
     def clear_cache(self) -> None:
         self.io.clear_cache()
+        for io in self.io_inputs:
+            if io is None or io is self.io:
+                continue
+            io.clear_cache()
 
     def describe(self, owner: Optional[str] = None) -> GeometrySchema:
         schema = self.io.describe(owner=owner)
         if owner is None:
             self.schema = schema
         return schema
+
+    def input_geo(self, index: int, *, required: bool = True) -> Optional["hou.Geometry"]:
+        inputs = self.geo_inputs or (self.geo_in,)
+        if index < 0 or index >= len(inputs):
+            raise IndexError(f"Input index {index} out of range (0-{len(inputs) - 1})")
+        geo = inputs[index]
+        if geo is None and required:
+            raise RuntimeError(f"Input geometry {index} is not connected.")
+        return geo
+
+    def input_io(self, index: int, *, required: bool = True) -> Optional[GeometryIO]:
+        if not self.io_inputs:
+            if index == 0:
+                return self.io
+            raise IndexError("Input IO list is empty; only index 0 is available.")
+        if index < 0 or index >= len(self.io_inputs):
+            raise IndexError(f"Input index {index} out of range (0-{len(self.io_inputs) - 1})")
+        io = self.io_inputs[index]
+        if io is None and required:
+            raise RuntimeError(f"Input geometry {index} is not connected.")
+        return io
 
     def read(
         self,
@@ -141,6 +176,29 @@ class CookContext:
     def ensure(self, key: str) -> None:
         self.world().reg.ensure(key)
 
+    def session_access(
+        self,
+        node_path: str,
+        *,
+        mode: "AccessMode" = "read",
+        create: bool = False,
+    ) -> "SessionAccess":
+        from .session import get_runtime
+
+        access = get_runtime().session_access(node_path, mode=mode, create=create)
+
+        caller_key = self.session.user_module_key
+        target_key = access.session.user_module_key
+        if caller_key and target_key and caller_key != target_key:
+            self.log(
+                "session_access.module_mismatch",
+                target_node_path=node_path,
+                caller_module=caller_key,
+                target_module=target_key,
+            )
+
+        return access
+
     def log(self, message: str, **payload: Any) -> None:
         self.session.log_event(
             message,
@@ -159,12 +217,22 @@ def build_cook_context(
     geo_out: "hou.Geometry",
     session: WorldSession,
     *,
+    geo_inputs: Optional[Sequence[Optional["hou.Geometry"]]] = None,
     substep: int = 0,
     is_solver: bool = False,
 ) -> CookContext:
     hou = _get_hou()
     fps = hou.fps()
     dt = 1.0 / fps if fps else 0.0
+    if geo_inputs is None:
+        geo_inputs_tuple = (geo_in,)
+    else:
+        geo_inputs_tuple = tuple(geo_inputs)
+        if not geo_inputs_tuple:
+            geo_inputs_tuple = (geo_in,)
+    io_inputs = tuple(
+        _make_read_only_io(geo) if geo is not None else None for geo in geo_inputs_tuple
+    )
     return CookContext(
         node=node,
         frame=hou.frame(),
@@ -176,4 +244,6 @@ def build_cook_context(
         geo_in=geo_in,
         geo_out=geo_out,
         io=GeometryIO(geo_in, geo_out),
+        geo_inputs=geo_inputs_tuple,
+        io_inputs=io_inputs,
     )

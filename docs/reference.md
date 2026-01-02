@@ -81,22 +81,23 @@ Exports from `rheidos.compute`:
 ## Module: rheidos.houdini
 
 Exports:
-- `CookContext`, `ComputeRuntime`, `WorldSession`, `SessionKey`
-- `build_cook_context(node, geo_in, geo_out, session, substep=0, is_solver=False) -> CookContext`
+- `AccessMode`, `CookContext`, `ComputeRuntime`, `SessionAccess`, `WorldSession`, `SessionKey`
+- `build_cook_context(node, geo_in, geo_out, session, geo_inputs=None, substep=0, is_solver=False) -> CookContext`
 - `get_runtime() -> ComputeRuntime`
 - `make_session_key(node) -> SessionKey`
+- `make_session_key_for_path(node_path) -> SessionKey`
 - `run_cook(node, geo_in, geo_out) -> None`
 - `run_solver(node, geo_prev, geo_in, geo_out, substep=0) -> None`
-- `publish_geometry_minimal(ctx) -> None`
-- `publish_group(ctx, group_name, as_mask=True) -> None`
-- `publish_point_attrib(ctx, name) -> None`
-- `publish_prim_attrib(ctx, name) -> None`
-- `GEO_P`, `GEO_TRIANGLES`
+- `publish_geometry_minimal(ctx, input_index=None) -> None`
+- `publish_group(ctx, group_name, as_mask=True, input_index=None) -> None`
+- `publish_point_attrib(ctx, name, input_index=None) -> None`
+- `publish_prim_attrib(ctx, name, input_index=None) -> None`
+- `GEO_P`, `GEO_TRIANGLES`, `geo_P(index=0) -> str`, `geo_triangles(index=0) -> str`
 - `SIM_TIME`, `SIM_DT`, `SIM_FRAME`, `SIM_SUBSTEP`
-- `point_attrib(name) -> str`
-- `prim_attrib(name) -> str`
-- `point_group_mask(name) -> str`
-- `point_group_indices(name) -> str`
+- `point_attrib(name, index=0) -> str`
+- `prim_attrib(name, index=0) -> str`
+- `point_group_mask(name, index=0) -> str`
+- `point_group_indices(name, index=0) -> str`
 
 ## Module: rheidos.houdini.debug
 
@@ -173,10 +174,14 @@ Exports:
 - `geo_in: hou.Geometry`
 - `geo_out: hou.Geometry`
 - `io: GeometryIO`
+- `geo_inputs: Tuple[Optional[hou.Geometry], ...]`
+- `io_inputs: Tuple[Optional[GeometryIO], ...]`
 - `schema: Optional[GeometrySchema]`
 - `world() -> World`
 - `clear_cache() -> None`
 - `describe(owner: Optional[str] = None) -> GeometrySchema`
+- `input_geo(index, required=True) -> Optional[hou.Geometry]`
+- `input_io(index, required=True) -> Optional[GeometryIO]`
 - `read(owner, name, *, dtype=None, components=None) -> np.ndarray`
 - `write(owner, name, values, *, create=True) -> None`
 - `read_prims(arity=3) -> np.ndarray`
@@ -189,13 +194,35 @@ Exports:
 - `publish_many(items: Dict[str, Any]) -> None`
 - `fetch(key) -> Any`
 - `ensure(key) -> None`
+- `session_access(node_path, *, mode="read", create=False) -> SessionAccess`
 - `log(message, **payload) -> None`
+
+### Session access examples
+
+Read-only access (default) to another node session:
+```python
+with ctx.session_access("/obj/geo1/py_sop2") as other:
+    values = other.reg.read("some.resource", ensure=True)
+    other.log("read resource", key="some.resource")
+```
+
+Write access when you need to update the other session:
+```python
+with ctx.session_access("/obj/geo1/py_sop2", mode="write") as other:
+    other.reg.commit("some.resource", buffer=data)
+    other.log("updated resource", key="some.resource")
+```
+
+Use `create=True` to create the target session if it does not exist yet.
 
 ## Module: rheidos.houdini.runtime.session
 
 ### SessionKey (dataclass, frozen)
 - `hip_path: str`
 - `node_path: str`
+
+### AccessMode (type alias)
+- `"read" | "write"`
 
 ### WorldSession (dataclass)
 - `world: Optional[World]`
@@ -220,15 +247,25 @@ Exports:
 - `log_event(message, **payload) -> None`
 - `clear_log() -> None`
 
+### SessionAccess (dataclass)
+- `session: WorldSession`
+- `node_path: str`
+- `mode: AccessMode`
+- `reg: RegistryAccess (read/ensure; write ops require mode="write")`
+- `log(message, **payload) -> None`
+
 ### ComputeRuntime
 - `sessions: Dict[SessionKey, WorldSession]`
 - `get_or_create_session(node) -> WorldSession`
+- `get_session_by_path(node_path, create=False) -> WorldSession`
+- `session_access(node_path, mode="read", create=False) -> SessionAccess`
 - `reset_session(node, reason) -> None`
 - `nuke_all(reason) -> None`
 
 Functions:
 - `get_runtime() -> ComputeRuntime`
 - `make_session_key(node) -> SessionKey`
+- `make_session_key_for_path(node_path) -> SessionKey`
 
 ## Module: rheidos.houdini.runtime.user_script
 
@@ -241,17 +278,19 @@ Constants:
 - `SIM_TIME`, `SIM_DT`, `SIM_FRAME`, `SIM_SUBSTEP`
 
 Functions:
-- `point_attrib(name) -> str`
-- `prim_attrib(name) -> str`
-- `point_group_mask(name) -> str`
-- `point_group_indices(name) -> str`
+- `geo_P(index=0) -> str`
+- `geo_triangles(index=0) -> str`
+- `point_attrib(name, index=0) -> str`
+- `prim_attrib(name, index=0) -> str`
+- `point_group_mask(name, index=0) -> str`
+- `point_group_indices(name, index=0) -> str`
 
 ## Module: rheidos.houdini.runtime.publish
 
-- `publish_geometry_minimal(ctx) -> None`
-- `publish_group(ctx, group_name, as_mask=True) -> None`
-- `publish_point_attrib(ctx, name) -> None`
-- `publish_prim_attrib(ctx, name) -> None`
+- `publish_geometry_minimal(ctx, input_index=None) -> None`
+- `publish_group(ctx, group_name, as_mask=True, input_index=None) -> None`
+- `publish_point_attrib(ctx, name, input_index=None) -> None`
+- `publish_prim_attrib(ctx, name, input_index=None) -> None`
 
 ## Module: rheidos.houdini.runtime.driver
 

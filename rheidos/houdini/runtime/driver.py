@@ -116,6 +116,23 @@ def _seed_geo_out(geo_out: "hou.Geometry", source: Optional["hou.Geometry"]) -> 
     geo_out.merge(source)
 
 
+def _collect_input_geos(node: "hou.Node") -> list[Optional["hou.Geometry"]]:
+    inputs = node.inputs()
+    if not inputs:
+        return []
+    geos: list[Optional["hou.Geometry"]] = []
+    for input_node in inputs:
+        if input_node is None:
+            geos.append(None)
+            continue
+        try:
+            geo = input_node.geometry()
+        except Exception:
+            geo = None
+        geos.append(geo)
+    return geos
+
+
 def _copy_geometry(geo: "hou.Geometry") -> "hou.Geometry":
     """Return a deep copy of a Houdini geometry object.
 
@@ -284,7 +301,13 @@ def run_cook(
         input_geo = geo_in if geo_in is not None else geo_out
         if geo_in is not None:
             _seed_geo_out(geo_out, geo_in)
-        ctx = build_cook_context(node, input_geo, geo_out, session)
+        input_geos = _collect_input_geos(node)
+        if input_geos:
+            if geo_in is not None:
+                input_geos[0] = geo_in
+        elif geo_in is not None:
+            input_geos = [geo_in]
+        ctx = build_cook_context(node, input_geo, geo_out, session, geo_inputs=input_geos)
 
         _debug(config.debug_log, f"[cook] node={node.path()} module={module.__name__}")
         with _time_span(session, timings, "publish_geometry"):
@@ -340,7 +363,23 @@ def run_solver(
         if source_geo is not None:
             _seed_geo_out(geo_out, source_geo)
         input_geo = source_geo if source_geo is not None else geo_out
-        ctx = build_cook_context(node, input_geo, geo_out, session, substep=substep, is_solver=True)
+        input_geos = _collect_input_geos(node)
+        if input_geos:
+            if geo_prev is not None:
+                input_geos[0] = geo_prev
+            if len(input_geos) > 1 and geo_in is not None:
+                input_geos[1] = geo_in
+        else:
+            input_geos = [geo_prev, geo_in]
+        ctx = build_cook_context(
+            node,
+            input_geo,
+            geo_out,
+            session,
+            geo_inputs=input_geos,
+            substep=substep,
+            is_solver=True,
+        )
 
         _debug(config.debug_log, f"[solver] node={node.path()} module={module.__name__}")
         with _time_span(session, timings, "publish_geometry"):

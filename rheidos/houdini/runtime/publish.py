@@ -11,6 +11,8 @@ from .cook_context import CookContext
 from .resource_keys import (
     GEO_P,
     GEO_TRIANGLES,
+    geo_P,
+    geo_triangles,
     point_attrib,
     point_group_indices,
     point_group_mask,
@@ -40,6 +42,7 @@ def _geometry_change_id(geo: Any) -> Optional[Any]:
 
 
 def _quick_topology_key(geo: Any) -> Optional[Tuple[int, int, Any]]:
+    # TODO: Prefer topology-only ids (e.g. geo.topologyDataId/primitiveIntrinsicsDataId) when available.
     change_id = _geometry_change_id(geo)
     if change_id is None:
         return None
@@ -59,64 +62,153 @@ def _topology_signature(point_count: int, triangles: np.ndarray) -> Tuple[int, i
     return (int(point_count), int(triangles.shape[0]), _triangle_checksum(triangles))
 
 
-def _read_triangles_cached(ctx: CookContext) -> np.ndarray:
+def _read_triangles_cached(ctx: CookContext, *, input_index: Optional[int] = None) -> np.ndarray:
     session = ctx.session
-    quick_key = _quick_topology_key(ctx.geo_in)
+    if input_index is None:
+        geo = ctx.geo_in
+        quick_key = _quick_topology_key(geo)
+        if (
+            quick_key is not None
+            and session.last_topology_key == quick_key
+            and session.last_triangles is not None
+        ):
+            return session.last_triangles
+
+        # TODO: Add a topology-only key path so we can skip reading triangles when only point positions change.
+        triangles = ctx.io.read_prims(arity=3)
+        point_count = _intrinsic_count(geo, "pointcount", len(geo.points()))
+        session.last_triangles = triangles
+        session.last_topology_sig = _topology_signature(point_count, triangles)
+        session.last_topology_key = quick_key
+        return triangles
+
+    geo = ctx.input_geo(input_index)
+    quick_key = _quick_topology_key(geo)
+    cached_triangles = session.last_triangles_by_input.get(input_index)
+    cached_key = session.last_topology_key_by_input.get(input_index)
     if (
         quick_key is not None
-        and session.last_topology_key == quick_key
-        and session.last_triangles is not None
+        and cached_key == quick_key
+        and cached_triangles is not None
     ):
-        return session.last_triangles
+        return cached_triangles
 
-    triangles = ctx.triangles()
-    point_count = _intrinsic_count(ctx.geo_in, "pointcount", len(ctx.geo_in.points()))
-    session.last_triangles = triangles
-    session.last_topology_sig = _topology_signature(point_count, triangles)
-    session.last_topology_key = quick_key
+    # TODO: Add a topology-only key path so we can skip reading triangles when only point positions change.
+    io = ctx.input_io(input_index)
+    if io is None:
+        raise RuntimeError(f"Input geometry {input_index} is not connected.")
+    triangles = io.read_prims(arity=3)
+    point_count = _intrinsic_count(geo, "pointcount", len(geo.points()))
+    session.last_triangles_by_input[input_index] = triangles
+    session.last_topology_sig_by_input[input_index] = _topology_signature(point_count, triangles)
+    session.last_topology_key_by_input[input_index] = quick_key
+    if input_index == 0:
+        session.last_triangles = triangles
+        session.last_topology_sig = session.last_topology_sig_by_input[input_index]
+        session.last_topology_key = quick_key
     return triangles
 
 
-def publish_geometry_minimal(ctx: CookContext) -> None:
-    points = ctx.P()
+def publish_geometry_minimal(ctx: CookContext, *, input_index: Optional[int] = None) -> None:
+    # TODO: Cache P reads (e.g. via P attrib dataId + pointcount) to avoid per-cook numpy extraction.
+    if input_index is None:
+        io = ctx.io
+        points_key = GEO_P
+        triangles_key = GEO_TRIANGLES
+    else:
+        io = ctx.input_io(input_index)
+        if io is None:
+            raise RuntimeError(f"Input geometry {input_index} is not connected.")
+        points_key = geo_P(input_index)
+        triangles_key = geo_triangles(input_index)
+
+    points = io.read(OWNER_POINT, "P", components=3)
     if points.ndim != 2 or points.shape[1] != 3:
         raise ValueError(f"geo.P expected (N, 3), got {points.shape}")
-    triangles = _read_triangles_cached(ctx)
+    triangles = _read_triangles_cached(ctx, input_index=input_index)
     if triangles.ndim != 2 or triangles.shape[1] != 3:
         raise ValueError(f"geo.triangles expected (M, 3), got {triangles.shape}")
-    ctx.publish_many({GEO_P: points, GEO_TRIANGLES: triangles})
+    ctx.publish_many({points_key: points, triangles_key: triangles})
 
 
-def publish_group(ctx: CookContext, group_name: str, *, as_mask: bool = True) -> None:
-    values = ctx.read_group(OWNER_POINT, group_name, as_mask=as_mask)
+def publish_group(
+    ctx: CookContext,
+    group_name: str,
+    *,
+    as_mask: bool = True,
+    input_index: Optional[int] = None,
+) -> None:
+    if input_index is None:
+        io = ctx.io
+        key_index = 0
+    else:
+        io = ctx.input_io(input_index)
+        if io is None:
+            raise RuntimeError(f"Input geometry {input_index} is not connected.")
+        key_index = input_index
+    values = io.read_group(OWNER_POINT, group_name, as_mask=as_mask)
     if as_mask:
         if values.ndim != 1 or values.dtype != np.bool_:
             raise ValueError(f"Group mask expected 1D bool array, got {values.dtype} {values.shape}")
-        key = point_group_mask(group_name)
+        key = point_group_mask(group_name, index=key_index)
     else:
         if values.ndim != 1:
             raise ValueError(f"Group indices expected 1D array, got {values.shape}")
-        key = point_group_indices(group_name)
+        key = point_group_indices(group_name, index=key_index)
     ctx.publish(key, values)
 
 
-def publish_point_attrib(ctx: CookContext, name: str) -> None:
-    values = ctx.read(OWNER_POINT, name)
-    _validate_count(ctx, OWNER_POINT, values, name)
-    ctx.publish(point_attrib(name), values)
+def publish_point_attrib(
+    ctx: CookContext,
+    name: str,
+    *,
+    input_index: Optional[int] = None,
+) -> None:
+    if input_index is None:
+        io = ctx.io
+        key_index = 0
+    else:
+        io = ctx.input_io(input_index)
+        if io is None:
+            raise RuntimeError(f"Input geometry {input_index} is not connected.")
+        key_index = input_index
+    values = io.read(OWNER_POINT, name)
+    _validate_count(ctx, OWNER_POINT, values, name, input_index=input_index)
+    ctx.publish(point_attrib(name, index=key_index), values)
 
 
-def publish_prim_attrib(ctx: CookContext, name: str) -> None:
-    values = ctx.read(OWNER_PRIM, name)
-    _validate_count(ctx, OWNER_PRIM, values, name)
-    ctx.publish(prim_attrib(name), values)
+def publish_prim_attrib(
+    ctx: CookContext,
+    name: str,
+    *,
+    input_index: Optional[int] = None,
+) -> None:
+    if input_index is None:
+        io = ctx.io
+        key_index = 0
+    else:
+        io = ctx.input_io(input_index)
+        if io is None:
+            raise RuntimeError(f"Input geometry {input_index} is not connected.")
+        key_index = input_index
+    values = io.read(OWNER_PRIM, name)
+    _validate_count(ctx, OWNER_PRIM, values, name, input_index=input_index)
+    ctx.publish(prim_attrib(name, index=key_index), values)
 
 
-def _validate_count(ctx: CookContext, owner: str, values: np.ndarray, name: str) -> None:
+def _validate_count(
+    ctx: CookContext,
+    owner: str,
+    values: np.ndarray,
+    name: str,
+    *,
+    input_index: Optional[int] = None,
+) -> None:
+    geo = ctx.geo_in if input_index is None else ctx.input_geo(input_index)
     if owner == OWNER_POINT:
-        count = len(ctx.geo_in.points())
+        count = len(geo.points())
     elif owner == OWNER_PRIM:
-        count = len(ctx.geo_in.prims())
+        count = len(geo.prims())
     else:
         raise ValueError(f"Unsupported owner '{owner}'")
 

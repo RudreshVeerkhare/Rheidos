@@ -87,7 +87,10 @@ def _try_group_mask(ctx, name: str, count: int) -> Optional[np.ndarray]:
 def cook2(ctx: CookContext) -> None:
     _ensure_taichi_init(ctx.session)
 
-    world = ctx.world()
+    with ctx.session_access("/obj/grid_object1/python1") as other:
+        w = other.session.world
+
+        print("I was here")
 
 
 def cook(ctx: CookContext) -> None:
@@ -115,6 +118,7 @@ def cook(ctx: CookContext) -> None:
     poisson = world.require(PoissonSolverModule)
     point_vortex = world.require(PointVortexModule)
 
+    # TODO: Skip V_pos/F_verts upload+commit when geometry/topology keys are unchanged (cache in ctx.session.stats).
     V = _ensure_vector_field(mesh.V_pos, nV, lanes=3, dtype=ti.f32)
     V.from_numpy(points)
     mesh.V_pos.commit()

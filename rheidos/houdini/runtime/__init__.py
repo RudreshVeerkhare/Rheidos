@@ -8,6 +8,8 @@ from .publish import publish_geometry_minimal, publish_group, publish_point_attr
 from .resource_keys import (
     GEO_P,
     GEO_TRIANGLES,
+    geo_P,
+    geo_triangles,
     SIM_DT,
     SIM_FRAME,
     SIM_SUBSTEP,
@@ -17,13 +19,26 @@ from .resource_keys import (
     point_group_mask,
     prim_attrib,
 )
-from .session import ComputeRuntime, SessionKey, WorldSession, get_runtime, make_session_key
+from .session import (
+    AccessMode,
+    ComputeRuntime,
+    SessionAccess,
+    SessionKey,
+    WorldSession,
+    get_runtime,
+    make_session_key,
+    make_session_key_for_path,
+)
 
 __all__ = [
     "CookContext",
     "ComputeRuntime",
+    "AccessMode",
     "GEO_P",
     "GEO_TRIANGLES",
+    "geo_P",
+    "geo_triangles",
+    "SessionAccess",
     "SIM_DT",
     "SIM_FRAME",
     "SIM_SUBSTEP",
@@ -33,6 +48,7 @@ __all__ = [
     "build_cook_context",
     "get_runtime",
     "make_session_key",
+    "make_session_key_for_path",
     "point_attrib",
     "point_group_indices",
     "point_group_mask",

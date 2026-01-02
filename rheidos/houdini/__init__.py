@@ -3,10 +3,14 @@ Houdini integration package.
 """
 
 from .runtime import (
+    AccessMode,
     CookContext,
     ComputeRuntime,
     GEO_P,
     GEO_TRIANGLES,
+    geo_P,
+    geo_triangles,
+    SessionAccess,
     SIM_DT,
     SIM_FRAME,
     SIM_SUBSTEP,
@@ -16,6 +20,7 @@ from .runtime import (
     build_cook_context,
     get_runtime,
     make_session_key,
+    make_session_key_for_path,
     point_attrib,
     point_group_indices,
     point_group_mask,
@@ -29,10 +34,14 @@ from .runtime import (
 )
 
 __all__ = [
+    "AccessMode",
     "CookContext",
     "ComputeRuntime",
     "GEO_P",
     "GEO_TRIANGLES",
+    "geo_P",
+    "geo_triangles",
+    "SessionAccess",
     "SIM_DT",
     "SIM_FRAME",
     "SIM_SUBSTEP",
@@ -42,6 +51,7 @@ __all__ = [
     "build_cook_context",
     "get_runtime",
     "make_session_key",
+    "make_session_key_for_path",
     "point_attrib",
     "point_group_indices",
     "point_group_mask",

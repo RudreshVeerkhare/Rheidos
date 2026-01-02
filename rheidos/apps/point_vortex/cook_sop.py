@@ -25,11 +25,11 @@ from rheidos.houdini.runtime import (
 from rheidos.apps.point_vortex.app import cook  # <-- your app's cook(ctx)
 
 
-def _get_input_geo(node: hou.Node) -> hou.Geometry:
+def _get_input_geo(node: hou.Node, index: int = 0) -> hou.Geometry:
     inputs = node.inputs()
     if not inputs:
         raise RuntimeError("Connect input geometry to the Python SOP.")
-    geo_in = inputs[0].geometry()
+    geo_in = inputs[index].geometry()
     if geo_in is None:
         raise RuntimeError("Input geometry is None.")
     return geo_in
@@ -38,6 +38,51 @@ def _get_input_geo(node: hou.Node) -> hou.Geometry:
 def _seed_output(geo_out: hou.Geometry, geo_in: hou.Geometry) -> None:
     geo_out.clear()
     geo_out.merge(geo_in)
+
+
+def _get_input_geos(node: hou.Node) -> list[hou.Geometry | None]:
+    inputs = node.inputs()
+    if not inputs:
+        return []
+    geos: list[hou.Geometry | None] = []
+    for input_node in inputs:
+        if input_node is None:
+            geos.append(None)
+            continue
+        try:
+            geo = input_node.geometry()
+        except Exception:
+            geo = None
+        geos.append(geo)
+    return geos
+
+
+def node1() -> None:
+    node = hou.pwd()
+    geo_out = node.geometry()
+
+    # Interactive debugging setup
+    cfg = debug_config_from_node(node)
+    ensure_debug_server(cfg, node=node)
+    if consume_break_next_button(node):
+        request_break_next(node=node)
+    maybe_break_now(node=node)
+
+    # Input mapping
+    # 0 -> Triangle Mesh
+    # 1 -> point vortices
+    mesh_geo = _get_input_geo(node, index=0)
+    points_geo = _get_input_geo(node, index=1)
+
+    # load DEC from mesh input
+
+    # Load vortex states from point input
+
+
+def node2() -> None:
+    # fetch session from the old node1 and output the updated points geometry
+    # TODO: Make sure this runs after node1
+    pass
 
 
 def run_cook() -> None:
@@ -53,12 +98,17 @@ def run_cook() -> None:
     # 1) Read input geometry and pass-through to output
     geo_in = _get_input_geo(node)
     _seed_output(geo_out, geo_in)
+    input_geos = _get_input_geos(node)
+    if input_geos:
+        input_geos[0] = geo_in
+    else:
+        input_geos = [geo_in]
 
     # 2) Get/create a persistent session for this node (cached across cooks)
     session = get_runtime().get_or_create_session(node)
 
     # 3) Build CookContext (input geo, output geo, session state)
-    ctx = build_cook_context(node, geo_in, geo_out, session)
+    ctx = build_cook_context(node, geo_in, geo_out, session, geo_inputs=input_geos)
 
     # 4) Publish minimal geometry resources into the compute registry/world
     publish_geometry_minimal(ctx)
