@@ -10,6 +10,7 @@ from rheidos.compute.registry import Registry
 
 from .surface_mesh import SurfaceMeshModule
 
+import numpy as np
 import taichi as ti
 
 from dataclasses import dataclass
@@ -99,7 +100,6 @@ class PointVortexModule(ModuleBase):
         super().__init__(world, scope=scope)
 
         self.mesh = self.require(SurfaceMeshModule)
-        print("Here here here...")
 
         self.n_vortices = self.resource(
             "n_vortices",
@@ -199,3 +199,75 @@ class PointVortexModule(ModuleBase):
         self.n_vortices.bump()
         self.face_ids.bump()
         self.bary.bump()
+
+    def set_n_vortices(self, count: int) -> None:
+        count = int(count)
+        if count < 0:
+            raise ValueError(f"n_vortices must be >= 0, got {count}")
+        capacity = int(self.face_ids.get().shape[0])
+        if count > capacity:
+            raise ValueError(f"n_vortices ({count}) exceeds capacity ({capacity})")
+
+        field = self.n_vortices.peek()
+        if field is None:
+            field = ti.field(dtype=ti.i32, shape=())
+            self.n_vortices.set_buffer(field, bump=False)
+        field[None] = count
+        self.n_vortices.bump()
+
+    def set_face_ids(self, face_ids: np.ndarray) -> None:
+        face_ids_np = np.ascontiguousarray(face_ids, dtype=np.int32)
+        if face_ids_np.ndim != 1:
+            raise ValueError(f"face_ids expected shape (N,), got {face_ids_np.shape}")
+
+        field = self.face_ids.get()
+        capacity = int(field.shape[0])
+        if face_ids_np.shape[0] > capacity:
+            raise ValueError(
+                f"face_ids length {face_ids_np.shape[0]} exceeds capacity {capacity}"
+            )
+        if face_ids_np.shape[0] != capacity:
+            padded = np.zeros((capacity,), dtype=np.int32)
+            padded[: face_ids_np.shape[0]] = face_ids_np
+            face_ids_np = padded
+
+        field.from_numpy(face_ids_np)
+        self.face_ids.bump()
+
+    def set_bary(self, bary: np.ndarray) -> None:
+        bary_np = np.ascontiguousarray(bary, dtype=np.float32)
+        if bary_np.ndim != 2 or bary_np.shape[1] != 3:
+            raise ValueError(f"bary expected shape (N, 3), got {bary_np.shape}")
+
+        field = self.bary.get()
+        capacity = int(field.shape[0])
+        if bary_np.shape[0] > capacity:
+            raise ValueError(
+                f"bary length {bary_np.shape[0]} exceeds capacity {capacity}"
+            )
+        if bary_np.shape[0] != capacity:
+            padded = np.zeros((capacity, 3), dtype=np.float32)
+            padded[: bary_np.shape[0]] = bary_np
+            bary_np = padded
+
+        field.from_numpy(bary_np)
+        self.bary.bump()
+
+    def set_gammas(self, gammas: np.ndarray) -> None:
+        gammas_np = np.ascontiguousarray(gammas, dtype=np.float32)
+        if gammas_np.ndim != 1:
+            raise ValueError(f"gammas expected shape (N,), got {gammas_np.shape}")
+
+        field = self.gammas.get()
+        capacity = int(field.shape[0])
+        if gammas_np.shape[0] > capacity:
+            raise ValueError(
+                f"gammas length {gammas_np.shape[0]} exceeds capacity {capacity}"
+            )
+        if gammas_np.shape[0] != capacity:
+            padded = np.zeros((capacity,), dtype=np.float32)
+            padded[: gammas_np.shape[0]] = gammas_np
+            gammas_np = padded
+
+        field.from_numpy(gammas_np)
+        self.gammas.bump()

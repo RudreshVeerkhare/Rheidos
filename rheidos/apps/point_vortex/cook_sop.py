@@ -8,6 +8,7 @@
 
 import hou
 
+from rheidos.houdini.geo import OWNER_DETAIL, OWNER_POINT
 from rheidos.houdini.debug import (
     consume_break_next_button,
     debug_config_from_node,
@@ -21,8 +22,77 @@ from rheidos.houdini.runtime import (
     publish_geometry_minimal,
 )
 
+from rheidos.apps.point_vortex.modules.surface_mesh import SurfaceMeshModule
+from rheidos.apps.point_vortex.modules.point_vortex import PointVortexModule
+from rheidos.apps.point_vortex.modules.pt_vortex_sim import PtVortexSimModule
+
 # === IMPORT: change this to your app ===
 from rheidos.apps.point_vortex.app import cook  # <-- your app's cook(ctx)
+
+import taichi as ti
+
+
+def _taichi_initialized() -> bool:
+    checker = getattr(ti, "is_initialized", None)
+    if callable(checker):
+        try:
+            return bool(checker())
+        except Exception:
+            return False
+    core = getattr(ti, "core", None)
+    if core is not None and hasattr(core, "is_initialized"):
+        try:
+            return bool(core.is_initialized())
+        except Exception:
+            return False
+    return False
+
+
+def _ensure_taichi_init(session) -> None:
+    if session.stats.get("taichi_initialized"):
+        return
+    if _taichi_initialized():
+        session.stats["taichi_initialized"] = True
+        return
+    ti.init()
+    session.stats["taichi_initialized"] = True
+
+
+def _ensure_vector_field(ref, count: int, *, lanes: int, dtype) -> "ti.Field":
+
+    shape = (count,)
+    if count == 0:
+        shape = ()
+
+    if ref is None:
+        return ti.Vector.field(lanes, dtype=dtype, shape=shape)
+
+    field = ref.peek()
+    if (
+        field is None
+        or tuple(field.shape) != shape
+        or getattr(field, "n", lanes) != lanes
+    ):
+        field = ti.Vector.field(lanes, dtype=dtype, shape=shape)
+        ref.set_buffer(field, bump=False)
+    return field
+
+
+def _ensure_scalar_field(ref, count: int, *, dtype) -> "ti.Field":
+
+    shape = (count,)
+    if count == 0:
+        shape = ()
+
+    if ref is None:
+        return ti.field(dtype=dtype, shape=shape)
+
+    field = ref.peek()
+    if field is None or tuple(field.shape) != shape:
+        field = ti.field(dtype=dtype, shape=shape)
+        ref.set_buffer(field, bump=False)
+
+    return field
 
 
 def _get_input_geo(node: hou.Node, index: int = 0) -> hou.Geometry:
@@ -74,9 +144,47 @@ def node1() -> None:
     mesh_geo = _get_input_geo(node, index=0)
     points_geo = _get_input_geo(node, index=1)
 
-    # load DEC from mesh input
+    # Pass mesh through to output so downstream SOPs see the surface.
+    _seed_output(geo_out, mesh_geo)
 
-    # Load vortex states from point input
+    session = get_runtime().get_or_create_session(node)
+
+    ctx = build_cook_context(
+        node, mesh_geo, geo_out, session, geo_inputs=[mesh_geo, points_geo]
+    )
+    world = ctx.world()
+
+    _ensure_taichi_init(session)
+    ## Read mesh input (index 0) explicitly via the primary IO.
+    mesh_io = ctx.io
+    mesh_points = mesh_io.read(OWNER_POINT, "P", components=3)
+    mesh_triangles = mesh_io.read_prims(arity=3)
+    nV = int(mesh_points.shape[0])
+    nF = int(mesh_triangles.shape[0])
+
+    mesh = world.require(SurfaceMeshModule)
+    V = _ensure_vector_field(mesh.V_pos, nV, lanes=3, dtype=ti.f32)
+    V.from_numpy(mesh_points)
+    mesh.V_pos.commit()
+
+    F = _ensure_vector_field(mesh.F_verts, nF, lanes=3, dtype=ti.i32)
+    F.from_numpy(mesh_triangles)
+    mesh.F_verts.commit()
+
+    ## Read scatter points input (index 1) via the input IO.
+    points_io = ctx.input_io(1)
+    scatter_points = points_io.read(OWNER_POINT, "P", components=3)
+
+    point_vortices = world.require(PointVortexModule)
+    point_vortices.set_n_vortices(len(scatter_points))
+    point_vortices.set_bary(points_io.read(OWNER_POINT, "bary", components=3))
+    point_vortices.set_face_ids(points_io.read(OWNER_POINT, "faceid"))
+    point_vortices.set_gammas(points_io.read(OWNER_POINT, "gamma"))
+
+    ## Read stream function and set the output
+    pt_vortex_sim = world.require(PtVortexSimModule)
+    psi = pt_vortex_sim.psi.get().to_numpy()
+    ctx.write(OWNER_POINT, "stream_func", psi, create=True)
 
 
 def node2() -> None:
