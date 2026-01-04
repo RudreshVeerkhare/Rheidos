@@ -8,7 +8,7 @@
 
 import hou
 
-from rheidos.houdini.geo import OWNER_DETAIL, OWNER_POINT
+from rheidos.houdini.geo import OWNER_DETAIL, OWNER_POINT, OWNER_PRIM
 from rheidos.houdini.debug import (
     consume_break_next_button,
     debug_config_from_node,
@@ -24,7 +24,8 @@ from rheidos.houdini.runtime import (
 
 from rheidos.apps.point_vortex.modules.surface_mesh import SurfaceMeshModule
 from rheidos.apps.point_vortex.modules.point_vortex import PointVortexModule
-from rheidos.apps.point_vortex.modules.pt_vortex_sim import PtVortexSimModule
+from rheidos.apps.point_vortex.modules.stream_func import StreamFunctionModule
+from rheidos.apps.point_vortex.modules.velocity_field import VelocityFieldModule
 
 # === IMPORT: change this to your app ===
 from rheidos.apps.point_vortex.app import cook  # <-- your app's cook(ctx)
@@ -182,9 +183,14 @@ def node1() -> None:
     point_vortices.set_gammas(points_io.read(OWNER_POINT, "gamma"))
 
     ## Read stream function and set the output
-    pt_vortex_sim = world.require(PtVortexSimModule)
+    pt_vortex_sim = world.require(StreamFunctionModule)
     psi = pt_vortex_sim.psi.get().to_numpy()
     ctx.write(OWNER_POINT, "stream_func", psi, create=True)
+
+    ## Calculate facewise constant velocity field from stream function
+    vel_module = world.require(VelocityFieldModule)
+    F_velocity = vel_module.F_velocity.get().to_numpy()
+    ctx.write(OWNER_PRIM, "velocity", F_velocity, create=True)
 
 
 def node2() -> None:
