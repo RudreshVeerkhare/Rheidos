@@ -50,7 +50,7 @@ class VortexWorldPositionProducer(WiredProducer[VortexWorldPositionProducerIO]):
         self,
         V: ti.template(),
         F: ti.template(),
-        N: ti.i32,
+        N: ti.template(),
         face_ids: ti.template(),
         bary: ti.template(),
         pos_world: ti.template(),
@@ -161,7 +161,9 @@ class PointVortexModule(ModuleBase):
                 allow_none=False,
             ),
             doc="3D world coordinates of points",
-            buffer=ti.Vector.field(3, dtype=ti.f32, shape=(100,)),
+            # buffer=ti.Vector.field(
+            #     3, dtype=ti.f32, shape=(100,)
+            # ),  # TODO: BUGFIX: Setting buffer here get's overridden by the declare function
             declare=False,
         )
 
@@ -183,6 +185,7 @@ class PointVortexModule(ModuleBase):
                 self.face_ids,
                 self.bary,
             ),
+            buffer=ti.Vector.field(3, dtype=ti.f32, shape=(100,)),
             producer=vortex_world_pos_producer,
         )
 

@@ -10,11 +10,14 @@ from .surface_mesh import SurfaceMeshModule
 from .stream_func import StreamFunctionModule
 
 from ..producers.stream_func_velocity import FaceVelocityFromStreamProducer
+from ..producers.per_vertex_velocity import PerVertexVelProducer
 
 import taichi as ti
 
 
 class VelocityFieldModule(ModuleBase):
+    NAME = "VelocityFieldModule"
+
     def __init__(self, world: World, *, scope: str = "") -> None:
         super().__init__(world, scope=scope)
 
@@ -40,4 +43,24 @@ class VelocityFieldModule(ModuleBase):
 
         self.declare_resource(
             self.F_velocity, deps=(self.stream_func.psi,), producer=vel_producer
+        )
+
+        # per vertex velocity by averaging across all faces a vertex is incident on
+        self.V_velocity = self.resource(
+            "V_velocity",
+            spec=ResourceSpec(
+                kind="taichi_field",
+                dtype=ti.f32,
+                shape_fn=shape_of(self.mesh.V_pos),
+                allow_none=True,
+            ),
+            doc="per-vertex velocity by averaging across all faces a vertex is incident on. Shape: (nV, vec3f)",
+            declare=False,
+        )
+
+        per_vert_vel_producer = PerVertexVelProducer(
+            self.mesh.V_incident, self.mesh.F_verts, self.F_velocity, self.V_velocity
+        )
+        self.declare_resource(
+            self.V_velocity, deps=(self.F_velocity,), producer=per_vert_vel_producer
         )

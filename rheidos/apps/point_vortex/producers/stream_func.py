@@ -10,8 +10,9 @@ class StreamFuncProducerIO:
     n_vortices: ResourceRef[ti.Field]  # (i32)
     vortices_face_ids: ResourceRef[ti.Field]  # (100, i32)
     F_verts: ResourceRef[ti.Field]  # (nF, vec3i)
-    int_mask: ResourceRef[ti.Field]  # (nV, i32)
-    values: ResourceRef[ti.Field]  # (nV, f32)
+    constraint_mask: ResourceRef[ti.Field]  # (nV, i32)
+    constraint_values: ResourceRef[ti.Field]  # (nV, f32)
+    rhs: ResourceRef[ti.Field]  # (nV, f32)
     u: ResourceRef[ti.Field]  # (nV, f32)
     psi: ResourceRef[ti.Field] = out_field()  # (nV, f32)
 
@@ -24,15 +25,24 @@ class StreamFuncProducer(WiredProducer[StreamFuncProducerIO]):
         n_vortices: ResourceRef[ti.Field],
         vortices_face_ids: ResourceRef[ti.Field],
         F_verts: ResourceRef[ti.Field],
-        int_mask: ResourceRef[ti.Field],
-        values: ResourceRef[ti.Field],
+        constraint_mask: ResourceRef[ti.Field],
+        constraint_values: ResourceRef[ti.Field],
+        rhs: ResourceRef[ti.Field],
         u: ResourceRef[ti.Field],
         psi: ResourceRef[ti.Field],
         pin_vertex_id: int = 0,
     ) -> None:
         super().__init__(
             StreamFuncProducerIO(
-                omega, n_vortices, vortices_face_ids, F_verts, int_mask, values, u, psi
+                omega,
+                n_vortices,
+                vortices_face_ids,
+                F_verts,
+                constraint_mask,
+                constraint_values,
+                rhs,
+                u,
+                psi,
             )
         )
         self.pin_vertex_id = pin_vertex_id
@@ -40,16 +50,16 @@ class StreamFuncProducer(WiredProducer[StreamFuncProducerIO]):
     @ti.kernel
     def _set_mask(
         self,
-        int_mask: ti.template(),
+        constraint_mask: ti.template(),
         n_vortices: ti.template(),
         vortices_face_ids: ti.template(),
         F: ti.template(),
     ):
         for vid in range(n_vortices[None]):
             face_id = vortices_face_ids[vid]
-            int_mask[F[face_id][0]] = 1
-            int_mask[F[face_id][1]] = 1
-            int_mask[F[face_id][2]] = 1
+            constraint_mask[F[face_id][0]] = 1
+            constraint_mask[F[face_id][1]] = 1
+            constraint_mask[F[face_id][2]] = 1
 
     def compute(
         self, reg: Registry
@@ -76,24 +86,31 @@ class StreamFuncProducer(WiredProducer[StreamFuncProducerIO]):
             psi = ti.field(ti.f32, shape=(nV,))
             io.psi.set_buffer(psi, bump=False)
 
-        int_mask = io.int_mask.peek()
-        if int_mask is None or int_mask.shape != (nV,):
-            int_mask = ti.field(ti.i32, shape=(nV,))
-            io.int_mask.set_buffer(int_mask, bump=False)
+        constraint_mask = io.constraint_mask.peek()
+        if constraint_mask is None or constraint_mask.shape != (nV,):
+            constraint_mask = ti.field(ti.i32, shape=(nV,))
+            io.constraint_mask.set_buffer(constraint_mask, bump=False)
 
-        values = io.values.peek()
-        if values is None or values.shape != (nV,):
-            values = ti.field(ti.f32, shape=(nV,))
-            io.values.set_buffer(values, bump=False)
+        constraint_values = io.constraint_values.peek()
+        if constraint_values is None or constraint_values.shape != (nV,):
+            constraint_values = ti.field(ti.f32, shape=(nV,))
+            io.constraint_values.set_buffer(constraint_values, bump=False)
 
-        int_mask.fill(0)
-        self._set_mask(int_mask, n_vortices, vortices_face_ids, F)
-        int_mask[self.pin_vertex_id] = (
+        rhs = io.rhs.peek()
+        if rhs is None or rhs.shape != (nV,):
+            rhs = ti.field(ti.f32, shape=(nV,))
+            io.rhs.set_buffer(rhs, bump=False)
+
+        constraint_mask.fill(0)
+        constraint_mask[self.pin_vertex_id] = (
             1  # Dirichlet pin one vertex to remove null space
+        )
+        constraint_values[self.pin_vertex_id] = (
+            0  # Dirichlet pin one vertex to remove null space
         )
 
         # trigger poisson solve
-        values.copy_from(omega)
+        rhs.copy_from(omega)
         u = io.u.get()  # triggers poisson solve
 
         psi.copy_from(u)

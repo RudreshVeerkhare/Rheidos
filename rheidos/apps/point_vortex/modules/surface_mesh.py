@@ -1,4 +1,4 @@
-from rheidos.compute import ModuleBase, World, ResourceSpec
+from rheidos.compute import ModuleBase, World, ResourceSpec, shape_of
 import taichi as ti
 
 from ..producers.mesh_topology import TopologyProducer
@@ -16,7 +16,7 @@ class SurfaceMeshModule(ModuleBase):
             spec=ResourceSpec(
                 kind="taichi_field", dtype=ti.f32, lanes=3, allow_none=True
             ),
-            doc="Triangle mesh vertex postions, expected shape: (nV, 3)",
+            doc="Triangle mesh vertex positions, expected shape: (nV, 3)",
             declare=True,
         )
 
@@ -72,13 +72,43 @@ class SurfaceMeshModule(ModuleBase):
             doc="Sign +1/-1 per face directed edge relative to canonical E_verts orientation. Shape: (nF, vec3i)",
         )
 
+        self.F_adj = self.resource(
+            "F_adj",
+            spec=ResourceSpec(
+                kind="taichi_field",
+                dtype=ti.i32,
+                lanes=3,
+                allow_none=True,
+            ),
+            doc=(
+                "Per-face neighbor across opposite edges (barycentric convention). "
+                "F_adj[f][m] is the adjacent face across the edge where barycentric coord m becomes 0, "
+                "i.e. the edge opposite vertex F_verts[f][m]. -1 indicates a boundary edge. "
+                "Shape: (nF, vec3i)"
+            ),
+        )
+
+        self.V_incident = self.resource(
+            "V_incident",
+            spec=ResourceSpec(
+                kind="taichi_field",
+                dtype=ti.i32,
+                allow_none=True,
+                shape_fn=shape_of(self.V_pos),
+            ),
+            doc="Count of faces a vertex is incident on. Shape: (nV, i32)",
+        )
+
         topology_producer = TopologyProducer(
             F_verts=self.F_verts,
+            V_pos=self.V_pos,
             E_verts=self.E_verts,
             E_faces=self.E_faces,
             E_opp=self.E_opp,
             F_edges=self.F_edges,
             F_edge_sign=self.F_edge_sign,
+            F_adj=self.F_adj,
+            V_incident=self.V_incident,
         )
         deps = (self.F_verts,)
 
@@ -87,6 +117,8 @@ class SurfaceMeshModule(ModuleBase):
         self.declare_resource(self.E_opp, deps=deps, producer=topology_producer)
         self.declare_resource(self.F_edges, deps=deps, producer=topology_producer)
         self.declare_resource(self.F_edge_sign, deps=deps, producer=topology_producer)
+        self.declare_resource(self.F_adj, deps=deps, producer=topology_producer)
+        self.declare_resource(self.V_incident, deps=deps, producer=topology_producer)
 
         # Geometry/Metric dependant resources
         self.F_area = self.resource(

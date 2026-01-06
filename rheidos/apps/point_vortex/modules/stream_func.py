@@ -80,6 +80,7 @@ class StreamFunctionModule(ModuleBase):
             self.mesh.F_verts,
             self.poisson.constraint_mask,
             self.poisson.constraint_value,
+            self.poisson.rhs,
             self.poisson.u,
             self.psi,
             pin_vertex_id=0,
