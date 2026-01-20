@@ -235,7 +235,7 @@ def build_cook_context(
     io_inputs = tuple(
         _make_read_only_io(geo) if geo is not None else None for geo in geo_inputs_tuple
     )
-    return CookContext(
+    ctx = CookContext(
         node=node,
         frame=hou.frame(),
         time=hou.time(),
@@ -250,3 +250,5 @@ def build_cook_context(
         geo_inputs=geo_inputs_tuple,
         io_inputs=io_inputs,
     )
+    session.summary_store.update_global(frame=ctx.frame, substep=ctx.substep)
+    return ctx

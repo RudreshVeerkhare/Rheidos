@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Rheidos Profiler</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="hero">
+        <div>
+          <p class="eyebrow">Profiler Snapshot</p>
+          <h1>Rheidos Live</h1>
+          <p class="subtitle">Minimal summary feed from the simulation thread.</p>
+        </div>
+        <div class="meta">
+          <div>
+            <span class="label">Cook</span>
+            <span id="cook-id" class="value">-</span>
+          </div>
+          <div>
+            <span class="label">Frame</span>
+            <span id="frame-id" class="value">-</span>
+          </div>
+          <div>
+            <span class="label">Substep</span>
+            <span id="substep-id" class="value">-</span>
+          </div>
+        </div>
+      </header>
+
+      <section class="panel">
+        <div class="panel-header">
+          <div>
+            <h2>Producers</h2>
+            <p class="panel-note">Click a row to expand details on demand.</p>
+          </div>
+          <div class="panel-actions">
+            <label class="toggle">
+              <input id="kernel-toggle" type="checkbox" />
+              <span>Show kernel stats</span>
+            </label>
+            <input
+              id="search-input"
+              class="search"
+              type="search"
+              placeholder="Filter by name"
+            />
+            <div class="pill" id="tick-pill">tick: 0</div>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr id="summary-head"></tr>
+            </thead>
+            <tbody id="summary-rows"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="category-panels" class="category-panels"></section>
+    </div>
+    <script src="app.js"></script>
+  </body>
+</html>

@@ -2,5 +2,6 @@
 
 from .api import span
 from .core import Profiler, ProfilerConfig, profiled
+from .summary_store import SummaryStore
 
-__all__ = ["Profiler", "ProfilerConfig", "profiled", "span"]
+__all__ = ["Profiler", "ProfilerConfig", "SummaryStore", "profiled", "span"]

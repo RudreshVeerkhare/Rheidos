@@ -6,7 +6,7 @@ import threading
 import time
 from typing import Callable, Optional
 
-from rheidos.compute.profiler.core import Profiler
+from rheidos.compute.profiler.summary_store import SummaryStore
 from rheidos.compute.profiler.tb import TBConfig, make_writer
 
 
@@ -21,12 +21,12 @@ class TBExporterConfig:
 class TensorboardExporter:
     def __init__(
         self,
-        prof: Profiler,
+        summary_store: SummaryStore,
         cfg: TBExporterConfig,
         *,
         dag_provider: Optional[Callable[[], str]] = None,
     ):
-        self.prof = prof
+        self.summary_store = summary_store
         self.cfg = cfg
         self._writer = make_writer(TBConfig(cfg.logdir, cfg.flush_secs, cfg.max_queue))
         self._stop = threading.Event()
@@ -86,12 +86,33 @@ class TensorboardExporter:
         period = 1.0 / max(1e-6, self.cfg.export_hz)
         while not self._stop.is_set():
             time.sleep(period)
-            stats = self.prof.snapshot_stats()
             self._step += 1
-            for (cat, name, producer), s in stats.items():
-                base = f"{cat}/{name}" if producer is None else f"{cat}/{producer}/{name}"
-                self._writer.add_scalar(base + "/last_ms", s.last_ns / 1e6, self._step)
-                self._writer.add_scalar(base + "/ema_ms", s.ema_ns / 1e6, self._step)
-                self._writer.add_scalar(base + "/count", s.count, self._step)
+            snap = self.summary_store.snapshot_compact()
+            self._writer.add_scalar("cook/wall_ms", snap.get("wall_ms", 0.0), self._step)
+            self._writer.add_scalar(
+                "cook/kernel_ms", snap.get("kernel_ms", 0.0), self._step
+            )
+            self._writer.add_scalar(
+                "cook/kernel_fraction",
+                snap.get("kernel_fraction", 0.0),
+                self._step,
+            )
+            self._writer.add_scalar(
+                "profiler/dropped_events",
+                snap.get("dropped_events", 0),
+                self._step,
+            )
+            rows = snap.get("rows", [])
+            if rows:
+                top = sorted(rows, key=lambda r: r.get("ema_ms", 0.0), reverse=True)[
+                    :10
+                ]
+                lines = ["name | ema_ms | last_ms", "--- | --- | ---"]
+                for row in top:
+                    name = row.get("name", "")
+                    ema_ms = row.get("ema_ms", 0.0)
+                    last_ms = row.get("last_ms", 0.0)
+                    lines.append(f"{name} | {ema_ms:.3f} | {last_ms:.3f}")
+                self._writer.add_text("producer/top_ema_ms", "\n".join(lines), self._step)
             self._export_dag()
             self._drain_pending_texts()

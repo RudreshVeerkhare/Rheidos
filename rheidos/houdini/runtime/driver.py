@@ -27,6 +27,12 @@ from .user_script import resolve_user_module
 from rheidos.compute.profiler.core import ProfilerConfig
 from rheidos.compute.profiler.runtime import reset_current_profiler, set_current_profiler
 from rheidos.compute.profiler.export_tb import TBExporterConfig, TensorboardExporter
+from rheidos.compute.profiler.summary_server import (
+    SummaryServer,
+    SummaryServerConfig,
+    SummaryWriter,
+    SummaryWriterConfig,
+)
 from rheidos.compute.profiler.taichi_probe import TaichiProbe
 
 if TYPE_CHECKING:
@@ -238,6 +244,13 @@ def _sanitize_tb_component(value: str) -> str:
     )
 
 
+def _env_flag(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() not in ("0", "false", "no", "off", "")
+
+
 def _resolve_profile_logdir(node: "hou.Node", config: Any) -> str:
     base = getattr(config, "profile_logdir", None) or ""
     if base:
@@ -292,34 +305,82 @@ def _configure_profiler(session: WorldSession, config: Any, node: "hou.Node") ->
         session.profiler.taichi_probe = None
 
     logdir = _resolve_profile_logdir(node, config)
+    tb_enabled = _env_flag("RHEIDOS_TB", False)
+    ui_enabled = _env_flag("RHEIDOS_UI", True)
     if not session.profiler.cfg.enabled:
         if session.tb_exporter is not None:
             session.tb_exporter.stop()
         session.tb_exporter = None
+        if session.summary_writer is not None:
+            session.summary_writer.stop()
+        session.summary_writer = None
+        if session.summary_server is not None:
+            session.summary_server.stop()
+        session.summary_server = None
         return
 
-    needs_exporter = (
-        session.tb_exporter is None
-        or session.tb_exporter.cfg.logdir != logdir
-        or session.tb_exporter.cfg.export_hz != session.profiler.cfg.export_hz
-    )
-    if needs_exporter:
+    if tb_enabled:
+        needs_exporter = (
+            session.tb_exporter is None
+            or session.tb_exporter.cfg.logdir != logdir
+            or session.tb_exporter.cfg.export_hz != session.profiler.cfg.export_hz
+        )
+        if needs_exporter:
+            if session.tb_exporter is not None:
+                session.tb_exporter.stop()
+
+            def dag_provider() -> str:
+                if session.world is None:
+                    return ""
+                return session.world.export_dag_dot(
+                    include_resources=True, include_producers=True, include_modules=False
+                )
+
+            session.tb_exporter = TensorboardExporter(
+                session.summary_store,
+                TBExporterConfig(logdir=logdir, export_hz=session.profiler.cfg.export_hz),
+                dag_provider=dag_provider,
+            )
+            session.tb_exporter.start()
+    else:
         if session.tb_exporter is not None:
             session.tb_exporter.stop()
+        session.tb_exporter = None
 
-        def dag_provider() -> str:
-            if session.world is None:
-                return ""
-            return session.world.export_dag_dot(
-                include_resources=True, include_producers=True, include_modules=False
-            )
-
-        session.tb_exporter = TensorboardExporter(
-            session.profiler,
-            TBExporterConfig(logdir=logdir, export_hz=session.profiler.cfg.export_hz),
-            dag_provider=dag_provider,
+    if ui_enabled:
+        summary_hz = max(1e-6, session.profiler.cfg.export_hz)
+        writer_cfg = SummaryWriterConfig(logdir=logdir, export_hz=summary_hz)
+        needs_writer = (
+            session.summary_writer is None or session.summary_writer.cfg != writer_cfg
         )
-        session.tb_exporter.start()
+        if needs_writer:
+            if session.summary_writer is not None:
+                session.summary_writer.stop()
+            session.summary_writer = SummaryWriter(session.summary_store, writer_cfg)
+            session.summary_writer.start()
+
+        static_dir = os.path.abspath(
+            os.path.join(
+                os.path.dirname(__file__), "..", "..", "compute", "profiler", "ui"
+            )
+        )
+        server_cfg = SummaryServerConfig()
+        needs_server = (
+            session.summary_server is None or session.summary_server.cfg != server_cfg
+        )
+        if needs_server:
+            if session.summary_server is not None:
+                session.summary_server.stop()
+            session.summary_server = SummaryServer(session.summary_store, server_cfg)
+            session.summary_server.start(static_dir=static_dir)
+            session.stats["profile_ui_url"] = session.summary_server.url
+    else:
+        if session.summary_writer is not None:
+            session.summary_writer.stop()
+        session.summary_writer = None
+        if session.summary_server is not None:
+            session.summary_server.stop()
+        session.summary_server = None
 
 
 def _warn_mode_mismatch(node: "hou.Node", mode: str, expected: str) -> None:

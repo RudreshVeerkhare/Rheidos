@@ -275,6 +275,27 @@ class Registry:
                         f"Did you forget reg.commit()/reg.bump() for it?"
                     )
 
+            if profiler.summary_store is not None:
+                inputs = []
+                seen = set()
+                for out in p.outputs:
+                    out_r = self.get(out)
+                    for dep in out_r.deps:
+                        if dep in seen:
+                            continue
+                        seen.add(dep)
+                        dep_r = self.get(dep)
+                        inputs.append({"id": dep_r.name, "version": dep_r.version})
+                outputs = [
+                    {"id": out, "version": self.get(out).version} for out in p.outputs
+                ]
+                profiler.summary_store.update_producer_details(
+                    producer_name,
+                    last_update_id=profiler.current_cook_index(),
+                    inputs=inputs,
+                    outputs=outputs,
+                )
+
         if self._is_stale(self.get(name)):
             raise RuntimeError(f"Producer {p.__class__.__name__} ran but '{name}' is still stale.")
 

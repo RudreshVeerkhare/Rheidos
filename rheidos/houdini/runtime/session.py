@@ -12,6 +12,7 @@ import numpy as np
 
 from rheidos.compute.world import World
 from rheidos.compute.profiler.core import Profiler, ProfilerConfig
+from rheidos.compute.profiler.summary_store import SummaryStore
 
 from .taichi_reset import reset_taichi_hard
 
@@ -80,11 +81,17 @@ class WorldSession:
     stats: Dict[str, Any] = field(default_factory=dict)
     created_at: float = field(default_factory=time.time)
     last_cook_at: Optional[float] = None
+    summary_store: SummaryStore = field(default_factory=SummaryStore)
     profiler: Profiler = field(
         default_factory=lambda: Profiler(ProfilerConfig(enabled=False))
     )
     tb_exporter: Optional[Any] = None
+    summary_writer: Optional[Any] = None
+    summary_server: Optional[Any] = None
     taichi_probe: Optional[Any] = None
+
+    def __post_init__(self) -> None:
+        self.profiler.attach_summary_store(self.summary_store)
 
     def reset(self, reason: str) -> None:
         if self.tb_exporter is not None:
@@ -93,8 +100,22 @@ class WorldSession:
             except Exception:
                 pass
         self.tb_exporter = None
+        if self.summary_writer is not None:
+            try:
+                self.summary_writer.stop()
+            except Exception:
+                pass
+        self.summary_writer = None
+        if self.summary_server is not None:
+            try:
+                self.summary_server.stop()
+            except Exception:
+                pass
+        self.summary_server = None
         self.taichi_probe = None
+        self.summary_store.reset()
         self.profiler = Profiler(ProfilerConfig(enabled=False))
+        self.profiler.attach_summary_store(self.summary_store)
         self.world = None
         self.user_module = None
         self.user_module_key = None

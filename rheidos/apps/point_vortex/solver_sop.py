@@ -48,6 +48,8 @@ from rheidos.apps.point_vortex.modules.stream_func import StreamFunctionModule
 
 import taichi as ti
 import numpy as np
+from time import perf_counter_ns
+from rheidos.compute.profiler.core import profiled
 from rheidos.compute.profiler.runtime import reset_current_profiler, set_current_profiler
 
 # === IMPORT: change this to your app ===
@@ -161,32 +163,42 @@ def setup(ctx: CookContext) -> None:
     # Add DEC Mesh setup here
 
 
+@profiled("step", cat="solver")
 def step(ctx: CookContext) -> None:
     print(ctx.frame)
     # For now read all point vortices and and their state (CPU -> GPU -> CPU)
 
-    ## Read scatter points input (index 1) via the input IO.
-    points_io = ctx.io
-    scatter_points = points_io.read(OWNER_POINT, "P", components=3)
+    prof = ctx.prof
 
-    world = ctx.world()
-    point_vortices = world.require(PointVortexModule)
-    point_vortices.set_frame(int(ctx.frame))
-    point_vortices.set_n_vortices(len(scatter_points))
-    point_vortices.set_bary(points_io.read(OWNER_POINT, "bary", components=3))
-    point_vortices.set_face_ids(points_io.read(OWNER_POINT, "faceid"))
-    point_vortices.set_gammas(points_io.read(OWNER_POINT, "gamma"))
+    with prof.span("io_read_inputs", cat="solver"):
+        # Read scatter points input (index 1) via the input IO.
+        points_io = ctx.io
+        scatter_points = points_io.read(OWNER_POINT, "P", components=3)
+        bary = points_io.read(OWNER_POINT, "bary", components=3)
+        face_ids = points_io.read(OWNER_POINT, "faceid")
+        gammas = points_io.read(OWNER_POINT, "gamma")
 
-    # Advection
-    dt = 0.01  # use `ctx.dt` for real-time
-    rk4_intergrator = world.require(RK4AdvectionModule)
-    for _ in range(2):
-        rk4_intergrator.advect(dt)
+    with prof.span("compute_setup", cat="solver"):
+        world = ctx.world()
+        point_vortices = world.require(PointVortexModule)
+        point_vortices.set_frame(int(ctx.frame))
+        point_vortices.set_n_vortices(len(scatter_points))
+        point_vortices.set_bary(bary)
+        point_vortices.set_face_ids(face_ids)
+        point_vortices.set_gammas(gammas)
 
-    nVortices = len(scatter_points)
-    new_barys = point_vortices.bary.get().to_numpy()[:nVortices]
-    new_faceids = point_vortices.face_ids.get().to_numpy()[:nVortices]
-    new_pos = point_vortices.pos_world.get().to_numpy()[:nVortices]
+    with prof.span("compute_advect", cat="solver"):
+        # Advection
+        dt = 0.01  # use `ctx.dt` for real-time
+        rk4_intergrator = world.require(RK4AdvectionModule)
+        for _ in range(2):
+            rk4_intergrator.advect(dt)
+
+    with prof.span("io_read_outputs", cat="solver"):
+        nVortices = len(scatter_points)
+        new_barys = point_vortices.bary.get().to_numpy()[:nVortices]
+        new_faceids = point_vortices.face_ids.get().to_numpy()[:nVortices]
+        new_pos = point_vortices.pos_world.get().to_numpy()[:nVortices]
     # edge_hop_advection = world.require(EdgeHopPtVortexAdvectionModule)
     # edge_hop_advection.dt.set_buffer(dt)
     # new_face_ids = edge_hop_advection.new_face_ids.get()
@@ -199,9 +211,10 @@ def step(ctx: CookContext) -> None:
     # vel_module = world.require(VelocityFieldModule)
     # per_face_vel = vel_module.F_velocity.get()
     # ctx.write(OWNER_PRIM, "velocity", per_face_vel.to_numpy(), create=True)
-    ctx.write(OWNER_POINT, "faceid", new_faceids)
-    ctx.write(OWNER_POINT, "bary", new_barys)
-    ctx.write(OWNER_POINT, "P", new_pos)
+    with prof.span("io_write_outputs", cat="solver"):
+        ctx.write(OWNER_POINT, "faceid", new_faceids)
+        ctx.write(OWNER_POINT, "bary", new_barys)
+        ctx.write(OWNER_POINT, "P", new_pos)
     # # ctx.write(OWNER_POINT, "faceid", )
 
     # _velocity = world.require(VelocityFieldModule)
@@ -297,55 +310,68 @@ def run_solver_new() -> None:
     node = hou.pwd()
     geo_out = node.geometry()
 
-    # Interactive debugging setup
-    cfg = debug_config_from_node(node)
-    ensure_debug_server(cfg, node=node)
-    if consume_break_next_button(node):
-        request_break_next(node=node)
-    maybe_break_now(node=node)
-
-    # Input mapping
-    # 0 -> point vortices (prev frame)
-    # 1 -> Triangle Mesh
-    mesh_geo = _get_input_geo(node, index=0)
-    points_geo = _get_input_geo(node, index=1)
-
-    # Pass mesh through to output so downstream SOPs see the surface.
-    _seed_output(geo_out, mesh_geo)
-
+    t0 = perf_counter_ns()
     session = get_runtime().get_or_create_session(node)
+    t1 = perf_counter_ns()
     prof_cfg = _profiler_cfg_from_node(node)
     prof_token, probe = _enter_profiler(node, session, prof_cfg)
 
     try:
-        ctx = build_cook_context(
-            node, mesh_geo, geo_out, session, geo_inputs=[mesh_geo, points_geo]
+        session.profiler.record_value(
+            "solver", "get_session", None, (t1 - t0) / 1e6
         )
-        world = ctx.world()
 
-        with session.profiler.span("run_solver", cat="houdini"):
+        with session.profiler.span("run_solver_new", cat="houdini"):
             with session.profiler.span("solver_total", cat="cook"):
+                with session.profiler.span("debug_config", cat="solver"):
+                    dbg_cfg = debug_config_from_node(node)
+                    ensure_debug_server(dbg_cfg, node=node)
+                    if consume_break_next_button(node):
+                        request_break_next(node=node)
+                    maybe_break_now(node=node)
+
+                with session.profiler.span("fetch_inputs", cat="solver"):
+                    # Input mapping
+                    # 0 -> point vortices (prev frame)
+                    # 1 -> Triangle Mesh
+                    mesh_geo = _get_input_geo(node, index=0)
+                    points_geo = _get_input_geo(node, index=1)
+
+                with session.profiler.span("seed_output", cat="solver"):
+                    # Pass mesh through to output so downstream SOPs see the surface.
+                    _seed_output(geo_out, mesh_geo)
+
+                with session.profiler.span("build_context", cat="solver"):
+                    ctx = build_cook_context(
+                        node, mesh_geo, geo_out, session, geo_inputs=[mesh_geo, points_geo]
+                    )
+                    ctx.world()
+
                 if probe is not None:
-                    probe.clear()
+                    with session.profiler.span("taichi_probe_clear", cat="solver"):
+                        probe.clear()
 
                 # 6) Run setup once, then step every time
-                if ctx.frame == 1 or not getattr(session, "_solver_did_setup", None):
-                    if callable(setup):
-                        setup(ctx)
-                    session._solver_did_setup = True
+                with session.profiler.span("setup_once", cat="solver"):
+                    if ctx.frame == 1 or not getattr(session, "_solver_did_setup", None):
+                        if callable(setup):
+                            setup(ctx)
+                        session._solver_did_setup = True
 
                 # Guard against Houdini double-cooks of same frame/substep (common in Solvers)
                 step_key = (ctx.frame, ctx.substep)
                 if step_key == getattr(session, "_solver_last_step_key", None):
                     return
 
-                step(ctx)
+                with session.profiler.span("step_call", cat="solver"):
+                    step(ctx)
                 session._solver_last_step_key = step_key
 
                 if probe is not None:
-                    probe.sync()
-                    k_ms = probe.kernel_total_ms()
-                    session.profiler.record_value("taichi", "kernel_total", None, k_ms)
+                    with session.profiler.span("taichi_probe_sync", cat="solver"):
+                        probe.sync()
+                        k_ms = probe.kernel_total_ms()
+                        session.profiler.record_value("taichi", "kernel_total", None, k_ms)
 
         runtime_driver._maybe_log_taichi_scoped(session, prof_cfg)
     finally:

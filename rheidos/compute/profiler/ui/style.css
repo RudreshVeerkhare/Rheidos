@@ -1,0 +1,257 @@
+@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap");
+
+:root {
+  color-scheme: light;
+  --bg-1: #f6efe5;
+  --bg-2: #e7f0f2;
+  --ink: #1e1b16;
+  --muted: #6a5f55;
+  --accent: #e46e2e;
+  --accent-2: #1e7b7b;
+  --panel: #ffffffcc;
+  --panel-border: #e1d6c9;
+  --glow: rgba(228, 110, 46, 0.18);
+  --mono: "JetBrains Mono", "SFMono-Regular", Menlo, monospace;
+  --sans: "Space Grotesk", "Futura", "Helvetica Neue", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: var(--sans);
+  color: var(--ink);
+  background: radial-gradient(circle at 15% 20%, #fff4e6 0%, transparent 45%),
+    radial-gradient(circle at 80% 0%, #dfeff4 0%, transparent 42%),
+    linear-gradient(135deg, var(--bg-1), var(--bg-2));
+}
+
+.page {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 48px 24px 72px;
+}
+
+.hero {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 32px;
+}
+
+.eyebrow {
+  text-transform: uppercase;
+  letter-spacing: 0.24em;
+  font-size: 12px;
+  color: var(--muted);
+  margin: 0 0 8px;
+}
+
+h1 {
+  font-size: clamp(32px, 4vw, 44px);
+  margin: 0;
+}
+
+.subtitle {
+  margin-top: 12px;
+  font-size: 16px;
+  color: var(--muted);
+  max-width: 420px;
+}
+
+.meta {
+  display: grid;
+  gap: 12px;
+  padding: 16px 20px;
+  border-radius: 16px;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  min-width: 200px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+}
+
+.label {
+  font-size: 12px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+}
+
+.value {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 20px;
+  padding: 24px;
+  box-shadow: 0 20px 45px rgba(0, 0, 0, 0.08);
+  backdrop-filter: blur(8px);
+}
+
+.category-panels {
+  margin-top: 24px;
+  display: grid;
+  gap: 18px;
+}
+
+.category-panel h3 {
+  margin: 0;
+  font-size: 18px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.panel-header h2 {
+  margin: 0;
+  font-size: 22px;
+}
+
+.panel-note {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+  font-family: var(--mono);
+}
+
+.toggle input {
+  accent-color: var(--accent-2);
+}
+
+.search {
+  border-radius: 999px;
+  border: 1px solid var(--panel-border);
+  padding: 8px 14px;
+  font-family: var(--mono);
+  font-size: 12px;
+  background: #fff;
+  min-width: 180px;
+}
+
+.pill {
+  font-family: var(--mono);
+  background: #fff3ea;
+  color: var(--accent);
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  border: 1px solid #f2c6a6;
+}
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+th,
+td {
+  text-align: left;
+  padding: 12px 10px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+th {
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+tbody tr:hover {
+  background: rgba(228, 110, 46, 0.08);
+}
+
+tbody tr.row-updated {
+  animation: pulse 1.2s ease-out;
+  box-shadow: inset 0 0 0 1px var(--glow);
+}
+
+tbody tr.details-row {
+  background: #fdf8f2;
+}
+
+tbody tr.details-row td {
+  border-bottom: none;
+  padding: 16px 10px 20px;
+}
+
+.details {
+  display: grid;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.details strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.details-grid {
+  display: grid;
+  gap: 6px;
+}
+
+@keyframes pulse {
+  0% {
+    background-color: rgba(228, 110, 46, 0.2);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+td:last-child,
+th:last-child {
+  text-align: right;
+}
+
+@media (max-width: 720px) {
+  .hero {
+    flex-direction: column;
+  }
+
+  .panel {
+    padding: 18px;
+  }
+
+  .panel-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+}

@@ -25,6 +25,7 @@ from typing import Optional
 import taichi as ti
 
 from rheidos.compute import ModuleBase, World  # keep your style
+from rheidos.compute.profiler.runtime import get_current_profiler
 from .surface_mesh import SurfaceMeshModule
 from .point_vortex import PointVortexModule
 from .velocity_field import VelocityFieldModule
@@ -315,81 +316,71 @@ class RK4AdvectionModule(ModuleBase):
         self.pt_vortex.bary.bump()
 
     def advect(self, dt: float) -> None:
-        # Grab state + mesh fields
-        n = int(self.pt_vortex.n_vortices.get()[None])
-        if n <= 0:
-            return
+        prof = get_current_profiler()
 
-        face_ids = self.pt_vortex.face_ids.get()
-        bary = self.pt_vortex.bary.get()
+        def span(name: str):
+            return prof.span(name, cat="rk4")
 
-        V_pos = self.mesh.V_pos.get()
-        F_verts = self.mesh.F_verts.get()
-        F_adj = self.mesh.F_adj.get()
+        with span("fetch_state"):
+            n = int(self.pt_vortex.n_vortices.get()[None])
+            if n <= 0:
+                return
 
-        # Backup p0
-        self.adv.backup_state(face_ids, bary, self.p0_face, self.p0_bary, n)
+            face_ids = self.pt_vortex.face_ids.get()
+            bary = self.pt_vortex.bary.get()
+
+            V_pos = self.mesh.V_pos.get()
+            F_verts = self.mesh.F_verts.get()
+            F_adj = self.mesh.F_adj.get()
+
+        def sample_vel(out_buf, label: str) -> None:
+            with span(f"{label}_sample"):
+                V_vel = self.velocity.V_velocity.get()
+                self.sampler.run(
+                    F_verts=F_verts,
+                    V_vel=V_vel,
+                    pt_bary=bary,
+                    pt_face=face_ids,
+                    pt_vel_out=out_buf,
+                    n_pts=n,
+                )
+
+        def advect_stage(vel_buf, step_dt: float, label: str) -> None:
+            with span(f"{label}_advect"):
+                self.adv.advect_inplace(
+                    V_pos, F_verts, F_adj, face_ids, bary, vel_buf, step_dt, n
+                )
+                self._touch_vortex_state()
+
+        with span("backup_state"):
+            self.adv.backup_state(face_ids, bary, self.p0_face, self.p0_bary, n)
 
         # --- k1 @ p0 ---
-        V_vel = (
-            self.velocity.V_velocity.get()
-        )  # triggers your compute graph based on current vortex placement
-        self.sampler.run(
-            F_verts=F_verts,
-            V_vel=V_vel,
-            pt_bary=bary,
-            pt_face=face_ids,
-            pt_vel_out=self.k1,
-            n_pts=n,
-        )
+        sample_vel(self.k1, "k1")
 
         # --- k2 @ p0 + 0.5dt*k1 ---
-        self.adv.advect_inplace(
-            V_pos, F_verts, F_adj, face_ids, bary, self.k1, 0.5 * dt, n
-        )
-        self._touch_vortex_state()
-        V_vel = self.velocity.V_velocity.get()
-        self.sampler.run(
-            F_verts=F_verts,
-            V_vel=V_vel,
-            pt_bary=bary,
-            pt_face=face_ids,
-            pt_vel_out=self.k2,
-            n_pts=n,
-        )
-        self.adv.restore_state(face_ids, bary, self.p0_face, self.p0_bary, n)
+        advect_stage(self.k1, 0.5 * dt, "k2")
+        sample_vel(self.k2, "k2")
+        with span("k2_restore"):
+            self.adv.restore_state(face_ids, bary, self.p0_face, self.p0_bary, n)
 
         # --- k3 @ p0 + 0.5dt*k2 ---
-        self.adv.advect_inplace(
-            V_pos, F_verts, F_adj, face_ids, bary, self.k2, 0.5 * dt, n
-        )
-        self._touch_vortex_state()
-        V_vel = self.velocity.V_velocity.get()
-        self.sampler.run(
-            F_verts=F_verts,
-            V_vel=V_vel,
-            pt_bary=bary,
-            pt_face=face_ids,
-            pt_vel_out=self.k3,
-            n_pts=n,
-        )
-        self.adv.restore_state(face_ids, bary, self.p0_face, self.p0_bary, n)
+        advect_stage(self.k2, 0.5 * dt, "k3")
+        sample_vel(self.k3, "k3")
+        with span("k3_restore"):
+            self.adv.restore_state(face_ids, bary, self.p0_face, self.p0_bary, n)
 
         # --- k4 @ p0 + dt*k3 ---
-        self.adv.advect_inplace(V_pos, F_verts, F_adj, face_ids, bary, self.k3, dt, n)
-        self._touch_vortex_state()
-        V_vel = self.velocity.V_velocity.get()
-        self.sampler.run(
-            F_verts=F_verts,
-            V_vel=V_vel,
-            pt_bary=bary,
-            pt_face=face_ids,
-            pt_vel_out=self.k4,
-            n_pts=n,
-        )
-        self.adv.restore_state(face_ids, bary, self.p0_face, self.p0_bary, n)
+        advect_stage(self.k3, dt, "k4")
+        sample_vel(self.k4, "k4")
+        with span("k4_restore"):
+            self.adv.restore_state(face_ids, bary, self.p0_face, self.p0_bary, n)
 
-        # combine + final step (commit)
-        self.adv.rk4_combine_vel(self.k1, self.k2, self.k3, self.k4, self.k, n)
-        self.adv.advect_inplace(V_pos, F_verts, F_adj, face_ids, bary, self.k, dt, n)
-        self._touch_vortex_state()
+        with span("combine_k"):
+            self.adv.rk4_combine_vel(self.k1, self.k2, self.k3, self.k4, self.k, n)
+
+        with span("final_advect"):
+            self.adv.advect_inplace(
+                V_pos, F_verts, F_adj, face_ids, bary, self.k, dt, n
+            )
+            self._touch_vortex_state()
