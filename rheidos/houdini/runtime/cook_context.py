@@ -7,6 +7,7 @@ from typing import Any, Dict, Optional, Sequence, TYPE_CHECKING
 
 import numpy as np
 
+from rheidos.compute.profiler.core import Profiler
 from rheidos.compute.resource import ResourceSpec
 from rheidos.compute.world import World
 
@@ -57,6 +58,7 @@ class CookContext:
     substep: int
     is_solver: bool
     session: WorldSession
+    prof: Profiler
     geo_in: "hou.Geometry"
     geo_out: "hou.Geometry"
     io: GeometryIO
@@ -241,6 +243,7 @@ def build_cook_context(
         substep=substep,
         is_solver=is_solver,
         session=session,
+        prof=session.profiler,
         geo_in=geo_in,
         geo_out=geo_out,
         io=GeometryIO(geo_in, geo_out),

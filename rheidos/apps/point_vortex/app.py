@@ -35,13 +35,19 @@ def _taichi_initialized() -> bool:
     return False
 
 
+def _kernel_profiler_enabled(session) -> bool:
+    profiler = getattr(session, "profiler", None)
+    cfg = getattr(profiler, "cfg", None)
+    return bool(getattr(cfg, "enabled", False) and getattr(cfg, "taichi_enabled", False))
+
+
 def _ensure_taichi_init(session) -> None:
     if session.stats.get("taichi_initialized"):
         return
     if _taichi_initialized():
         session.stats["taichi_initialized"] = True
         return
-    ti.init()
+    ti.init(kernel_profiler=_kernel_profiler_enabled(session))
     session.stats["taichi_initialized"] = True
 
 

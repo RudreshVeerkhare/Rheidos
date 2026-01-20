@@ -11,6 +11,7 @@
 # - Calls your app's setup(ctx) once (optional) and step(ctx) every cook
 
 import hou
+from types import SimpleNamespace
 
 from rheidos.houdini.debug import (
     consume_break_next_button,
@@ -25,6 +26,7 @@ from rheidos.houdini.runtime import (
     publish_geometry_minimal,
     CookContext,
 )
+from rheidos.houdini.runtime import driver as runtime_driver
 from rheidos.houdini.runtime.resource_keys import (
     SIM_DT,
     SIM_FRAME,
@@ -46,10 +48,92 @@ from rheidos.apps.point_vortex.modules.stream_func import StreamFunctionModule
 
 import taichi as ti
 import numpy as np
+from rheidos.compute.profiler.runtime import reset_current_profiler, set_current_profiler
 
 # === IMPORT: change this to your app ===
 # You can have only `step(ctx)` if you want; `setup(ctx)` is optional.
 # from rheidos.apps.point_vortex.app import setup, step  # <-- your app entrypoints
+
+
+def _eval_parm_optional(node: hou.Node, name: str):
+    parm = node.parm(name)
+    if parm is None:
+        return None
+    try:
+        return parm.eval()
+    except Exception:
+        return None
+
+
+def _eval_parm_optional_bool(
+    node: hou.Node, name: str, default: bool = False
+) -> bool:
+    value = _eval_parm_optional(node, name)
+    if value is None:
+        return default
+    return bool(value)
+
+
+def _eval_parm_optional_int(node: hou.Node, name: str, default: int) -> int:
+    value = _eval_parm_optional(node, name)
+    if value is None:
+        return default
+    try:
+        return int(value)
+    except Exception:
+        return default
+
+
+def _eval_parm_optional_float(node: hou.Node, name: str, default: float) -> float:
+    value = _eval_parm_optional(node, name)
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except Exception:
+        return default
+
+
+def _eval_parm_optional_str(node: hou.Node, name: str, default: str = "") -> str:
+    value = _eval_parm_optional(node, name)
+    if value is None:
+        return default
+    return "" if value is None else str(value)
+
+
+def _profiler_cfg_from_node(node: hou.Node) -> SimpleNamespace:
+    return SimpleNamespace(
+        profile=_eval_parm_optional_bool(node, "profile", False),
+        profile_logdir=_eval_parm_optional_str(node, "profile_logdir") or None,
+        profile_export_hz=_eval_parm_optional_float(node, "profile_export_hz", 5.0),
+        profile_taichi=_eval_parm_optional_bool(node, "profile_taichi", True),
+        profile_taichi_every=_eval_parm_optional_int(node, "profile_taichi_every", 30),
+        profile_taichi_sync=_eval_parm_optional_bool(node, "profile_taichi_sync", True),
+        profile_taichi_scoped_once=_eval_parm_optional_bool(
+            node, "profile_taichi_scoped_once", False
+        ),
+    )
+
+
+def _enter_profiler(node, session, cfg):
+    runtime_driver._configure_profiler(session, cfg, node)
+    token = set_current_profiler(session.profiler)
+    cook_index = session.profiler.next_cook_index()
+    sample_every = max(1, session.profiler.cfg.taichi_sample_every_n_cooks)
+    is_sample = (
+        session.profiler.cfg.enabled
+        and session.profiler.cfg.taichi_enabled
+        and (cook_index % sample_every == 0)
+    )
+    session.profiler.set_taichi_sample(is_sample)
+    probe = session.taichi_probe if is_sample else None
+    return token, probe
+
+
+def _exit_profiler(session, token) -> None:
+    if token is not None:
+        reset_current_profiler(token)
+    session.profiler.set_taichi_sample(False)
 
 
 def setup(ctx: CookContext) -> None:
@@ -193,13 +277,19 @@ def _ensure_scalar_field(ref, count: int, *, dtype) -> "ti.Field":
     return field
 
 
+def _kernel_profiler_enabled(session) -> bool:
+    profiler = getattr(session, "profiler", None)
+    cfg = getattr(profiler, "cfg", None)
+    return bool(getattr(cfg, "enabled", False) and getattr(cfg, "taichi_enabled", False))
+
+
 def _ensure_taichi_init(session) -> None:
     if session.stats.get("taichi_initialized"):
         return
     if _taichi_initialized():
         session.stats["taichi_initialized"] = True
         return
-    ti.init(arch=ti.metal)  # arch=ti.gpu)
+    ti.init(kernel_profiler=_kernel_profiler_enabled(session))
     session.stats["taichi_initialized"] = True
 
 
@@ -224,25 +314,42 @@ def run_solver_new() -> None:
     _seed_output(geo_out, mesh_geo)
 
     session = get_runtime().get_or_create_session(node)
+    prof_cfg = _profiler_cfg_from_node(node)
+    prof_token, probe = _enter_profiler(node, session, prof_cfg)
 
-    ctx = build_cook_context(
-        node, mesh_geo, geo_out, session, geo_inputs=[mesh_geo, points_geo]
-    )
-    world = ctx.world()
+    try:
+        ctx = build_cook_context(
+            node, mesh_geo, geo_out, session, geo_inputs=[mesh_geo, points_geo]
+        )
+        world = ctx.world()
 
-    # 6) Run setup once, then step every time
-    if ctx.frame == 1 or not getattr(session, "_solver_did_setup", None):
-        if callable(setup):
-            setup(ctx)
-        session._solver_did_setup = True
+        with session.profiler.span("run_solver", cat="houdini"):
+            with session.profiler.span("solver_total", cat="cook"):
+                if probe is not None:
+                    probe.clear()
 
-    # Guard against Houdini double-cooks of same frame/substep (common in Solvers)
-    step_key = (ctx.frame, ctx.substep)
-    if step_key == getattr(session, "_solver_last_step_key", None):
-        return
+                # 6) Run setup once, then step every time
+                if ctx.frame == 1 or not getattr(session, "_solver_did_setup", None):
+                    if callable(setup):
+                        setup(ctx)
+                    session._solver_did_setup = True
 
-    step(ctx)
-    session._solver_last_step_key = step_key
+                # Guard against Houdini double-cooks of same frame/substep (common in Solvers)
+                step_key = (ctx.frame, ctx.substep)
+                if step_key == getattr(session, "_solver_last_step_key", None):
+                    return
+
+                step(ctx)
+                session._solver_last_step_key = step_key
+
+                if probe is not None:
+                    probe.sync()
+                    k_ms = probe.kernel_total_ms()
+                    session.profiler.record_value("taichi", "kernel_total", None, k_ms)
+
+        runtime_driver._maybe_log_taichi_scoped(session, prof_cfg)
+    finally:
+        _exit_profiler(session, prof_token)
 
 
 def _get_input_geo(node: hou.Node, index: int = 0) -> hou.Geometry:
@@ -342,6 +449,8 @@ def run_solver() -> None:
     # 2) Persistent session for this node
     session = get_runtime().get_or_create_session(node)
     _ensure_state(session)
+    prof_cfg = _profiler_cfg_from_node(node)
+    prof_token, probe = _enter_profiler(node, session, prof_cfg)
 
     # 3) Optional: substep parameter (create an int parm 'substep' if you want)
     substep = int(node.evalParm("substep")) if node.parm("substep") else 0
@@ -354,33 +463,48 @@ def run_solver() -> None:
             input_geos[1] = geo_in
     else:
         input_geos = [geo_prev, geo_in]
-    ctx = build_cook_context(
-        node,
-        source,  # input snapshot for reading
-        geo_out,  # output geometry to write
-        session,
-        geo_inputs=input_geos,
-        substep=substep,
-        is_solver=True,
-    )
+    try:
+        ctx = build_cook_context(
+            node,
+            source,  # input snapshot for reading
+            geo_out,  # output geometry to write
+            session,
+            geo_inputs=input_geos,
+            substep=substep,
+            is_solver=True,
+        )
 
-    # 5) Publish geometry + sim timing keys
-    publish_geometry_minimal(ctx)
-    _publish_sim_keys(ctx)
+        with session.profiler.span("run_solver", cat="houdini"):
+            with session.profiler.span("solver_total", cat="cook"):
+                if probe is not None:
+                    probe.clear()
 
-    # 6) Run setup once, then step every time
-    if not session._solver_did_setup:
-        if callable(setup):
-            setup(ctx)
-        session._solver_did_setup = True
+                # 5) Publish geometry + sim timing keys
+                publish_geometry_minimal(ctx)
+                _publish_sim_keys(ctx)
 
-    # Guard against Houdini double-cooks of same frame/substep (common in Solvers)
-    step_key = (ctx.frame, ctx.substep)
-    if step_key == session._solver_last_step_key:
-        return
+                # 6) Run setup once, then step every time
+                if not session._solver_did_setup:
+                    if callable(setup):
+                        setup(ctx)
+                    session._solver_did_setup = True
 
-    step(ctx)
-    session._solver_last_step_key = step_key
+                # Guard against Houdini double-cooks of same frame/substep (common in Solvers)
+                step_key = (ctx.frame, ctx.substep)
+                if step_key == session._solver_last_step_key:
+                    return
+
+                step(ctx)
+                session._solver_last_step_key = step_key
+
+                if probe is not None:
+                    probe.sync()
+                    k_ms = probe.kernel_total_ms()
+                    session.profiler.record_value("taichi", "kernel_total", None, k_ms)
+
+        runtime_driver._maybe_log_taichi_scoped(session, prof_cfg)
+    finally:
+        _exit_profiler(session, prof_token)
 
     # === OPTIONAL: apply outputs back to Houdini if your app writes resources ===
     # if ctx.exists("out.P"):

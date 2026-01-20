@@ -143,6 +143,26 @@ class World:
     def module_dependencies(self) -> Dict[ModuleKey, Set[ModuleKey]]:
         return {k: set(v) for k, v in self._module_deps.items()}
 
+    def export_dag_dot(
+        self,
+        *,
+        include_resources: bool = True,
+        include_producers: bool = True,
+        include_modules: bool = False,
+        sort: bool = True,
+        rankdir: str = "LR",
+    ) -> str:
+        from .graph import format_dependency_graph_dot
+
+        return format_dependency_graph_dot(
+            self,
+            include_resources=include_resources,
+            include_producers=include_producers,
+            include_modules=include_modules,
+            sort=sort,
+            rankdir=rankdir,
+        )
+
     def _record_module_dep(self, parent: Optional[ModuleKey], child: ModuleKey) -> None:
         self._module_deps.setdefault(child, set())
         if parent is None or parent == child:

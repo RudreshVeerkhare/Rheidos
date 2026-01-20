@@ -11,6 +11,7 @@ import time
 import numpy as np
 
 from rheidos.compute.world import World
+from rheidos.compute.profiler.core import Profiler, ProfilerConfig
 
 from .taichi_reset import reset_taichi_hard
 
@@ -79,8 +80,21 @@ class WorldSession:
     stats: Dict[str, Any] = field(default_factory=dict)
     created_at: float = field(default_factory=time.time)
     last_cook_at: Optional[float] = None
+    profiler: Profiler = field(
+        default_factory=lambda: Profiler(ProfilerConfig(enabled=False))
+    )
+    tb_exporter: Optional[Any] = None
+    taichi_probe: Optional[Any] = None
 
     def reset(self, reason: str) -> None:
+        if self.tb_exporter is not None:
+            try:
+                self.tb_exporter.stop()
+            except Exception:
+                pass
+        self.tb_exporter = None
+        self.taichi_probe = None
+        self.profiler = Profiler(ProfilerConfig(enabled=False))
         self.world = None
         self.user_module = None
         self.user_module_key = None

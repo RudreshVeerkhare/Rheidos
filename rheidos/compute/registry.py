@@ -1,4 +1,5 @@
 from typing import Tuple, Set, List, Any, Sequence, Optional, Iterable, Callable, TypeVar, Dict, Mapping
+from time import perf_counter_ns
 from dataclasses import dataclass, field
 import numpy as np
 from .resource import Resource, ResourceSpec, ResourceRef, ResourceKey
@@ -31,6 +32,10 @@ class ProducerBase:
 
     def compute(self, reg: "Registry") -> None:
         raise NotImplementedError
+
+    def debug_name(self) -> str:
+        cls = self.__class__
+        return f"{cls.__module__}.{cls.__qualname__}"
 
 
 @dataclass
@@ -236,7 +241,29 @@ class Registry:
                 for d in out_r.deps:
                     self._ensure(d, ctx)
 
-            p.compute(self)
+            from rheidos.compute.profiler.runtime import get_current_profiler
+
+            profiler = get_current_profiler()
+            producer_name = p.debug_name()
+            probe = profiler.taichi_probe if profiler.is_taichi_sample() else None
+            t0 = 0
+            if probe is not None:
+                probe.clear()
+                t0 = perf_counter_ns()
+            with profiler.span("compute", cat="producer", producer=producer_name):
+                p.compute(self)
+            if probe is not None:
+                t1 = perf_counter_ns()
+                probe.sync()
+                k_ms = probe.kernel_total_ms()
+                wall_ms = (t1 - t0) / 1e6
+                overhead_ms = max(0.0, wall_ms - k_ms)
+                profiler.record_value(
+                    "taichi", "producer_kernel_ms", producer_name, k_ms
+                )
+                profiler.record_value(
+                    "taichi", "producer_overhead_ms", producer_name, overhead_ms
+                )
             ctx.ran.add(p)
 
             # Validate producer committed outputs
