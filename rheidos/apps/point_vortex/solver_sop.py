@@ -36,11 +36,16 @@ from rheidos.houdini.geo import OWNER_POINT, OWNER_PRIM
 
 from rheidos.apps.point_vortex.modules.surface_mesh import SurfaceMeshModule
 from rheidos.apps.point_vortex.modules.point_vortex import PointVortexModule
+
 from rheidos.apps.point_vortex.modules.rk4_advection import RK4AdvectionModule
+
+# from rheidos.apps.point_vortex.modules.rt0_rk4_advection import RK4AdvectionModule
 from rheidos.apps.point_vortex.modules.velocity_field import VelocityFieldModule
+from rheidos.apps.point_vortex.modules.stream_func import StreamFunctionModule
 
 
 import taichi as ti
+import numpy as np
 
 # === IMPORT: change this to your app ===
 # You can have only `step(ctx)` if you want; `setup(ctx)` is optional.
@@ -62,11 +67,11 @@ def setup(ctx: CookContext) -> None:
     world = ctx.world()
     mesh = world.require(SurfaceMeshModule)
     V = _ensure_vector_field(mesh.V_pos, nV, lanes=3, dtype=ti.f32)
-    V.from_numpy(mesh_points)
+    V.from_numpy(mesh_points.astype(np.float32))
     mesh.V_pos.commit()
 
     F = _ensure_vector_field(mesh.F_verts, nF, lanes=3, dtype=ti.i32)
-    F.from_numpy(mesh_triangles)
+    F.from_numpy(mesh_triangles.astype(np.int32))
     mesh.F_verts.commit()
     print("Setup Done!")
     # Add DEC Mesh setup here
@@ -82,6 +87,7 @@ def step(ctx: CookContext) -> None:
 
     world = ctx.world()
     point_vortices = world.require(PointVortexModule)
+    point_vortices.set_frame(int(ctx.frame))
     point_vortices.set_n_vortices(len(scatter_points))
     point_vortices.set_bary(points_io.read(OWNER_POINT, "bary", components=3))
     point_vortices.set_face_ids(points_io.read(OWNER_POINT, "faceid"))
@@ -90,7 +96,8 @@ def step(ctx: CookContext) -> None:
     # Advection
     dt = 0.01  # use `ctx.dt` for real-time
     rk4_intergrator = world.require(RK4AdvectionModule)
-    rk4_intergrator.advect(dt)
+    for _ in range(2):
+        rk4_intergrator.advect(dt)
 
     nVortices = len(scatter_points)
     new_barys = point_vortices.bary.get().to_numpy()[:nVortices]
@@ -113,9 +120,9 @@ def step(ctx: CookContext) -> None:
     ctx.write(OWNER_POINT, "P", new_pos)
     # # ctx.write(OWNER_POINT, "faceid", )
 
-    _velocity = world.require(VelocityFieldModule)
-    f_vel = _velocity.F_velocity.get()
-    v_vel = _velocity.V_velocity.get()
+    # _velocity = world.require(VelocityFieldModule)
+    # f_vel = _velocity.F_velocity.get()
+    # v_vel = _velocity.V_velocity.get()
 
     print("Hello")
 
@@ -192,7 +199,7 @@ def _ensure_taichi_init(session) -> None:
     if _taichi_initialized():
         session.stats["taichi_initialized"] = True
         return
-    ti.init()
+    ti.init(arch=ti.metal)  # arch=ti.gpu)
     session.stats["taichi_initialized"] = True
 
 
@@ -274,10 +281,16 @@ def probe():
     with ctx.session_access("/obj/grid_object1/solver1/d/s/python1") as other:
         _world = other.session.world
         _velocity = _world.require(VelocityFieldModule)
+        pt_vortex = _world.require(PointVortexModule)
+        frame = pt_vortex.frame.get()[None]
         f_vel = _velocity.F_velocity.get()
         v_vel = _velocity.V_velocity.get()
-        ctx.write(OWNER_PRIM, "velocity", f_vel.to_numpy() + ctx.frame, create=True)
-        ctx.write(OWNER_POINT, "velocity", v_vel.to_numpy() + ctx.frame, create=True)
+        ctx.write(OWNER_PRIM, "velocity", f_vel.to_numpy(), create=True)
+        ctx.write(OWNER_POINT, "velocity", v_vel.to_numpy(), create=True)
+
+        stream_func = _world.require(StreamFunctionModule)
+        psi = stream_func.psi.get()
+        ctx.write(OWNER_POINT, "stream_func", psi.to_numpy(), create=True)
 
 
 def _seed_output(geo_out: hou.Geometry, source: hou.Geometry) -> None:

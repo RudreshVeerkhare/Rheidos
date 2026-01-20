@@ -22,7 +22,7 @@ class PoissonSolverModule(ModuleBase):
     NAME = "poisson"
 
     def __init__(
-        self, world: World, *, scope: str = "", use_scipy_cg: bool = True
+        self, world: World, *, scope: str = "", use_scipy_cg: bool = False
     ) -> None:
         super().__init__(world, scope=scope)
 

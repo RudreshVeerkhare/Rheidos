@@ -108,9 +108,12 @@ class StreamFuncProducer(WiredProducer[StreamFuncProducerIO]):
         constraint_values[self.pin_vertex_id] = (
             0  # Dirichlet pin one vertex to remove null space
         )
+        io.constraint_mask.commit()
+        io.constraint_values.commit()
 
         # trigger poisson solve
         rhs.copy_from(omega)
+        io.rhs.commit()
         u = io.u.get()  # triggers poisson solve
 
         psi.copy_from(u)

@@ -101,6 +101,15 @@ class PointVortexModule(ModuleBase):
 
         self.mesh = self.require(SurfaceMeshModule)
 
+        self.frame = self.resource(
+            "frame",
+            spec=ResourceSpec(
+                kind="taichi_field", dtype=ti.i32, shape=(), allow_none=True
+            ),
+            doc="Frame passed",
+            declare=True,
+        )
+
         self.n_vortices = self.resource(
             "n_vortices",
             spec=ResourceSpec(
@@ -217,6 +226,18 @@ class PointVortexModule(ModuleBase):
             self.n_vortices.set_buffer(field, bump=False)
         field[None] = count
         self.n_vortices.bump()
+
+    def set_frame(self, count: int) -> None:
+        count = int(count)
+        if count < 0:
+            raise ValueError(f"frame must be >= 0, got {count}")
+
+        field = self.frame.peek()
+        if field is None:
+            field = ti.field(dtype=ti.i32, shape=())
+            self.frame.set_buffer(field, bump=False)
+        field[None] = count
+        self.frame.bump()
 
     def set_face_ids(self, face_ids: np.ndarray) -> None:
         face_ids_np = np.ascontiguousarray(face_ids, dtype=np.int32)

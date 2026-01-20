@@ -1,11 +1,14 @@
 from dataclasses import dataclass
+import re
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, Type, TypeVar, cast
 
 from .resource import ResourceRef, ResourceKey
 from .registry import Registry, ResourceSpec, ProducerBase
 
 M = TypeVar("M", bound="ModuleBase")
+ModuleKey = Tuple[str, Type["ModuleBase"]]
 DepLike = str | ResourceRef[Any] | ResourceKey[Any]
+ModuleDepPattern = str
 
 # =============================================================================
 # Implicit naming / scope
@@ -107,21 +110,54 @@ class ModuleBase:
         )
 
 
+def module_resource_deps(
+    module: ModuleBase,
+    *,
+    include: ModuleDepPattern = r".*",
+    exclude: ModuleDepPattern = r"^$",
+) -> Tuple[ResourceRef[Any], ...]:
+    include_re = re.compile(include)
+    exclude_re = re.compile(exclude) if exclude else None
+    deps = []
+    for name, value in vars(module).items():
+        if not isinstance(value, ResourceRef):
+            continue
+        if not include_re.search(name):
+            continue
+        if exclude_re is not None and exclude_re.search(name):
+            continue
+        deps.append(value)
+    return tuple(deps)
+
+
 class World:
     def __init__(self) -> None:
         self.reg = Registry()
-        self._modules: Dict[Tuple[str, Type[ModuleBase]], ModuleBase] = {}
+        self._modules: Dict[ModuleKey, ModuleBase] = {}
+        self._module_deps: Dict[ModuleKey, Set[ModuleKey]] = {}
 
         # Cycle detection for module requires
-        self._building_stack: List[Tuple[str, Type[ModuleBase]]] = []
-        self._building_set: Set[Tuple[str, Type[ModuleBase]]] = set()
+        self._building_stack: List[ModuleKey] = []
+        self._building_set: Set[ModuleKey] = set()
+
+    def module_dependencies(self) -> Dict[ModuleKey, Set[ModuleKey]]:
+        return {k: set(v) for k, v in self._module_deps.items()}
+
+    def _record_module_dep(self, parent: Optional[ModuleKey], child: ModuleKey) -> None:
+        self._module_deps.setdefault(child, set())
+        if parent is None or parent == child:
+            return
+        self._module_deps.setdefault(parent, set()).add(child)
 
     def require(self, module_cls: Type[M], *, scope: str = "") -> M:
-        key = (scope, module_cls)
+        key: ModuleKey = (scope, module_cls)
+
+        parent = self._building_stack[-1] if self._building_stack else None
 
         # Already built
         existing = self._modules.get(key)
         if existing is not None:
+            self._record_module_dep(parent, key)
             return cast(M, existing)
 
         # Cycle detection (dynamic deps are discovered by execution; cycles are fatal)
@@ -132,13 +168,15 @@ class World:
                 i = 0
             cyc = self._building_stack[i:] + [key]
 
-            def fmt(k: Tuple[str, Type[ModuleBase]]) -> str:
+            def fmt(k: ModuleKey) -> str:
                 sc, cls = k
                 scs = sc if sc else "<root>"
                 return f"{scs}:{cls.__name__}"
 
             cycle_str = " -> ".join(fmt(k) for k in cyc)
             raise RuntimeError(f"Module dependency cycle detected: {cycle_str}")
+
+        self._record_module_dep(parent, key)
 
         # Build
         self._building_stack.append(key)

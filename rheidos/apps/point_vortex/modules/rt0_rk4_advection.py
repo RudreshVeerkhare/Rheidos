@@ -1,23 +1,15 @@
 # rk4_advection.py
 #
-# Minimal, pasteable implementation that matches your plan:
-#   - Velocity depends on current vortex placement (so we recompute it each RK stage)
-#   - RK4 only needs: one backup of (face_id,bary) at p0 + k1..k4 buffers
-#   - Advection for each RK stage assumes sampled velocity is constant over that substep
-#   - All kernels live inside the @ti.data_oriented producers:
-#       * SampleVortexVelProducer
-#       * AdvectConstVelEventDrivenProducer  (includes backup/restore + RK4 combine + event-driven walk)
+# Updated to use Option 1 (RT0 reconstruction sampled per-face via vel_FV):
 #
-# Assumptions about your modules:
-#   mesh.F_verts.get() -> ti.Field shape (nF,) with vec3i or (nF, 3) i32
-#   mesh.F_adj.get()   -> ti.Field shape (nF,) with vec3i (neighbor across edge opposite each vertex; -1 boundary)
-#   mesh.V_pos.get()   -> ti.Field shape (nV,) with vec3f
-#   pt_vortex.face_ids.get() -> ti.Field shape (maxV,) i32
-#   pt_vortex.bary.get()     -> ti.Field shape (maxV,) vec3f
-#   pt_vortex.n_vortices.get() -> ti.Field scalar i32
-#   velocity.V_velocity.get() -> ti.Field shape (nV,) vec3f (per-vertex velocity in world coords)
+#   velocity.vel_FV.get() -> ti.Field shape (nF, 3) vec3f
+#     where vel_FV[f,loc] is velocity at the face corner "loc" (0,1,2),
+#     and "loc" matches F_verts[f][loc].
 #
-# If your velocity is facewise constant (vel_F), I added a comment where to swap sampling.
+# Sampling at a vortex (face_id, bary):
+#   v = sum_loc bary[loc] * vel_FV[face_id, loc]
+#
+# This evaluates the affine RT0 field exactly (within the face).
 
 from dataclasses import dataclass
 from typing import Optional
@@ -31,58 +23,51 @@ from .velocity_field import VelocityFieldModule
 
 
 # -----------------------------------------------------------------------------
-# Producer: sample velocity at current vortex locations
+# Producer: sample velocity at current vortex locations (Option 1: RT0 vel_FV)
 # -----------------------------------------------------------------------------
 
 
 @ti.data_oriented
 class SampleVortexVelProducer:
     """
-    Samples a per-vertex velocity field at point-vortex positions stored as (face_id, bary).
-    Output: pt_vel[pid] = sum_j bary[j] * V_vel[ F_verts[face_id][j] ].
+    Samples an RT0 affine velocity field represented per face by corner velocities:
+
+        vel_FV[f,loc]  loc=0..2 corresponds to vertex F_verts[f][loc]
+
+    At vortex position stored as (face_id, bary):
+        v = b0*vel_FV[f,0] + b1*vel_FV[f,1] + b2*vel_FV[f,2]
     """
 
     def __init__(self) -> None:
         pass
 
     @ti.kernel
-    def _sample_from_vertex_vel(
+    def _sample_from_face_corner_vel(
         self,
-        F_verts: ti.template(),  # (nF,) vec3i  or (nF, 3) i32
-        V_vel: ti.template(),  # (nV,) vec3f
+        vel_FV: ti.template(),  # (nF, 3) vec3f
         pt_bary: ti.template(),  # (maxP,) vec3f
         pt_face: ti.template(),  # (maxP,) i32
-        pt_vel: ti.template(),  # (maxP,) vec3f  [out]
+        pt_vel: ti.template(),  # (maxP,) vec3f [out]
         n_pts: ti.i32,
     ):
         for pid in range(n_pts):
             f = pt_face[pid]
             b = pt_bary[pid]
-            fv = F_verts[f]
-            v0 = V_vel[fv[0]]
-            v1 = V_vel[fv[1]]
-            v2 = V_vel[fv[2]]
+            v0 = vel_FV[f, 0]
+            v1 = vel_FV[f, 1]
+            v2 = vel_FV[f, 2]
             pt_vel[pid] = b[0] * v0 + b[1] * v1 + b[2] * v2
-
-    # If you have facewise constant velocity vel_F, use this instead:
-    # @ti.kernel
-    # def _sample_from_face_vel(self, vel_F: ti.template(), pt_face: ti.template(), pt_vel: ti.template(), n_pts: ti.i32):
-    #     for pid in range(n_pts):
-    #         pt_vel[pid] = vel_F[pt_face[pid]]
 
     def run(
         self,
         *,
-        F_verts,
-        V_vel,
+        vel_FV,
         pt_bary,
         pt_face,
         pt_vel_out,
         n_pts: int,
     ) -> None:
-        self._sample_from_vertex_vel(
-            F_verts, V_vel, pt_bary, pt_face, pt_vel_out, n_pts
-        )
+        self._sample_from_face_corner_vel(vel_FV, pt_bary, pt_face, pt_vel_out, n_pts)
 
 
 # -----------------------------------------------------------------------------
@@ -288,16 +273,16 @@ class RK4AdvectionModule(ModuleBase):
     def __init__(self, world: World, *, scope: str = "") -> None:
         super().__init__(world, scope=scope)
 
-        self.mesh = world.require(SurfaceMeshModule)  # or SurfaceMeshModule
-        self.pt_vortex = world.require(PointVortexModule)  # or PointVortexModule
-        self.velocity = world.require(VelocityFieldModule)  # or VelocityFieldModule
+        self.mesh = world.require(SurfaceMeshModule)
+        self.pt_vortex = world.require(PointVortexModule)
 
-        # Instantiate producers
+        # IMPORTANT: VelocityFieldModule must expose vel_FV (nF,3) vec3f,
+        # computed from current vortex placement.
+        self.velocity = world.require(VelocityFieldModule)
+
         self.sampler = SampleVortexVelProducer()
         self.adv = AdvectConstVelEventDrivenProducer()
 
-        # Allocate buffers once (device-side)
-        # Determine max vortex capacity from the actual field shape
         face_ids_field = self.pt_vortex.face_ids.get()
         maxV = int(face_ids_field.shape[0])
 
@@ -311,11 +296,11 @@ class RK4AdvectionModule(ModuleBase):
         self.k = ti.Vector.field(3, dtype=ti.f32, shape=maxV)
 
     def _touch_vortex_state(self) -> None:
+        # Ensure upstream velocity graph recomputes when vortex state changes
         self.pt_vortex.face_ids.bump()
         self.pt_vortex.bary.bump()
 
     def advect(self, dt: float) -> None:
-        # Grab state + mesh fields
         n = int(self.pt_vortex.n_vortices.get()[None])
         if n <= 0:
             return
@@ -331,12 +316,11 @@ class RK4AdvectionModule(ModuleBase):
         self.adv.backup_state(face_ids, bary, self.p0_face, self.p0_bary, n)
 
         # --- k1 @ p0 ---
-        V_vel = (
-            self.velocity.V_velocity.get()
-        )  # triggers your compute graph based on current vortex placement
+        vel_FV = (
+            self.velocity.FV_velocity.get()
+        )  # (nF,3) vec3f, depends on current vortex placement
         self.sampler.run(
-            F_verts=F_verts,
-            V_vel=V_vel,
+            vel_FV=vel_FV,
             pt_bary=bary,
             pt_face=face_ids,
             pt_vel_out=self.k1,
@@ -348,10 +332,9 @@ class RK4AdvectionModule(ModuleBase):
             V_pos, F_verts, F_adj, face_ids, bary, self.k1, 0.5 * dt, n
         )
         self._touch_vortex_state()
-        V_vel = self.velocity.V_velocity.get()
+        vel_FV = self.velocity.FV_velocity.get()
         self.sampler.run(
-            F_verts=F_verts,
-            V_vel=V_vel,
+            vel_FV=vel_FV,
             pt_bary=bary,
             pt_face=face_ids,
             pt_vel_out=self.k2,
@@ -364,10 +347,9 @@ class RK4AdvectionModule(ModuleBase):
             V_pos, F_verts, F_adj, face_ids, bary, self.k2, 0.5 * dt, n
         )
         self._touch_vortex_state()
-        V_vel = self.velocity.V_velocity.get()
+        vel_FV = self.velocity.FV_velocity.get()
         self.sampler.run(
-            F_verts=F_verts,
-            V_vel=V_vel,
+            vel_FV=vel_FV,
             pt_bary=bary,
             pt_face=face_ids,
             pt_vel_out=self.k3,
@@ -378,10 +360,9 @@ class RK4AdvectionModule(ModuleBase):
         # --- k4 @ p0 + dt*k3 ---
         self.adv.advect_inplace(V_pos, F_verts, F_adj, face_ids, bary, self.k3, dt, n)
         self._touch_vortex_state()
-        V_vel = self.velocity.V_velocity.get()
+        vel_FV = self.velocity.FV_velocity.get()
         self.sampler.run(
-            F_verts=F_verts,
-            V_vel=V_vel,
+            vel_FV=vel_FV,
             pt_bary=bary,
             pt_face=face_ids,
             pt_vel_out=self.k4,

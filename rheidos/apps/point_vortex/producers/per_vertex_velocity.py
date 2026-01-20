@@ -43,7 +43,7 @@ class PerVertexVelProducer(WiredProducer[PerVertexVelProducerIO]):
         # Accumulate velocity per vertex
         for fid in F_verts:
             face = F_verts[fid]
-            face_vel = F_velocity[fid] / 3.0
+            face_vel = F_velocity[fid]
 
             v1 = face[0]
             v2 = face[1]

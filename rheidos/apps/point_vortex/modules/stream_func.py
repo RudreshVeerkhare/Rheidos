@@ -2,6 +2,7 @@ from rheidos.compute import (
     ModuleBase,
     World,
     ResourceSpec,
+    module_resource_deps,
     shape_of,
 )
 
@@ -52,10 +53,7 @@ class StreamFunctionModule(ModuleBase):
             deps=(
                 self.mesh.V_pos,
                 self.mesh.F_verts,
-                self.pt_vortex.n_vortices,  # TODO: Create helper to get all fields as dependency for this. Use regex, and negative mask selection
-                self.pt_vortex.gammas,
-                self.pt_vortex.face_ids,
-                self.pt_vortex.bary,
+                *module_resource_deps(self.pt_vortex, exclude=r"^(frame|pos_world)$"),
             ),
             producer=pt_vortex_splat_producer,
         )
