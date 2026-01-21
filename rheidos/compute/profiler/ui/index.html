@@ -3,65 +3,132 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Rheidos Profiler</title>
-    <link rel="stylesheet" href="style.css" />
+    <title>Rheidos Profiler UI</title>
+    <link rel="stylesheet" href="/style.css" />
   </head>
   <body>
-    <div class="page">
-      <header class="hero">
-        <div>
-          <p class="eyebrow">Profiler Snapshot</p>
-          <h1>Rheidos Live</h1>
-          <p class="subtitle">Minimal summary feed from the simulation thread.</p>
+    <div class="app" data-page="dag">
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-title">Rheidos Profiler</span>
+          <span class="brand-sub">Context</span>
         </div>
-        <div class="meta">
-          <div>
-            <span class="label">Cook</span>
-            <span id="cook-id" class="value">-</span>
+        <nav class="topnav">
+          <a class="nav-link" data-nav="dag" href="/dag">DAG</a>
+          <a class="nav-link" data-nav="tables" href="/tables">Tables</a>
+        </nav>
+        <div class="topbar-controls">
+          <label class="control control--dag">
+            <span>Mode</span>
+            <select id="dag-mode" class="select">
+              <option value="union">Union</option>
+              <option value="observed">Observed</option>
+            </select>
+          </label>
+          <label class="control control--dag">
+            <span>Search</span>
+            <input
+              id="dag-search"
+              class="search"
+              type="search"
+              placeholder="Find producer"
+              autocomplete="off"
+            />
+          </label>
+          <div class="control control--dag">
+            <button id="fit-view" class="btn" type="button">Fit view</button>
           </div>
-          <div>
-            <span class="label">Frame</span>
-            <span id="frame-id" class="value">-</span>
+          <label class="control">
+            <span>Update</span>
+            <select id="ui-hz" class="select">
+              <option value="2">2 Hz</option>
+              <option value="4" selected>4 Hz</option>
+              <option value="8">8 Hz</option>
+            </select>
+          </label>
+          <div class="control">
+            <button id="live-toggle" class="btn live" type="button" aria-pressed="true">
+              Live
+            </button>
           </div>
-          <div>
-            <span class="label">Substep</span>
-            <span id="substep-id" class="value">-</span>
+          <div id="cook-indicator" class="indicator">Cook -</div>
+        </div>
+        <div class="topbar-status">
+          <div class="status-pill">
+            <span>Dropped</span>
+            <strong id="health-dropped">-</strong>
+          </div>
+          <div class="status-pill">
+            <span>Edges</span>
+            <strong id="health-edges">-</strong>
+          </div>
+          <div class="status-pill">
+            <span>Overhead us</span>
+            <strong id="health-overhead">-</strong>
           </div>
         </div>
       </header>
 
-      <section class="panel">
-        <div class="panel-header">
-          <div>
-            <h2>Producers</h2>
-            <p class="panel-note">Click a row to expand details on demand.</p>
+      <main class="page-container">
+        <section id="page-dag" class="page page-dag is-active">
+          <div class="dag-shell">
+            <div id="dag-container" class="dag-canvas"></div>
+            <aside class="drawer">
+              <div class="drawer-header">
+                <p class="drawer-kicker">Selection</p>
+                <h2>Node Details</h2>
+              </div>
+              <div id="node-details" class="drawer-body">
+                Select a producer to inspect.
+              </div>
+            </aside>
           </div>
-          <div class="panel-actions">
-            <label class="toggle">
-              <input id="kernel-toggle" type="checkbox" />
-              <span>Show kernel stats</span>
-            </label>
-            <input
-              id="search-input"
-              class="search"
-              type="search"
-              placeholder="Filter by name"
-            />
-            <div class="pill" id="tick-pill">tick: 0</div>
-          </div>
-        </div>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr id="summary-head"></tr>
-            </thead>
-            <tbody id="summary-rows"></tbody>
-          </table>
-        </div>
-      </section>
+        </section>
 
-      <section id="category-panels" class="category-panels"></section>
+        <section id="page-tables" class="page page-tables">
+          <div class="tables-shell">
+            <section class="table-card">
+              <div class="table-header">
+                <div>
+                  <h2>Producer Metrics</h2>
+                  <p>Sortable metrics snapshot.</p>
+                </div>
+                <div class="table-actions">
+                  <input
+                    id="table-search"
+                    class="search"
+                    type="search"
+                    placeholder="Filter producers"
+                  />
+                </div>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr id="producer-head"></tr>
+                  </thead>
+                  <tbody id="producer-body"></tbody>
+                </table>
+              </div>
+            </section>
+
+            <section class="table-card">
+              <div class="table-header">
+                <div>
+                  <h2>Custom Spans</h2>
+                  <p>Category rollups from summary snapshots.</p>
+                </div>
+              </div>
+              <div id="category-panels" class="category-panels"></div>
+            </section>
+          </div>
+        </section>
+      </main>
     </div>
-    <script src="app.js"></script>
+
+    <script src="https://unpkg.com/cytoscape@3.26.0/dist/cytoscape.min.js"></script>
+    <script src="https://unpkg.com/dagre@0.8.5/dist/dagre.min.js"></script>
+    <script src="https://unpkg.com/cytoscape-dagre@2.5.0/cytoscape-dagre.js"></script>
+    <script src="/app.js"></script>
   </body>
 </html>

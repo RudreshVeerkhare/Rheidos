@@ -287,12 +287,23 @@ def _resolve_profile_logdir(node: "hou.Node", config: Any) -> str:
 
 
 def _configure_profiler(session: WorldSession, config: Any, node: "hou.Node") -> None:
-    session.profiler.cfg = ProfilerConfig(
-        enabled=bool(config.profile),
-        export_hz=float(getattr(config, "profile_export_hz", 5.0)),
-        taichi_enabled=bool(getattr(config, "profile_taichi", True)),
-        taichi_sample_every_n_cooks=int(getattr(config, "profile_taichi_every", 30)),
-        taichi_sync_on_sample=bool(getattr(config, "profile_taichi_sync", True)),
+    enabled = bool(config.profile)
+    mode = getattr(config, "profile_mode", None) or ("coarse" if enabled else "off")
+    taichi_enabled = bool(getattr(config, "profile_taichi", True))
+    if mode == "sampled_taichi":
+        taichi_enabled = True
+    session.profiler.configure(
+        ProfilerConfig(
+            enabled=enabled,
+            mode=mode,
+            export_hz=float(getattr(config, "profile_export_hz", 5.0)),
+            taichi_enabled=taichi_enabled,
+            taichi_sample_every_n_cooks=int(getattr(config, "profile_taichi_every", 30)),
+            taichi_sync_on_sample=bool(getattr(config, "profile_taichi_sync", True)),
+            trace_cooks=int(getattr(config, "profile_trace_cooks", 64)),
+            trace_max_edges=int(getattr(config, "profile_trace_edges", 20000)),
+            overhead_enabled=bool(getattr(config, "profile_overhead", False)),
+        )
     )
     session.profiler.set_taichi_sample(False)
     if session.profiler.cfg.enabled and session.profiler.cfg.taichi_enabled:
@@ -371,7 +382,9 @@ def _configure_profiler(session: WorldSession, config: Any, node: "hou.Node") ->
         if needs_server:
             if session.summary_server is not None:
                 session.summary_server.stop()
-            session.summary_server = SummaryServer(session.summary_store, server_cfg)
+            session.summary_server = SummaryServer(
+                session.summary_store, server_cfg, trace_provider=session.profiler
+            )
             session.summary_server.start(static_dir=static_dir)
             session.stats["profile_ui_url"] = session.summary_server.url
     else:

@@ -69,6 +69,8 @@ class Resource:
 
     deps: Tuple[ResourceName, ...] = ()
     producer: Optional["ProducerBase"] = None
+    resource_id: int = 0
+    producer_id: Optional[int] = None
 
     version: int = 0
     dep_sig: Tuple[Tuple[ResourceName, int], ...] = ()

@@ -3,6 +3,7 @@ from time import perf_counter_ns
 from dataclasses import dataclass, field
 import numpy as np
 from .resource import Resource, ResourceSpec, ResourceRef, ResourceKey
+from .profiler.ids import PRODUCER_IDS, RESOURCE_IDS
 from .typing import ResourceName
 
 T = TypeVar("T")
@@ -37,6 +38,13 @@ class ProducerBase:
         cls = self.__class__
         return f"{cls.__module__}.{cls.__qualname__}"
 
+    def profiler_id(self) -> int:
+        pid = getattr(self, "_profiler_id", None)
+        if pid is None:
+            pid = PRODUCER_IDS.intern(self.debug_name())
+            setattr(self, "_profiler_id", pid)
+        return pid
+
 
 @dataclass
 class _EnsureCtx:
@@ -62,11 +70,15 @@ class Registry:
     ) -> Resource:
         if name in self._res:
             raise KeyError(f"Resource already declared: {name}")
+        producer_id = producer.profiler_id() if producer is not None else None
+        resource_id = RESOURCE_IDS.intern(name)
         r = Resource(
             name=name,
             buffer=buffer,
             deps=tuple(_dep_name(d) for d in deps),
             producer=producer,
+            resource_id=resource_id,
+            producer_id=producer_id,
             description=description,
             spec=spec,
         )
@@ -84,9 +96,14 @@ class Registry:
     # ---- mutation ----
 
     def read(self, name: ResourceName, *, ensure: bool = True) -> Any:
+        r = self.get(name)
+        from rheidos.compute.profiler.runtime import get_current_profiler
+
+        profiler = get_current_profiler()
+        profiler.record_resource_read(resource_id=r.resource_id, producer_id=r.producer_id)
         if ensure:
             self.ensure(name)
-        return self.get(name).buffer
+        return r.buffer
 
     def set_buffer(self, name: ResourceName, buffer: Any, *, bump: bool = False, unsafe: bool = False) -> None:
         """
@@ -245,6 +262,10 @@ class Registry:
 
             profiler = get_current_profiler()
             producer_name = p.debug_name()
+            profiler.register_producer_metadata(
+                full_name=producer_name,
+                class_name=p.__class__.__name__,
+            )
             probe = profiler.taichi_probe if profiler.is_taichi_sample() else None
             t0 = 0
             if probe is not None:

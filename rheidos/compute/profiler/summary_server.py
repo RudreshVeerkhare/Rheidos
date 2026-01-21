@@ -11,7 +11,7 @@ import mimetypes
 import threading
 import time
 from typing import Optional
-from urllib.parse import unquote, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 from .summary_store import SummaryStore
 
@@ -122,6 +122,58 @@ class _SummaryRequestHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/summary":
             self._send_json(self.server.summary_store.snapshot_compact())
             return
+        if parsed.path == "/api/dag":
+            trace = getattr(self.server, "trace_provider", None)
+            if trace is None or not hasattr(trace, "snapshot_dag"):
+                self.send_error(HTTPStatus.NOT_FOUND)
+                return
+            qs = parse_qs(parsed.query or "")
+            mode = (qs.get("mode") or ["union"])[0]
+            payload = trace.snapshot_dag(mode=mode)
+            self._send_json(payload)
+            return
+        if parsed.path == "/api/metrics":
+            trace = getattr(self.server, "trace_provider", None)
+            if trace is None or not hasattr(trace, "snapshot_metrics"):
+                self.send_error(HTTPStatus.NOT_FOUND)
+                return
+            payload = trace.snapshot_metrics()
+            self._send_json(payload)
+            return
+        if parsed.path == "/api/exec_tree":
+            trace = getattr(self.server, "trace_provider", None)
+            if trace is None or not hasattr(trace, "snapshot_exec_tree"):
+                self.send_error(HTTPStatus.NOT_FOUND)
+                return
+            qs = parse_qs(parsed.query or "")
+            cook_id = qs.get("cook_id", [None])[0]
+            try:
+                cook_val = int(cook_id) if cook_id is not None else None
+            except ValueError:
+                cook_val = None
+            payload = trace.snapshot_exec_tree(cook_id=cook_val)
+            self._send_json(payload)
+            return
+        if parsed.path.startswith("/api/node/"):
+            trace = getattr(self.server, "trace_provider", None)
+            if trace is None or not hasattr(trace, "snapshot_node_details"):
+                self.send_error(HTTPStatus.NOT_FOUND)
+                return
+            node_id = unquote(parsed.path[len("/api/node/") :])
+            if not node_id:
+                self.send_error(HTTPStatus.NOT_FOUND)
+                return
+            try:
+                producer_id = int(node_id)
+            except ValueError:
+                self.send_error(HTTPStatus.NOT_FOUND)
+                return
+            details = trace.snapshot_node_details(producer_id)
+            if details is None:
+                self.send_error(HTTPStatus.NOT_FOUND)
+                return
+            self._send_json(details)
+            return
         if parsed.path.startswith("/api/producer/"):
             producer_id = unquote(parsed.path[len("/api/producer/") :])
             if not producer_id:
@@ -134,7 +186,8 @@ class _SummaryRequestHandler(BaseHTTPRequestHandler):
             self._send_json(details)
             return
 
-        if parsed.path == "/" or parsed.path == "/index.html":
+        normalized_path = parsed.path.rstrip("/") or "/"
+        if normalized_path in ("/", "/index.html", "/dag", "/tables"):
             self._send_static("index.html")
             return
         if parsed.path in ("/app.js", "/style.css"):
@@ -186,10 +239,12 @@ class SummaryHTTPServer(ThreadingHTTPServer):
         *,
         summary_store: SummaryStore,
         static_dir: str,
+        trace_provider: Optional[object] = None,
     ) -> None:
         super().__init__(address, handler_cls)
         self.summary_store = summary_store
         self.static_dir = static_dir
+        self.trace_provider = trace_provider
         self.ws_clients: set = set()
         self.ws_lock = threading.Lock()
 
@@ -204,9 +259,16 @@ class SummaryHTTPServer(ThreadingHTTPServer):
 
 
 class SummaryServer:
-    def __init__(self, store: SummaryStore, cfg: SummaryServerConfig) -> None:
+    def __init__(
+        self,
+        store: SummaryStore,
+        cfg: SummaryServerConfig,
+        *,
+        trace_provider: Optional[object] = None,
+    ) -> None:
         self.store = store
         self.cfg = cfg
+        self.trace_provider = trace_provider
         self._thread: Optional[threading.Thread] = None
         self._server: Optional[SummaryHTTPServer] = None
         self._ws_thread: Optional[threading.Thread] = None
@@ -224,6 +286,7 @@ class SummaryServer:
                 _SummaryRequestHandler,
                 summary_store=self.store,
                 static_dir=static_dir,
+                trace_provider=self.trace_provider,
             )
         except OSError:
             if self.cfg.port != 0:
@@ -232,6 +295,7 @@ class SummaryServer:
                     _SummaryRequestHandler,
                     summary_store=self.store,
                     static_dir=static_dir,
+                    trace_provider=self.trace_provider,
                 )
             else:
                 raise

@@ -36,6 +36,8 @@ _ensure_pkg("rheidos", ROOT / "rheidos")
 _ensure_pkg("rheidos.compute", ROOT / "rheidos" / "compute")
 _ensure_pkg("rheidos.compute.profiler", PROFILER_DIR)
 
+core = _load_module("rheidos.compute.profiler.core", PROFILER_DIR / "core.py")
+ids = _load_module("rheidos.compute.profiler.ids", PROFILER_DIR / "ids.py")
 summary_store = _load_module(
     "rheidos.compute.profiler.summary_store", PROFILER_DIR / "summary_store.py"
 )
@@ -48,6 +50,8 @@ SummaryWriter = summary_server.SummaryWriter
 SummaryWriterConfig = summary_server.SummaryWriterConfig
 SummaryServer = summary_server.SummaryServer
 SummaryServerConfig = summary_server.SummaryServerConfig
+Profiler = core.Profiler
+ProfilerConfig = core.ProfilerConfig
 
 
 class SummaryServerTest(unittest.TestCase):
@@ -65,7 +69,19 @@ class SummaryServerTest(unittest.TestCase):
 
     def test_summary_server_api(self) -> None:
         store = SummaryStore()
-        server = SummaryServer(store, SummaryServerConfig(host="127.0.0.1", port=0))
+        prof = Profiler(ProfilerConfig(enabled=True), summary_store=store)
+        prof.next_cook_index()
+        _, run, is_root = prof._span_enter("producer", "compute", "demo.producer")
+        prof.record_resource_read(
+            resource_id=ids.RESOURCE_IDS.intern("res.a"),
+            producer_id=ids.PRODUCER_IDS.intern("demo.upstream"),
+        )
+        prof._span_exit("producer", "compute", "demo.producer", 2_000_000, run, is_root)
+        server = SummaryServer(
+            store,
+            SummaryServerConfig(host="127.0.0.1", port=0),
+            trace_provider=prof,
+        )
         static_dir = str(ROOT / "rheidos" / "compute" / "profiler" / "ui")
         server.start(static_dir=static_dir)
         try:
@@ -80,6 +96,48 @@ class SummaryServerTest(unittest.TestCase):
             payload = json.loads(body.decode("utf-8"))
             self.assertIn("rows", payload)
             self.assertIn("categories", payload)
+            conn.request("GET", "/dag")
+            resp = conn.getresponse()
+            body = resp.read()
+            self.assertEqual(resp.status, 200)
+            self.assertIn(b"<!doctype html>", body.lower())
+            conn.request("GET", "/tables?pid=1")
+            resp = conn.getresponse()
+            body = resp.read()
+            self.assertEqual(resp.status, 200)
+            self.assertIn(b"<!doctype html>", body.lower())
+            producer_id = ids.PRODUCER_IDS.intern("demo.producer")
+            conn.request("GET", "/api/dag")
+            resp = conn.getresponse()
+            body = resp.read()
+            self.assertEqual(resp.status, 200)
+            payload = json.loads(body.decode("utf-8"))
+            self.assertIn("nodes", payload)
+            nodes_by_id = {node["id"]: node for node in payload["nodes"]}
+            self.assertIn(producer_id, nodes_by_id)
+            self.assertIn("class_name", nodes_by_id[producer_id])
+            self.assertIn("full_name", nodes_by_id[producer_id])
+            conn.request("GET", "/api/metrics")
+            resp = conn.getresponse()
+            body = resp.read()
+            self.assertEqual(resp.status, 200)
+            payload = json.loads(body.decode("utf-8"))
+            self.assertIn("rows", payload)
+            self.assertIn("class_name", payload["rows"][0])
+            conn.request("GET", "/api/exec_tree")
+            resp = conn.getresponse()
+            body = resp.read()
+            self.assertEqual(resp.status, 200)
+            payload = json.loads(body.decode("utf-8"))
+            self.assertIn("nodes", payload)
+            self.assertIn("class_name", payload["nodes"][0])
+            conn.request("GET", f"/api/node/{producer_id}")
+            resp = conn.getresponse()
+            body = resp.read()
+            self.assertEqual(resp.status, 200)
+            payload = json.loads(body.decode("utf-8"))
+            self.assertEqual(payload["id"], producer_id)
+            self.assertIn("class_name", payload)
             store.update_producer_details(
                 "demo.producer",
                 last_update_id=1,
@@ -92,6 +150,7 @@ class SummaryServerTest(unittest.TestCase):
             self.assertEqual(resp.status, 200)
             payload = json.loads(body.decode("utf-8"))
             self.assertEqual(payload["id"], "demo.producer")
+            self.assertIn("class_name", payload)
         finally:
             server.stop()
 

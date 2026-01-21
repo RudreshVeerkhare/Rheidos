@@ -102,6 +102,16 @@ class TensorboardExporter:
                 snap.get("dropped_events", 0),
                 self._step,
             )
+            self._writer.add_scalar(
+                "profiler/overhead_us",
+                snap.get("profiler_overhead_us", 0.0),
+                self._step,
+            )
+            self._writer.add_scalar(
+                "profiler/edges_recorded",
+                snap.get("edges_recorded", 0),
+                self._step,
+            )
             rows = snap.get("rows", [])
             if rows:
                 top = sorted(rows, key=lambda r: r.get("ema_ms", 0.0), reverse=True)[

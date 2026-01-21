@@ -108,6 +108,10 @@ def _profiler_cfg_from_node(node: hou.Node) -> SimpleNamespace:
         profile=_eval_parm_optional_bool(node, "profile", False),
         profile_logdir=_eval_parm_optional_str(node, "profile_logdir") or None,
         profile_export_hz=_eval_parm_optional_float(node, "profile_export_hz", 5.0),
+        profile_mode=_eval_parm_optional_str(node, "profile_mode") or None,
+        profile_trace_cooks=_eval_parm_optional_int(node, "profile_trace_cooks", 64),
+        profile_trace_edges=_eval_parm_optional_int(node, "profile_trace_edges", 20000),
+        profile_overhead=_eval_parm_optional_bool(node, "profile_overhead", False),
         profile_taichi=_eval_parm_optional_bool(node, "profile_taichi", True),
         profile_taichi_every=_eval_parm_optional_int(node, "profile_taichi_every", 30),
         profile_taichi_sync=_eval_parm_optional_bool(node, "profile_taichi_sync", True),
@@ -191,8 +195,7 @@ def step(ctx: CookContext) -> None:
         # Advection
         dt = 0.01  # use `ctx.dt` for real-time
         rk4_intergrator = world.require(RK4AdvectionModule)
-        for _ in range(2):
-            rk4_intergrator.advect(dt)
+        rk4_intergrator.advect(ctx.dt)
 
     with prof.span("io_read_outputs", cat="solver"):
         nVortices = len(scatter_points)
@@ -250,6 +253,7 @@ def _taichi_initialized() -> bool:
             return bool(core.is_initialized())
         except Exception:
             return False
+        
     return False
 
 
@@ -302,7 +306,7 @@ def _ensure_taichi_init(session) -> None:
     if _taichi_initialized():
         session.stats["taichi_initialized"] = True
         return
-    ti.init(kernel_profiler=_kernel_profiler_enabled(session))
+    ti.init(arch=ti.metal, kernel_profiler=_kernel_profiler_enabled(session))
     session.stats["taichi_initialized"] = True
 
 

@@ -56,6 +56,8 @@ class SummaryStoreTest(unittest.TestCase):
         self.assertEqual(row["id"], "demo.producer")
         self.assertEqual(row["last_update"], cook_id)
         self.assertAlmostEqual(row["last_ms"], 2.0, places=3)
+        self.assertEqual(row["full_name"], "demo.producer")
+        self.assertEqual(row["class_name"], "producer")
 
     def test_kernel_and_wall_metrics(self) -> None:
         store = SummaryStore()

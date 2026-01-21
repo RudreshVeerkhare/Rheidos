@@ -5,6 +5,7 @@ import threading
 from typing import Dict, List, Optional
 
 from .core import Stats
+from .ids import PRODUCER_IDS
 
 
 @dataclass
@@ -18,6 +19,7 @@ class ChildSpanSummary:
 class ProducerSummary:
     id: str
     name: str
+    class_name: str = ""
     stats: Stats = field(default_factory=Stats)
     last_update_id: int = 0
     kernel_ms: float = 0.0
@@ -40,6 +42,8 @@ class SummaryGlobal:
     frame: float = 0.0
     substep: int = 0
     dropped_events: int = 0
+    profiler_overhead_us: float = 0.0
+    edges_recorded: int = 0
     wall_stats: Stats = field(default_factory=Stats)
     kernel_ms: float = 0.0
     kernel_fraction: float = 0.0
@@ -56,6 +60,7 @@ class SummaryStore:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._producers: Dict[str, ProducerSummary] = {}
+        self._producer_class_names: Dict[str, str] = {}
         self._producer_details: Dict[str, ProducerDetails] = {}
         self._producer_child_stats: Dict[str, Dict[str, Stats]] = {}
         self._category_stats: Dict[str, Dict[tuple[str, Optional[str]], Stats]] = {}
@@ -66,6 +71,7 @@ class SummaryStore:
     def reset(self) -> None:
         with self._lock:
             self._producers.clear()
+            self._producer_class_names.clear()
             self._producer_details.clear()
             self._producer_child_stats.clear()
             self._category_stats.clear()
@@ -80,6 +86,8 @@ class SummaryStore:
         frame: Optional[float] = None,
         substep: Optional[int] = None,
         dropped_events: Optional[int] = None,
+        profiler_overhead_us: Optional[float] = None,
+        edges_recorded: Optional[int] = None,
     ) -> None:
         with self._lock:
             if cook_id is not None:
@@ -90,6 +98,10 @@ class SummaryStore:
                 self._global.substep = substep
             if dropped_events is not None:
                 self._global.dropped_events = dropped_events
+            if profiler_overhead_us is not None:
+                self._global.profiler_overhead_us = profiler_overhead_us
+            if edges_recorded is not None:
+                self._global.edges_recorded = edges_recorded
 
     def record_span(
         self,
@@ -109,6 +121,17 @@ class SummaryStore:
         if cat != "producer":
             self._record_category(cat, name, producer, dur_ns)
 
+    def register_producer_metadata(self, producer: str, *, class_name: str) -> None:
+        if not producer:
+            return
+        if not class_name:
+            class_name = self._infer_class_name(producer)
+        with self._lock:
+            self._producer_class_names[producer] = class_name
+            summary = self._producers.get(producer)
+            if summary is not None:
+                summary.class_name = class_name
+
     def _record_wall_ns(self, dur_ns: int) -> None:
         with self._lock:
             self._global.wall_stats.update(dur_ns)
@@ -127,8 +150,18 @@ class SummaryStore:
                 return
             summary = self._producers.get(producer)
             if summary is None:
-                summary = ProducerSummary(id=producer, name=producer)
+                summary = ProducerSummary(
+                    id=producer,
+                    name=producer,
+                    class_name=self._producer_class_names.get(
+                        producer, self._infer_class_name(producer)
+                    ),
+                )
                 self._producers[producer] = summary
+            elif not summary.class_name:
+                summary.class_name = self._producer_class_names.get(
+                    producer, self._infer_class_name(producer)
+                )
             if name == "producer_kernel_ms":
                 summary.kernel_ms = value_ms
                 summary.kernel_frac = self._compute_kernel_frac(
@@ -143,8 +176,18 @@ class SummaryStore:
         with self._lock:
             summary = self._producers.get(producer)
             if summary is None:
-                summary = ProducerSummary(id=producer, name=producer)
+                summary = ProducerSummary(
+                    id=producer,
+                    name=producer,
+                    class_name=self._producer_class_names.get(
+                        producer, self._infer_class_name(producer)
+                    ),
+                )
                 self._producers[producer] = summary
+            elif not summary.class_name:
+                summary.class_name = self._producer_class_names.get(
+                    producer, self._infer_class_name(producer)
+                )
             summary.stats.update(dur_ns)
             summary.last_update_id = cook_id
             summary.kernel_frac = self._compute_kernel_frac(
@@ -174,8 +217,14 @@ class SummaryStore:
         inputs: List[dict],
         outputs: List[dict],
         staleness_reason: str = "",
+        class_name: Optional[str] = None,
     ) -> None:
         with self._lock:
+            if class_name:
+                self._producer_class_names[producer] = class_name
+                summary = self._producers.get(producer)
+                if summary is not None:
+                    summary.class_name = class_name
             details = self._producer_details.get(producer)
             if details is None:
                 details = ProducerDetails()
@@ -231,6 +280,11 @@ class SummaryStore:
                 {
                     "id": summary.id,
                     "name": summary.name,
+                    "full_name": summary.name,
+                    "class_name": summary.class_name
+                    or self._producer_class_names.get(
+                        summary.name, self._infer_class_name(summary.name)
+                    ),
                     "ema_ms": summary.stats.ema_ns / 1e6,
                     "last_ms": summary.stats.last_ns / 1e6,
                     "last_update": summary.last_update_id,
@@ -262,12 +316,71 @@ class SummaryStore:
                 "frame": self._global.frame,
                 "substep": self._global.substep,
                 "dropped_events": self._global.dropped_events,
+                "profiler_overhead_us": self._global.profiler_overhead_us,
+                "edges_recorded": self._global.edges_recorded,
                 "wall_ms": self._global.wall_stats.last_ns / 1e6,
                 "kernel_ms": self._global.kernel_ms,
                 "kernel_fraction": self._global.kernel_fraction,
                 "dag_version": self._dag.dag_version,
                 "categories": categories,
                 "rows": rows,
+            }
+
+    def snapshot_metrics(self) -> dict:
+        with self._lock:
+            cook_id = self._global.cook_id
+            rows = []
+            for summary in self._producers.values():
+                producer_id = PRODUCER_IDS.intern(summary.name)
+                class_name = summary.class_name or self._producer_class_names.get(
+                    summary.name, self._infer_class_name(summary.name)
+                )
+                rows.append(
+                    {
+                        "id": producer_id,
+                        "name": summary.name,
+                        "full_name": summary.name,
+                        "class_name": class_name,
+                        "ema_ms": summary.stats.ema_ns / 1e6,
+                        "last_ms": summary.stats.last_ns / 1e6,
+                        "last_update_id": summary.last_update_id,
+                        "calls": summary.stats.count,
+                        "kernel_ms": summary.kernel_ms,
+                        "kernel_frac": summary.kernel_frac,
+                        "overhead_est_ms": summary.overhead_est_ms,
+                        "executed_this_cook": summary.last_update_id == cook_id,
+                    }
+                )
+            return {
+                "cook_id": cook_id,
+                "frame": self._global.frame,
+                "substep": self._global.substep,
+                "rows": rows,
+            }
+
+    def snapshot_producer_metrics(self, producer: str) -> Optional[dict]:
+        with self._lock:
+            summary = self._producers.get(producer)
+            if summary is None:
+                return None
+            cook_id = self._global.cook_id
+            producer_id = PRODUCER_IDS.intern(summary.name)
+            class_name = summary.class_name or self._producer_class_names.get(
+                summary.name, self._infer_class_name(summary.name)
+            )
+            return {
+                "id": producer_id,
+                "name": summary.name,
+                "full_name": summary.name,
+                "class_name": class_name,
+                "ema_ms": summary.stats.ema_ns / 1e6,
+                "last_ms": summary.stats.last_ns / 1e6,
+                "last_update_id": summary.last_update_id,
+                "calls": summary.stats.count,
+                "kernel_ms": summary.kernel_ms,
+                "kernel_frac": summary.kernel_frac,
+                "overhead_est_ms": summary.overhead_est_ms,
+                "executed_this_cook": summary.last_update_id == cook_id,
             }
 
     def update_dag(
@@ -287,8 +400,13 @@ class SummaryStore:
             details = self._producer_details.get(producer)
             if details is None:
                 return None
+            class_name = self._producer_class_names.get(
+                producer, self._infer_class_name(producer)
+            )
             return {
                 "id": producer,
+                "full_name": producer,
+                "class_name": class_name,
                 "last_update": details.last_update_id,
                 "inputs": list(details.inputs),
                 "outputs": list(details.outputs),
@@ -319,3 +437,9 @@ class SummaryStore:
             self._global.kernel_fraction = max(
                 0.0, min(1.0, self._global.kernel_ms / wall_ms)
             )
+
+    @staticmethod
+    def _infer_class_name(full_name: str) -> str:
+        if not full_name:
+            return ""
+        return full_name.rsplit(".", 1)[-1]
