@@ -13,6 +13,7 @@ import numpy as np
 from rheidos.compute.world import World
 from rheidos.compute.profiler.core import Profiler, ProfilerConfig
 from rheidos.compute.profiler.summary_store import SummaryStore
+from rheidos.compute.profiler.tb import TBLogger
 
 from .taichi_reset import reset_taichi_hard
 
@@ -85,7 +86,7 @@ class WorldSession:
     profiler: Profiler = field(
         default_factory=lambda: Profiler(ProfilerConfig(enabled=False))
     )
-    tb_exporter: Optional[Any] = None
+    tb: TBLogger = field(default_factory=TBLogger)
     summary_writer: Optional[Any] = None
     summary_server: Optional[Any] = None
     taichi_probe: Optional[Any] = None
@@ -94,12 +95,12 @@ class WorldSession:
         self.profiler.attach_summary_store(self.summary_store)
 
     def reset(self, reason: str) -> None:
-        if self.tb_exporter is not None:
+        tb = getattr(self, "tb", None)
+        if tb is not None:
             try:
-                self.tb_exporter.stop()
+                tb.reset()
             except Exception:
                 pass
-        self.tb_exporter = None
         if self.summary_writer is not None:
             try:
                 self.summary_writer.stop()

@@ -38,6 +38,7 @@ from rheidos.houdini.geo import OWNER_POINT, OWNER_PRIM
 
 from rheidos.apps.point_vortex.modules.surface_mesh import SurfaceMeshModule
 from rheidos.apps.point_vortex.modules.point_vortex import PointVortexModule
+from rheidos.apps.point_vortex.modules.hamiltonian import HamiltonianModule
 
 from rheidos.apps.point_vortex.modules.rk4_advection import RK4AdvectionModule
 
@@ -50,7 +51,10 @@ import taichi as ti
 import numpy as np
 from time import perf_counter_ns
 from rheidos.compute.profiler.core import profiled
-from rheidos.compute.profiler.runtime import reset_current_profiler, set_current_profiler
+from rheidos.compute.profiler.runtime import (
+    reset_current_profiler,
+    set_current_profiler,
+)
 
 # === IMPORT: change this to your app ===
 # You can have only `step(ctx)` if you want; `setup(ctx)` is optional.
@@ -67,9 +71,7 @@ def _eval_parm_optional(node: hou.Node, name: str):
         return None
 
 
-def _eval_parm_optional_bool(
-    node: hou.Node, name: str, default: bool = False
-) -> bool:
+def _eval_parm_optional_bool(node: hou.Node, name: str, default: bool = False) -> bool:
     value = _eval_parm_optional(node, name)
     if value is None:
         return default
@@ -208,6 +210,16 @@ def step(ctx: CookContext) -> None:
     # new_bary = edge_hop_advection.new_bary.get()
     # new_pos = edge_hop_advection.new_pos.get()
 
+    # Hamiltonian calculation
+    with prof.span("compute_hamiltonian", cat="solver"):
+        hamiltonian = world.require(HamiltonianModule)
+        h_field = hamiltonian.H.get()
+        h_value = None if h_field is None else float(h_field[None])
+
+    tb = getattr(ctx.session, "tb", None)
+    if tb is not None and h_value is not None:
+        tb.add_scalar("hamiltonian", h_value, tb.next_step())
+
     # # Write new positions to sim state
     # point_vortices.set_bary(new_bary)
     # point_vortices.set
@@ -253,7 +265,7 @@ def _taichi_initialized() -> bool:
             return bool(core.is_initialized())
         except Exception:
             return False
-        
+
     return False
 
 
@@ -297,7 +309,9 @@ def _ensure_scalar_field(ref, count: int, *, dtype) -> "ti.Field":
 def _kernel_profiler_enabled(session) -> bool:
     profiler = getattr(session, "profiler", None)
     cfg = getattr(profiler, "cfg", None)
-    return bool(getattr(cfg, "enabled", False) and getattr(cfg, "taichi_enabled", False))
+    return bool(
+        getattr(cfg, "enabled", False) and getattr(cfg, "taichi_enabled", False)
+    )
 
 
 def _ensure_taichi_init(session) -> None:
@@ -321,9 +335,7 @@ def run_solver_new() -> None:
     prof_token, probe = _enter_profiler(node, session, prof_cfg)
 
     try:
-        session.profiler.record_value(
-            "solver", "get_session", None, (t1 - t0) / 1e6
-        )
+        session.profiler.record_value("solver", "get_session", None, (t1 - t0) / 1e6)
 
         with session.profiler.span("run_solver_new", cat="houdini"):
             with session.profiler.span("solver_total", cat="cook"):
@@ -347,7 +359,11 @@ def run_solver_new() -> None:
 
                 with session.profiler.span("build_context", cat="solver"):
                     ctx = build_cook_context(
-                        node, mesh_geo, geo_out, session, geo_inputs=[mesh_geo, points_geo]
+                        node,
+                        mesh_geo,
+                        geo_out,
+                        session,
+                        geo_inputs=[mesh_geo, points_geo],
                     )
                     ctx.world()
 
@@ -357,7 +373,9 @@ def run_solver_new() -> None:
 
                 # 6) Run setup once, then step every time
                 with session.profiler.span("setup_once", cat="solver"):
-                    if ctx.frame == 1 or not getattr(session, "_solver_did_setup", None):
+                    if ctx.frame == 1 or not getattr(
+                        session, "_solver_did_setup", None
+                    ):
                         if callable(setup):
                             setup(ctx)
                         session._solver_did_setup = True
@@ -375,7 +393,9 @@ def run_solver_new() -> None:
                     with session.profiler.span("taichi_probe_sync", cat="solver"):
                         probe.sync()
                         k_ms = probe.kernel_total_ms()
-                        session.profiler.record_value("taichi", "kernel_total", None, k_ms)
+                        session.profiler.record_value(
+                            "taichi", "kernel_total", None, k_ms
+                        )
 
         runtime_driver._maybe_log_taichi_scoped(session, prof_cfg)
     finally:

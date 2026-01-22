@@ -6,11 +6,16 @@ __pycache__/
 # Virtual environments
 .venv/
 venv/
+node_modules/
 
 # Build artefacts
 build/
 dist/
 *.egg-info/
+
+# Allow profiler UI build output
+!rheidos/compute/profiler/ui/dist/
+!rheidos/compute/profiler/ui/dist/**
 
 # Compiled bytecode
 *.so
@@ -33,4 +38,3 @@ dist/
 
 # Logs
 *.log
-

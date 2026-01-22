@@ -164,6 +164,8 @@ Summary store compact snapshot (used by legacy UI + WS):
   - `dropped_events`, `profiler_overhead_us`, `edges_recorded`,
   - `dag_version`.
 - Producer rows include `full_name` and `class_name`.
+- WS payloads include this compact snapshot at the top level and may attach
+  `metrics`, `dag`, and `exec_tree` when available.
 
 ## SummaryStore: Aggregation Rules
 
@@ -186,14 +188,16 @@ Summary store compact snapshot (used by legacy UI + WS):
 - `GET /api/metrics`
 - `GET /api/exec_tree?cook_id=<int>`
 - `GET /api/node/<producer_id>`
-- `GET /` and `GET /ws` for UI and WS snapshots
+- `GET /` and `GET /ws` for UI and WS snapshots (summary + metrics + optional dag/exec_tree)
+  - `GET /ws?mode=observed` streams the observed DAG instead of the union DAG.
 
 All producer-facing endpoints now include `full_name` and `class_name` so the
 UI never has to join metrics back into DAG nodes for labeling.
 
 ## UI (DAG Explorer + Trace Explorer)
 
-UI files: `rheidos/compute/profiler/ui/index.html`, `app.js`, `style.css`.
+UI files: `rheidos/compute/profiler/ui` (React + Vite build in `dist/`).
+- Build: `npm install` then `npm run build` from `rheidos/compute/profiler/ui`.
 
 Pages and layout:
 
@@ -206,13 +210,11 @@ Pages and layout:
 
 DAG explorer:
 
-- Cytoscape + dagre layout is created once and only re-run when
-  `dag_version` changes (positions cached in `localStorage` per version).
+- React Flow + ELK layout for stable layered DAGs.
 - Nodes use `class_name` labels with short suffixes for duplicates.
-- `min-zoomed-font-size` keeps labels hidden when zoomed out.
-- Metrics are applied in `cy.batch()` and never run layout inside a batch.
-- "Electricity" overlay marks nodes/edges that ran in the latest cook.
-- Search dims non-matches and `Enter` fits to matches.
+- Metrics update in-place; layout only re-runs when the DAG changes.
+- Executed nodes/edges are highlighted per cook.
+- Search dims non-matches and `Enter` focuses the best match.
 
 Trace explorer:
 

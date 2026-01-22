@@ -96,6 +96,102 @@ def _ws_send_text(sock, payload: str) -> bool:
     return True
 
 
+def _stringify_id(value: object) -> Optional[str]:
+    if value is None:
+        return None
+    return str(value)
+
+
+def _stringify_dag_snapshot(dag: Optional[dict]) -> Optional[dict]:
+    if dag is None:
+        return None
+    nodes = []
+    for node in dag.get("nodes", []) or []:
+        if not isinstance(node, dict):
+            continue
+        node_copy = dict(node)
+        if "id" in node_copy:
+            node_copy["id"] = _stringify_id(node_copy["id"])
+        nodes.append(node_copy)
+    edges = []
+    for edge in dag.get("edges", []) or []:
+        if not isinstance(edge, dict):
+            continue
+        edge_copy = dict(edge)
+        if "source" in edge_copy:
+            edge_copy["source"] = _stringify_id(edge_copy["source"])
+        if "target" in edge_copy:
+            edge_copy["target"] = _stringify_id(edge_copy["target"])
+        edges.append(edge_copy)
+    dag_copy = dict(dag)
+    dag_copy["nodes"] = nodes
+    dag_copy["edges"] = edges
+    return dag_copy
+
+
+def _stringify_metrics_snapshot(metrics: Optional[dict]) -> Optional[dict]:
+    if metrics is None:
+        return None
+    rows = []
+    for row in metrics.get("rows", []) or []:
+        if not isinstance(row, dict):
+            continue
+        row_copy = dict(row)
+        if "id" in row_copy:
+            row_copy["id"] = _stringify_id(row_copy["id"])
+        rows.append(row_copy)
+    metrics_copy = dict(metrics)
+    metrics_copy["rows"] = rows
+    return metrics_copy
+
+
+def _stringify_exec_tree_snapshot(exec_tree: Optional[dict]) -> Optional[dict]:
+    if exec_tree is None:
+        return None
+    nodes = []
+    for node in exec_tree.get("nodes", []) or []:
+        if not isinstance(node, dict):
+            continue
+        node_copy = dict(node)
+        if "producer_id" in node_copy:
+            node_copy["producer_id"] = _stringify_id(node_copy["producer_id"])
+        nodes.append(node_copy)
+    exec_copy = dict(exec_tree)
+    exec_copy["nodes"] = nodes
+    return exec_copy
+
+
+def _stringify_exec_subtree(node: object) -> object:
+    if isinstance(node, dict):
+        node_copy = dict(node)
+        if "producer_id" in node_copy:
+            node_copy["producer_id"] = _stringify_id(node_copy["producer_id"])
+        children = node_copy.get("children")
+        if isinstance(children, list):
+            node_copy["children"] = [_stringify_exec_subtree(child) for child in children]
+        return node_copy
+    if isinstance(node, list):
+        return [_stringify_exec_subtree(child) for child in node]
+    return node
+
+
+def _stringify_node_details(details: Optional[dict]) -> Optional[dict]:
+    if details is None:
+        return None
+    details_copy = dict(details)
+    if "id" in details_copy:
+        details_copy["id"] = _stringify_id(details_copy["id"])
+    metrics = details_copy.get("metrics")
+    if isinstance(metrics, dict) and "id" in metrics:
+        metrics_copy = dict(metrics)
+        metrics_copy["id"] = _stringify_id(metrics_copy["id"])
+        details_copy["metrics"] = metrics_copy
+    subtree = details_copy.get("last_exec_subtree")
+    if subtree is not None:
+        details_copy["last_exec_subtree"] = _stringify_exec_subtree(subtree)
+    return details_copy
+
+
 class _SummaryRequestHandler(BaseHTTPRequestHandler):
     server: "SummaryHTTPServer"
 
@@ -106,6 +202,10 @@ class _SummaryRequestHandler(BaseHTTPRequestHandler):
             if not key:
                 self.send_error(HTTPStatus.BAD_REQUEST)
                 return
+            qs = parse_qs(parsed.query or "")
+            mode = (qs.get("mode") or ["union"])[0]
+            if mode not in ("union", "observed"):
+                mode = "union"
             accept_key = _ws_accept_key(key)
             self.send_response(HTTPStatus.SWITCHING_PROTOCOLS)
             self.send_header("Upgrade", "websocket")
@@ -113,10 +213,19 @@ class _SummaryRequestHandler(BaseHTTPRequestHandler):
             self.send_header("Sec-WebSocket-Accept", accept_key)
             self.end_headers()
             snap = self.server.summary_store.snapshot_compact()
-            full_payload = dict(snap)
-            full_payload["full"] = True
-            _ws_send_text(self.connection, json.dumps(full_payload))
-            self.server.register_ws(self.connection)
+            summary_server = getattr(self.server, "summary_server", None)
+            if summary_server is not None:
+                payload, dag_key = summary_server._build_ws_payload(
+                    snap, dag_mode=mode, last_dag_key=None, force_full=True
+                )
+            else:
+                payload = dict(snap)
+                payload["full"] = True
+                payload["changed_ids"] = [row.get("id") for row in snap.get("rows", [])]
+                payload["dag_mode"] = mode
+                dag_key = None
+            _ws_send_text(self.connection, json.dumps(payload))
+            self.server.register_ws(self.connection, mode=mode, last_dag_key=dag_key)
             self.close_connection = False
             return
         if parsed.path == "/api/summary":
@@ -129,7 +238,7 @@ class _SummaryRequestHandler(BaseHTTPRequestHandler):
                 return
             qs = parse_qs(parsed.query or "")
             mode = (qs.get("mode") or ["union"])[0]
-            payload = trace.snapshot_dag(mode=mode)
+            payload = _stringify_dag_snapshot(trace.snapshot_dag(mode=mode))
             self._send_json(payload)
             return
         if parsed.path == "/api/metrics":
@@ -137,7 +246,7 @@ class _SummaryRequestHandler(BaseHTTPRequestHandler):
             if trace is None or not hasattr(trace, "snapshot_metrics"):
                 self.send_error(HTTPStatus.NOT_FOUND)
                 return
-            payload = trace.snapshot_metrics()
+            payload = _stringify_metrics_snapshot(trace.snapshot_metrics())
             self._send_json(payload)
             return
         if parsed.path == "/api/exec_tree":
@@ -151,7 +260,9 @@ class _SummaryRequestHandler(BaseHTTPRequestHandler):
                 cook_val = int(cook_id) if cook_id is not None else None
             except ValueError:
                 cook_val = None
-            payload = trace.snapshot_exec_tree(cook_id=cook_val)
+            payload = _stringify_exec_tree_snapshot(
+                trace.snapshot_exec_tree(cook_id=cook_val)
+            )
             self._send_json(payload)
             return
         if parsed.path.startswith("/api/node/"):
@@ -168,7 +279,7 @@ class _SummaryRequestHandler(BaseHTTPRequestHandler):
             except ValueError:
                 self.send_error(HTTPStatus.NOT_FOUND)
                 return
-            details = trace.snapshot_node_details(producer_id)
+            details = _stringify_node_details(trace.snapshot_node_details(producer_id))
             if details is None:
                 self.send_error(HTTPStatus.NOT_FOUND)
                 return
@@ -186,15 +297,15 @@ class _SummaryRequestHandler(BaseHTTPRequestHandler):
             self._send_json(details)
             return
 
-        normalized_path = parsed.path.rstrip("/") or "/"
-        if normalized_path in ("/", "/index.html", "/dag", "/tables"):
-            self._send_static("index.html")
+        normalized_path = parsed.path.lstrip("/") or "index.html"
+        safe_path = os.path.normpath(normalized_path)
+        if safe_path.startswith(".."):
+            self.send_error(HTTPStatus.NOT_FOUND)
             return
-        if parsed.path in ("/app.js", "/style.css"):
-            self._send_static(parsed.path.lstrip("/"))
+        if self._send_static_if_exists(safe_path):
             return
-
-        self.send_error(HTTPStatus.NOT_FOUND)
+        # SPA fallback for client-side routes.
+        self._send_static("index.html")
 
     def log_message(self, fmt: str, *args) -> None:  # pragma: no cover - noisy
         return
@@ -208,11 +319,17 @@ class _SummaryRequestHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _send_static(self, name: str) -> None:
+    def _send_static_if_exists(self, name: str) -> bool:
+        path = os.path.join(self.server.static_dir, name)
+        if not os.path.isfile(path):
+            return False
+        return self._send_static(name)
+
+    def _send_static(self, name: str) -> bool:
         path = os.path.join(self.server.static_dir, name)
         if not os.path.isfile(path):
             self.send_error(HTTPStatus.NOT_FOUND)
-            return
+            return False
         ctype, _ = mimetypes.guess_type(path)
         ctype = ctype or "application/octet-stream"
         try:
@@ -220,13 +337,14 @@ class _SummaryRequestHandler(BaseHTTPRequestHandler):
                 data = handle.read()
         except Exception:
             self.send_error(HTTPStatus.NOT_FOUND)
-            return
+            return False
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", ctype)
         self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
+        return True
 
 
 class SummaryHTTPServer(ThreadingHTTPServer):
@@ -240,22 +358,27 @@ class SummaryHTTPServer(ThreadingHTTPServer):
         summary_store: SummaryStore,
         static_dir: str,
         trace_provider: Optional[object] = None,
+        summary_server: Optional["SummaryServer"] = None,
     ) -> None:
         super().__init__(address, handler_cls)
         self.summary_store = summary_store
         self.static_dir = static_dir
         self.trace_provider = trace_provider
-        self.ws_clients: set = set()
+        self.summary_server = summary_server
+        self.ws_clients: dict = {}
         self.ws_lock = threading.Lock()
 
-    def register_ws(self, sock) -> None:
+    def register_ws(self, sock, *, mode: str = "union", last_dag_key=None) -> None:
         with self.ws_lock:
-            self.ws_clients.add(sock)
+            self.ws_clients[sock] = {
+                "mode": mode,
+                "last_dag_key": last_dag_key,
+            }
 
     def unregister_ws(self, sock) -> None:
         with self.ws_lock:
             if sock in self.ws_clients:
-                self.ws_clients.remove(sock)
+                self.ws_clients.pop(sock, None)
 
 
 class SummaryServer:
@@ -274,6 +397,8 @@ class SummaryServer:
         self._ws_thread: Optional[threading.Thread] = None
         self._ws_stop = threading.Event()
         self._last_snapshot: Optional[dict] = None
+        self._last_exec_tree_cook: Optional[int] = None
+        self._ws_state_lock = threading.Lock()
         self.url: Optional[str] = None
 
     def start(self, *, static_dir: str) -> None:
@@ -287,6 +412,7 @@ class SummaryServer:
                 summary_store=self.store,
                 static_dir=static_dir,
                 trace_provider=self.trace_provider,
+                summary_server=self,
             )
         except OSError:
             if self.cfg.port != 0:
@@ -296,6 +422,7 @@ class SummaryServer:
                     summary_store=self.store,
                     static_dir=static_dir,
                     trace_provider=self.trace_provider,
+                    summary_server=self,
                 )
             else:
                 raise
@@ -315,7 +442,7 @@ class SummaryServer:
         self._ws_thread = None
         if self._server is not None:
             with self._server.ws_lock:
-                clients = list(self._server.ws_clients)
+                clients = list(self._server.ws_clients.keys())
                 self._server.ws_clients.clear()
             for sock in clients:
                 try:
@@ -344,14 +471,73 @@ class SummaryServer:
             server = self._server
             if server is None:
                 continue
-            snap = self.store.snapshot_compact()
-            payload = self._compute_delta(snap)
-            payload_str = json.dumps(payload)
             with server.ws_lock:
-                clients = list(server.ws_clients)
-            for sock in clients:
+                clients = list(server.ws_clients.items())
+            if not clients:
+                continue
+            snap = self.store.snapshot_compact()
+            for sock, info in clients:
+                payload, dag_key = self._build_ws_payload(
+                    snap,
+                    dag_mode=info.get("mode", "union"),
+                    last_dag_key=info.get("last_dag_key"),
+                    force_full=False,
+                )
+                payload_str = json.dumps(payload)
                 if not _ws_send_text(sock, payload_str):
                     server.unregister_ws(sock)
+                    continue
+                if dag_key != info.get("last_dag_key"):
+                    with server.ws_lock:
+                        if sock in server.ws_clients:
+                            server.ws_clients[sock]["last_dag_key"] = dag_key
+
+    def _build_ws_payload(
+        self,
+        snap: dict,
+        *,
+        dag_mode: str,
+        last_dag_key,
+        force_full: bool,
+    ) -> tuple[dict, Optional[tuple]]:
+        payload = dict(snap)
+        payload["full"] = True
+        payload["changed_ids"] = [row.get("id") for row in snap.get("rows", [])]
+        payload["dag_mode"] = dag_mode
+        trace = self.trace_provider
+        if trace is not None and hasattr(trace, "snapshot_metrics"):
+            metrics = _stringify_metrics_snapshot(trace.snapshot_metrics())
+            if metrics is not None:
+                metrics["full"] = True
+                payload["metrics"] = metrics
+        cook_id = snap.get("cook_id")
+        dag_version = snap.get("dag_version")
+        dag_key = last_dag_key
+        if trace is not None and hasattr(trace, "snapshot_exec_tree"):
+            with self._ws_state_lock:
+                should_send_tree = (
+                    force_full or cook_id != self._last_exec_tree_cook
+                )
+                if should_send_tree:
+                    self._last_exec_tree_cook = cook_id
+            if should_send_tree:
+                payload["exec_tree"] = _stringify_exec_tree_snapshot(
+                    trace.snapshot_exec_tree(cook_id=cook_id)
+                )
+        if trace is not None and hasattr(trace, "snapshot_dag"):
+            with self._ws_state_lock:
+                if dag_mode == "observed":
+                    desired_key = ("observed", cook_id)
+                else:
+                    desired_key = ("union", dag_version)
+                should_send_dag = force_full or desired_key != last_dag_key
+            if should_send_dag:
+                payload["dag"] = _stringify_dag_snapshot(
+                    trace.snapshot_dag(mode=dag_mode)
+                )
+                payload["dag_mode"] = dag_mode
+                dag_key = desired_key
+        return payload, dag_key
 
     def _compute_delta(self, snap: dict) -> dict:
         prev = self._last_snapshot

@@ -26,7 +26,6 @@ from .session import WorldSession, get_runtime
 from .user_script import resolve_user_module
 from rheidos.compute.profiler.core import ProfilerConfig
 from rheidos.compute.profiler.runtime import reset_current_profiler, set_current_profiler
-from rheidos.compute.profiler.export_tb import TBExporterConfig, TensorboardExporter
 from rheidos.compute.profiler.summary_server import (
     SummaryServer,
     SummaryServerConfig,
@@ -34,6 +33,7 @@ from rheidos.compute.profiler.summary_server import (
     SummaryWriterConfig,
 )
 from rheidos.compute.profiler.taichi_probe import TaichiProbe
+from rheidos.compute.profiler.tb import TBConfig, TBLogger
 
 if TYPE_CHECKING:
     import hou
@@ -286,6 +286,15 @@ def _resolve_profile_logdir(node: "hou.Node", config: Any) -> str:
     return os.path.join(base, safe_hip, safe_node)
 
 
+def _configure_tb_logger(session: WorldSession, logdir: str) -> None:
+    tb_cfg = TBConfig(logdir=logdir)
+    tb = getattr(session, "tb", None)
+    if tb is None:
+        session.tb = TBLogger(tb_cfg)
+        return
+    tb.configure(tb_cfg, enabled=True)
+
+
 def _configure_profiler(session: WorldSession, config: Any, node: "hou.Node") -> None:
     enabled = bool(config.profile)
     mode = getattr(config, "profile_mode", None) or ("coarse" if enabled else "off")
@@ -316,12 +325,9 @@ def _configure_profiler(session: WorldSession, config: Any, node: "hou.Node") ->
         session.profiler.taichi_probe = None
 
     logdir = _resolve_profile_logdir(node, config)
-    tb_enabled = _env_flag("RHEIDOS_TB", False)
+    _configure_tb_logger(session, logdir)
     ui_enabled = _env_flag("RHEIDOS_UI", True)
     if not session.profiler.cfg.enabled:
-        if session.tb_exporter is not None:
-            session.tb_exporter.stop()
-        session.tb_exporter = None
         if session.summary_writer is not None:
             session.summary_writer.stop()
         session.summary_writer = None
@@ -329,34 +335,6 @@ def _configure_profiler(session: WorldSession, config: Any, node: "hou.Node") ->
             session.summary_server.stop()
         session.summary_server = None
         return
-
-    if tb_enabled:
-        needs_exporter = (
-            session.tb_exporter is None
-            or session.tb_exporter.cfg.logdir != logdir
-            or session.tb_exporter.cfg.export_hz != session.profiler.cfg.export_hz
-        )
-        if needs_exporter:
-            if session.tb_exporter is not None:
-                session.tb_exporter.stop()
-
-            def dag_provider() -> str:
-                if session.world is None:
-                    return ""
-                return session.world.export_dag_dot(
-                    include_resources=True, include_producers=True, include_modules=False
-                )
-
-            session.tb_exporter = TensorboardExporter(
-                session.summary_store,
-                TBExporterConfig(logdir=logdir, export_hz=session.profiler.cfg.export_hz),
-                dag_provider=dag_provider,
-            )
-            session.tb_exporter.start()
-    else:
-        if session.tb_exporter is not None:
-            session.tb_exporter.stop()
-        session.tb_exporter = None
 
     if ui_enabled:
         summary_hz = max(1e-6, session.profiler.cfg.export_hz)
@@ -372,7 +350,13 @@ def _configure_profiler(session: WorldSession, config: Any, node: "hou.Node") ->
 
         static_dir = os.path.abspath(
             os.path.join(
-                os.path.dirname(__file__), "..", "..", "compute", "profiler", "ui"
+                os.path.dirname(__file__),
+                "..",
+                "..",
+                "compute",
+                "profiler",
+                "ui",
+                "dist",
             )
         )
         server_cfg = SummaryServerConfig()
@@ -434,11 +418,8 @@ def _maybe_log_taichi_scoped(session: WorldSession, config: Any) -> None:
         return
     text = buf.getvalue()
     session.stats["taichi_scoped_logged"] = True
-    if session.tb_exporter is not None:
-        session.tb_exporter.enqueue_text("taichi/scoped_profiler", text)
-    else:
-        if text:
-            print(text)
+    if text:
+        print(text)
 
 
 @contextmanager

@@ -107,6 +107,7 @@ class SummaryServerTest(unittest.TestCase):
             self.assertEqual(resp.status, 200)
             self.assertIn(b"<!doctype html>", body.lower())
             producer_id = ids.PRODUCER_IDS.intern("demo.producer")
+            producer_id_str = str(producer_id)
             conn.request("GET", "/api/dag")
             resp = conn.getresponse()
             body = resp.read()
@@ -114,9 +115,9 @@ class SummaryServerTest(unittest.TestCase):
             payload = json.loads(body.decode("utf-8"))
             self.assertIn("nodes", payload)
             nodes_by_id = {node["id"]: node for node in payload["nodes"]}
-            self.assertIn(producer_id, nodes_by_id)
-            self.assertIn("class_name", nodes_by_id[producer_id])
-            self.assertIn("full_name", nodes_by_id[producer_id])
+            self.assertIn(producer_id_str, nodes_by_id)
+            self.assertIn("class_name", nodes_by_id[producer_id_str])
+            self.assertIn("full_name", nodes_by_id[producer_id_str])
             conn.request("GET", "/api/metrics")
             resp = conn.getresponse()
             body = resp.read()
@@ -136,7 +137,7 @@ class SummaryServerTest(unittest.TestCase):
             body = resp.read()
             self.assertEqual(resp.status, 200)
             payload = json.loads(body.decode("utf-8"))
-            self.assertEqual(payload["id"], producer_id)
+            self.assertEqual(payload["id"], producer_id_str)
             self.assertIn("class_name", payload)
             store.update_producer_details(
                 "demo.producer",
