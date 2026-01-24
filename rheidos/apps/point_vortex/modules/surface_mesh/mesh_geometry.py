@@ -16,15 +16,6 @@ class GeometryProducerIO:
 
 @ti.data_oriented
 class GeometryProducer(WiredProducer[GeometryProducerIO]):
-    def __init__(
-        self,
-        V_pos: ResourceRef[Any],
-        F_verts: ResourceRef[Any],
-        F_area: ResourceRef[Any],
-        F_normal: ResourceRef[Any],
-    ) -> None:
-        super().__init__(GeometryProducerIO(V_pos, F_verts, F_area, F_normal))
-
     @ti.kernel
     def _calculate_face_area_and_normal(
         self,
@@ -52,23 +43,13 @@ class GeometryProducer(WiredProducer[GeometryProducerIO]):
             F_normal[f] = area_n * inv_len  # unit normal (with eps guard)
 
     def compute(self, reg: Registry) -> None:
-        V = self.io.V_pos.peek()
-        F = self.io.F_verts.peek()
-        F_area = self.io.F_area.peek()
-        F_normal = self.io.F_normal.peek()
+        inputs = self.require_inputs()
+        V = inputs["V_pos"].get()
+        F = inputs["F_verts"].get()
 
-        if V is None or F is None:
-            raise RuntimeError("Missing V_pos and F_vert for geometry attributes build")
-
-        nF = F.shape[0]
-
-        if F_area is None or F_area.shape != (nF,):
-            F_area = ti.field(dtype=ti.f32, shape=(nF,))
-            self.io.F_area.set_buffer(F_area, bump=False)
-
-        if F_normal is None or F_normal.shape != (nF,):
-            F_normal = ti.Vector.field(3, dtype=ti.f32, shape=(nF,))
-            self.io.F_normal.set_buffer(F_normal, bump=False)
+        outputs = self.ensure_outputs(reg)
+        F_area = outputs["F_area"].peek()
+        F_normal = outputs["F_normal"].peek()
 
         self._calculate_face_area_and_normal(V, F, F_area, F_normal)
 

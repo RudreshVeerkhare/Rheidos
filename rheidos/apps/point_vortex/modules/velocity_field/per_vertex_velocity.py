@@ -17,18 +17,6 @@ class PerVertexVelProducerIO:
 
 @ti.data_oriented
 class PerVertexVelProducer(WiredProducer[PerVertexVelProducerIO]):
-
-    def __init__(
-        self,
-        V_incident: ResourceRef[ti.Field],
-        F_verts: ResourceRef[ti.Field],
-        F_velocity: ResourceRef[ti.Field],
-        V_velocity: ResourceRef[ti.Field],
-    ) -> None:
-        super().__init__(
-            PerVertexVelProducerIO(V_incident, F_verts, F_velocity, V_velocity)
-        )
-
     @ti.kernel
     def _split_velocity_per_vertex(
         self,
@@ -60,19 +48,12 @@ class PerVertexVelProducer(WiredProducer[PerVertexVelProducerIO]):
 
     def compute(self, reg: Registry) -> None:
         io = self.io
-        V_incident = io.V_incident.get()
-        F_verts = io.F_verts.get()
-        F_velocity = io.F_velocity.get()
+        inputs = self.require_inputs()
+        V_incident = inputs["V_incident"].get()
+        F_verts = inputs["F_verts"].get()
+        F_velocity = inputs["F_velocity"].get()
 
-        if V_incident is None or F_verts is None or F_velocity is None:
-            raise RuntimeError(
-                "PerVertexVelProducer missing either of V_incident/F_verts/F_velocity"
-            )
-
-        V_vel = io.V_velocity.peek()
-        if V_vel is None or V_vel.shape != V_incident.shape:
-            V_vel = ti.Vector.field(3, dtype=ti.f32, shape=V_incident.shape)
-            io.V_velocity.set_buffer(V_vel, bump=False)
+        V_vel = self.ensure_outputs(reg)["V_velocity"].peek()
 
         self._split_velocity_per_vertex(V_incident, F_verts, F_velocity, V_vel)
 

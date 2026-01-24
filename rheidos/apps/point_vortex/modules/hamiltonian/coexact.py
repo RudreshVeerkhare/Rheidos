@@ -16,15 +16,6 @@ class CoexactHamiltonianProducerIO:
 
 @ti.data_oriented
 class CoexactHamiltonianProducer(WiredProducer[CoexactHamiltonianProducerIO]):
-
-    def __init__(
-        self,
-        psi: ResourceRef[ti.Field],
-        omega: ResourceRef[ti.Field],
-        H: ResourceRef[ti.Field],
-    ) -> None:
-        super().__init__(CoexactHamiltonianProducerIO(psi, omega, H))
-
     @ti.kernel
     def _hamitonian(self, psi: ti.template(), omega: ti.template(), H: ti.template()):
         H[None] = 0.0
@@ -33,14 +24,11 @@ class CoexactHamiltonianProducer(WiredProducer[CoexactHamiltonianProducerIO]):
         H[None] = 0.5 * H[None]
 
     def compute(self, reg: Registry) -> None:
-        omega = self.io.omega.get()
-        psi = self.io.psi.get()
+        inputs = self.require_inputs()
+        omega = inputs["omega"].get()
+        psi = inputs["psi"].get()
 
-        H = self.io.H.peek()
-
-        if H is None:
-            H = ti.field(dtype=ti.f32, shape=())
-            self.io.H.set_buffer(H, bump=False)
+        H = self.ensure_outputs(reg)["H"].peek()
 
         self._hamitonian(psi, omega, H)  # $$H = \frac{1}{2} \psi^T \omega$$
         self.io.H.commit()

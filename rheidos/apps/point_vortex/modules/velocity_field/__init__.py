@@ -3,15 +3,16 @@ from rheidos.compute import (
     World,
     ResourceSpec,
     shape_of,
+    shape_with_tail,
 )
 
 
-from .surface_mesh import SurfaceMeshModule
-from .stream_func import StreamFunctionModule
+from ..surface_mesh import SurfaceMeshModule
+from ..stream_func import StreamFunctionModule
 
-from ..producers.stream_func_velocity import FaceVelocityFromStreamProducer
-from ..producers.rt0_velocity import FaceCornerVelocityRT0FromStreamProducer
-from ..producers.per_vertex_velocity import PerVertexVelProducer
+from .stream_func_velocity import FaceVelocityFromStreamProducer
+from .rt0_velocity import FaceCornerVelocityRT0FromStreamProducer
+from .per_vertex_velocity import PerVertexVelProducer
 
 import taichi as ti
 
@@ -40,7 +41,10 @@ class VelocityFieldModule(ModuleBase):
         )
 
         vel_producer = FaceVelocityFromStreamProducer(
-            self.mesh.V_pos, self.mesh.F_verts, self.stream_func.psi, self.F_velocity
+            V_pos=self.mesh.V_pos,
+            F_verts=self.mesh.F_verts,
+            psi=self.stream_func.psi,
+            vel_F=self.F_velocity,
         )
 
         # piecewise constant velocity per face
@@ -49,19 +53,19 @@ class VelocityFieldModule(ModuleBase):
             spec=ResourceSpec(
                 kind="taichi_field",
                 dtype=ti.f32,
-                # shape_fn=shape_of(self.mesh.F_verts),
+                shape_fn=shape_with_tail(self.mesh.F_verts, tail=(3,)),
+                lanes=3,
                 allow_none=True,
-                # lanes=3,
             ),
             doc="RT0 interpolation. Shape: (nF, vec3f)",
             declare=False,
         )
 
         rt0_vel_producer = FaceCornerVelocityRT0FromStreamProducer(
-            self.mesh.V_pos,
-            self.mesh.F_verts,
-            self.stream_func.psi,
-            self.FV_velocity,
+            V_pos=self.mesh.V_pos,
+            F_verts=self.mesh.F_verts,
+            psi=self.stream_func.psi,
+            vel_FV=self.FV_velocity,
         )
 
         self.declare_resource(
@@ -79,6 +83,7 @@ class VelocityFieldModule(ModuleBase):
                 kind="taichi_field",
                 dtype=ti.f32,
                 shape_fn=shape_of(self.mesh.V_pos),
+                lanes=3,
                 allow_none=True,
             ),
             doc="per-vertex velocity by averaging across all faces a vertex is incident on. Shape: (nV, vec3f)",
@@ -86,7 +91,10 @@ class VelocityFieldModule(ModuleBase):
         )
 
         per_vert_vel_producer = PerVertexVelProducer(
-            self.mesh.V_incident, self.mesh.F_verts, self.F_velocity, self.V_velocity
+            V_incident=self.mesh.V_incident,
+            F_verts=self.mesh.F_verts,
+            F_velocity=self.F_velocity,
+            V_velocity=self.V_velocity,
         )
         self.declare_resource(
             self.V_velocity, deps=(self.F_velocity,), producer=per_vert_vel_producer

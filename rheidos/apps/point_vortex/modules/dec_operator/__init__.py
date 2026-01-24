@@ -1,7 +1,7 @@
-from rheidos.compute import ModuleBase, World, ResourceSpec
+from rheidos.compute import ModuleBase, World, ResourceSpec, shape_of
 
-from .surface_mesh import SurfaceMeshModule
-from ..producers.dec_metric import DECMetricProducer
+from ..surface_mesh import SurfaceMeshModule
+from .dec_metric import DECMetricProducer
 
 
 import taichi as ti
@@ -94,13 +94,23 @@ class SurfaceDECModule(ModuleBase):
         # Metric Dependant Hodge stars (diagonal matrices)
         self.star0 = self.resource(
             "star0",
-            spec=ResourceSpec(kind="taichi_field", dtype=ti.f32, allow_none=True),
+            spec=ResourceSpec(
+                kind="taichi_field",
+                dtype=ti.f32,
+                shape_fn=shape_of(self.mesh.V_pos),
+                allow_none=True,
+            ),
             doc="Hodge star on 0-forms (barycentric dual area per vertex). Shape: (nV, )",
         )
 
         self.star1 = self.resource(
             "star1",
-            spec=ResourceSpec(kind="taichi_field", dtype=ti.f32, allow_none=True),
+            spec=ResourceSpec(
+                kind="taichi_field",
+                dtype=ti.f32,
+                shape_fn=shape_of(self.mesh.E_verts),
+                allow_none=True,
+            ),
             doc="Hodge star on 1-forms (cotan weights per edge). Shape: (nE, )",
         )
 

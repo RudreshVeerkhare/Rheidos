@@ -25,20 +25,6 @@ class DECMetricProducer(WiredProducer[DECMetricIO]):
     - star1: cotan weights per edge = 0.5*(cot(alpha)+cot(beta)) (boundary: single cot)
     """
 
-    def __init__(
-        self,
-        V_pos: ResourceRef[ti.Field],
-        F_verts: ResourceRef[ti.Field],
-        F_area: ResourceRef[ti.Field],
-        E_verts: ResourceRef[ti.Field],
-        E_opp: ResourceRef[ti.Field],
-        star0: ResourceRef[ti.Field],
-        star1: ResourceRef[ti.Field],
-    ) -> None:
-        super().__init__(
-            DECMetricIO(V_pos, F_verts, F_area, E_verts, E_opp, star0, star1)
-        )
-
     @ti.kernel
     def _build_star0(
         self, F_verts: ti.template(), F_area: ti.template(), star0: ti.template()
@@ -94,29 +80,16 @@ class DECMetricProducer(WiredProducer[DECMetricIO]):
             star1[e] = 0.5 * cot_sum
 
     def compute(self, reg: Registry) -> None:
-        V = self.io.V_pos.peek()
-        F = self.io.F_verts.peek()
-        A = self.io.F_area.peek()
-        E = self.io.E_verts.peek()
-        EO = self.io.E_opp.peek()
-        if V is None or F is None or A is None or E is None or EO is None:
-            raise RuntimeError(
-                "DECMetricProducer: missing one of V_pos/F_verts/F_area/E_verts/E_opp."
-            )
+        inputs = self.require_inputs()
+        V = inputs["V_pos"].get()
+        F = inputs["F_verts"].get()
+        A = inputs["F_area"].get()
+        E = inputs["E_verts"].get()
+        EO = inputs["E_opp"].get()
 
-        nV = int(V.shape[0])
-        nE = int(E.shape[0])
-
-        star0 = self.io.star0.peek()
-        star1 = self.io.star1.peek()
-
-        if star0 is None or star0.shape != (nV,):
-            star0 = ti.field(dtype=ti.f32, shape=(nV,))
-            self.io.star0.set_buffer(star0, bump=False)
-
-        if star1 is None or star1.shape != (nE,):
-            star1 = ti.field(dtype=ti.f32, shape=(nE,))
-            self.io.star1.set_buffer(star1, bump=False)
+        outputs = self.ensure_outputs(reg)
+        star0 = outputs["star0"].peek()
+        star1 = outputs["star1"].peek()
 
         self._build_star0(F, A, star0)
         self._build_star1(V, E, EO, star1)

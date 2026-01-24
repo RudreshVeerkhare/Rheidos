@@ -39,6 +39,9 @@ if TYPE_CHECKING:
     import hou
 
 OUT_P = "out.P"
+_LOG_SESSION_ATTR = "_rheidos_log_session_id"
+_LOG_SESSION_ID: Optional[str] = None
+_LOG_SESSION_PID: Optional[int] = None
 
 
 def _get_hou() -> "hou":
@@ -251,6 +254,33 @@ def _env_flag(name: str, default: bool) -> bool:
     return value.strip().lower() not in ("0", "false", "no", "off", "")
 
 
+def _make_log_session_id(pid: int) -> str:
+    ts = int(time.time() * 1e6)
+    return f"session-{pid}-{ts}"
+
+
+def _get_log_session_id() -> str:
+    pid = os.getpid()
+    try:
+        import hou  # type: ignore
+    except Exception:
+        hou = None
+
+    if hou is not None:
+        value = getattr(hou.session, _LOG_SESSION_ATTR, None)
+        if isinstance(value, str) and value:
+            return value
+        value = _make_log_session_id(pid)
+        setattr(hou.session, _LOG_SESSION_ATTR, value)
+        return value
+
+    global _LOG_SESSION_ID, _LOG_SESSION_PID
+    if _LOG_SESSION_ID is None or _LOG_SESSION_PID != pid:
+        _LOG_SESSION_ID = _make_log_session_id(pid)
+        _LOG_SESSION_PID = pid
+    return _LOG_SESSION_ID
+
+
 def _resolve_profile_logdir(node: "hou.Node", config: Any) -> str:
     base = getattr(config, "profile_logdir", None) or ""
     if base:
@@ -283,7 +313,8 @@ def _resolve_profile_logdir(node: "hou.Node", config: Any) -> str:
 
     safe_hip = _sanitize_tb_component(hip_name)
     safe_node = _sanitize_tb_component(node_name.replace("/", "_"))
-    return os.path.join(base, safe_hip, safe_node)
+    safe_session = _sanitize_tb_component(_get_log_session_id())
+    return os.path.join(base, safe_hip, safe_node, safe_session)
 
 
 def _configure_tb_logger(session: WorldSession, logdir: str) -> None:

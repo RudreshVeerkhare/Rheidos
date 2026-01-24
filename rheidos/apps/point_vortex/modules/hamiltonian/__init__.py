@@ -15,12 +15,16 @@ class HamiltonianModule(ModuleBase):
 
         self.H = self.resource(
             "H",
-            spec=ResourceSpec(kind="taichi_field", dtype=ti.f32, allow_none=True),
+            spec=ResourceSpec(
+                kind="taichi_field", dtype=ti.f32, shape=(), allow_none=True
+            ),
             doc="Hamiltonian of the point vortex system.",
         )
 
         coexact_hamiltonian_producer = CoexactHamiltonianProducer(
-            self.stream_func.psi, self.stream_func.omega, self.H
+            psi=self.stream_func.psi,
+            omega=self.stream_func.omega,
+            H=self.H,
         )
 
         self.declare_resource(

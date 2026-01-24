@@ -3,7 +3,7 @@ Resource is an abstraction for encapsulating data-containers
 """
 
 from dataclasses import dataclass
-from typing import Any, Tuple, Optional, Generic, TypeVar, Literal, cast
+from typing import Any, Tuple, Optional, Generic, TypeVar, cast
 
 from .typing import ResourceName, Shape, ShapeFn
 
@@ -13,7 +13,7 @@ from .typing import ResourceName, Shape, ShapeFn
 # =============================================================================
 
 T = TypeVar("T")
-ResourceKind = Literal["taichi_field", "numpy", "python"]
+ResourceKind = str
 
 
 @dataclass(frozen=True)
@@ -25,6 +25,7 @@ class ResourceSpec:
       - "taichi_field": ti.field / ti.Vector.field / ti.Matrix.field (best-effort checks)
       - "numpy":        np.ndarray
       - "python":       any (no checks unless you extend)
+      - custom kinds can be registered via register_resource_kind
 
     dtype:
       - For taichi_field: ti.f32, ti.i32, ...
@@ -45,7 +46,7 @@ class ResourceSpec:
       - Taichi fields are intentionally treated "field-like" (best effort).
     """
 
-    kind: ResourceKind  # "taichi_field" | "numpy" | "python"
+    kind: ResourceKind
     dtype: Optional[Any] = None
     lanes: Optional[int] = None
     shape: Optional[Shape] = None

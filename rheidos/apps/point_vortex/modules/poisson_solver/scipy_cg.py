@@ -44,29 +44,20 @@ class SolvePoissonDirichletScipyCG(WiredProducer[SolvePoissonDirichletScipyCGIO]
       CG may fail. In that case swap to MINRES/direct solve for debugging.
     """
 
+    max_iter = 800
+    tol = 1e-6
+    use_jacobi = True
+    always_rebuild_topology = True
+
     def __init__(
         self,
-        *,
-        E_verts: ResourceRef[Any],
-        w: ResourceRef[Any],
-        mask: ResourceRef[Any],
-        value: ResourceRef[Any],
-        rhs: ResourceRef[Any],
-        u: ResourceRef[Any],
-        max_iter: int = 800,
-        tol: float = 1e-6,
-        use_jacobi: bool = True,
-        always_rebuild_topology: bool = True,
+        **kwargs: Any,
     ) -> None:
-        super().__init__(
-            SolvePoissonDirichletScipyCGIO(
-                E_verts=E_verts, w=w, mask=mask, value=value, rhs=rhs, u=u
-            )
-        )
-        self.max_iter = int(max_iter)
-        self.tol = float(tol)
-        self.use_jacobi = bool(use_jacobi)
-        self.always_rebuild_topology = bool(always_rebuild_topology)
+        super().__init__(**kwargs)
+        self.max_iter = int(self.max_iter)
+        self.tol = float(self.tol)
+        self.use_jacobi = bool(self.use_jacobi)
+        self.always_rebuild_topology = bool(self.always_rebuild_topology)
 
         # Cache Laplacian between calls (by shape). Good for stepping sims.
         self._cached_key: Optional[tuple[int, int]] = None
@@ -103,15 +94,13 @@ class SolvePoissonDirichletScipyCG(WiredProducer[SolvePoissonDirichletScipyCGIO]
         return L
 
     def compute(self, reg: Registry) -> None:
-        # --- inputs (peek) ---
-        E_f = self.io.E_verts.peek()
-        w_f = self.io.w.peek()
-        if E_f is None or w_f is None:
-            raise RuntimeError("SolvePoissonDirichletScipyCG: missing E_verts / w")
-
-        mask_f = self.io.mask.peek() if self.io.mask is not None else None
-        value_f = self.io.value.peek() if self.io.value is not None else None
-        rhs_f = self.io.rhs.peek() if self.io.rhs is not None else None
+        # --- inputs ---
+        inputs = self.require_inputs(allow_none=("mask", "value", "rhs"))
+        E_f = inputs["E_verts"].get()
+        w_f = inputs["w"].get()
+        mask_f = inputs["mask"].peek()
+        value_f = inputs["value"].peek()
+        rhs_f = inputs["rhs"].peek()
 
         E = self._to_numpy(E_f)
         w = self._to_numpy(w_f)
@@ -216,11 +205,8 @@ class SolvePoissonDirichletScipyCG(WiredProducer[SolvePoissonDirichletScipyCGIO]
         u_np[constrained] = uc
         u_np[free] = x
 
-        # --- output (peek + allocate + set_buffer + commit) ---
-        u_out = self.io.u.peek()
-        if u_out is None or getattr(u_out, "shape", None) != (nV,):
-            u_out = ti.field(dtype=ti.f32, shape=(nV,))
-            self.io.u.set_buffer(u_out, bump=False)
+        # --- output (ensure + fill + commit) ---
+        u_out = self.ensure_outputs(reg)["u"].peek()
 
         u_out.from_numpy(u_np.astype(np.float32))
         self.io.u.commit()

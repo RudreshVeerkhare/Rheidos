@@ -45,44 +45,10 @@ class AdvectVorticesEventDrivenProducer(WiredProducer[AdvectVorticesEventDrivenI
       - Reads dt as a Python scalar (avoids ambiguous scalar-field passing).
     """
 
-    def __init__(
-        self,
-        V_pos: ResourceRef[ti.Field],
-        F_verts: ResourceRef[ti.Field],
-        F_adj: ResourceRef[ti.Field],
-        vel_F: ResourceRef[ti.Field],
-        n_vortices: ResourceRef[ti.Field],
-        face_ids: ResourceRef[ti.Field],
-        bary: ResourceRef[ti.Field],
-        dt: ResourceRef[ti.Field],
-        face_ids_out: ResourceRef[np.ndarray],
-        bary_out: ResourceRef[np.ndarray],
-        pos_out: ResourceRef[np.ndarray],
-        *,
-        max_hops: int = 6,
-        eps: float = 1e-10,
-        edge_push: float = 1e-8,
-        project_velocity_to_face: bool = True,
-    ) -> None:
-        super().__init__(
-            AdvectVorticesEventDrivenIO(
-                V_pos,
-                F_verts,
-                F_adj,
-                vel_F,
-                n_vortices,
-                face_ids,
-                bary,
-                dt,
-                face_ids_out,
-                bary_out,
-                pos_out,
-            )
-        )
-        self.max_hops = int(max_hops)
-        self.eps = float(eps)
-        self.edge_push = float(edge_push)
-        self.project_velocity_to_face = bool(project_velocity_to_face)
+    max_hops = 6
+    eps = 1e-10
+    edge_push = 1e-8
+    project_velocity_to_face = True
 
     # ----------------- geometry helpers -----------------
 
@@ -351,48 +317,26 @@ class AdvectVorticesEventDrivenProducer(WiredProducer[AdvectVorticesEventDrivenI
 
     def compute(self, reg: Registry) -> None:
         io = self.io
+        inputs = self.require_inputs()
 
-        V = io.V_pos.get()
-        F = io.F_verts.get()
-        F_adj = io.F_adj.get()
-        vel_F = io.vel_F.get()
-        n_vortices = io.n_vortices.get()
-        face_ids = io.face_ids.get()
-        bary = io.bary.get()
-        dt = io.dt.get()
-
-        if any(x is None for x in [V, F, F_adj, vel_F, n_vortices, face_ids, bary, dt]):
-            raise RuntimeError(
-                "AdvectVorticesEventDrivenProducer missing one or more required inputs."
-            )
+        V = inputs["V_pos"].get()
+        F = inputs["F_verts"].get()
+        F_adj = inputs["F_adj"].get()
+        vel_F = inputs["vel_F"].get()
+        n_vortices = inputs["n_vortices"].get()
+        face_ids = inputs["face_ids"].get()
+        bary = inputs["bary"].get()
+        dt = inputs["dt"].get()
 
         nF = int(F.shape[0])
 
         # Robustly fetch & clamp nV (prevents OOB -> GPU hang/timeout)
         nV = int(n_vortices[None])
 
-        face_ids_out = io.face_ids_out.peek()
-        if (
-            face_ids_out is None
-            or face_ids_out.shape != (nV,)
-            or face_ids_out.dtype != np.int32
-        ):
-            face_ids_out = np.zeros((nV,), dtype=np.int32)
-            io.face_ids_out.set_buffer(face_ids_out, bump=False)
-
-        bary_out = io.bary_out.peek()
-        if (
-            bary_out is None
-            or bary_out.shape != (nV, 3)
-            or bary_out.dtype != np.float32
-        ):
-            bary_out = np.zeros((nV, 3), dtype=np.float32)
-            io.bary_out.set_buffer(bary_out, bump=False)
-
-        pos_out = io.pos_out.peek()
-        if pos_out is None or pos_out.shape != (nV, 3) or pos_out.dtype != np.float32:
-            pos_out = np.zeros((nV, 3), dtype=np.float32)
-            io.pos_out.set_buffer(pos_out, bump=False)
+        outputs = self.ensure_outputs(reg)
+        face_ids_out = outputs["face_ids_out"].peek()
+        bary_out = outputs["bary_out"].peek()
+        pos_out = outputs["pos_out"].peek()
 
         self._advect_all(
             V,

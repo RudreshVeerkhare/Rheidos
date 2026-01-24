@@ -6,13 +6,13 @@ from rheidos.compute import (
     shape_of,
 )
 
-from .point_vortex import PointVortexModule
-from .surface_mesh import SurfaceMeshModule
-from .dec_operator import SurfaceDECModule
-from .poisson_solver import PoissonSolverModule
+from ..point_vortex import PointVortexModule
+from ..surface_mesh import SurfaceMeshModule
+from ..dec_operator import SurfaceDECModule
+from ..poisson_solver import PoissonSolverModule
 
-from ..producers.splat_pt_vortex import SplatPtVortexProducer
-from ..producers.stream_func import StreamFuncProducer
+from .splat_pt_vortex import SplatPtVortexProducer
+from .stream_func_producer import StreamFuncProducer
 
 import taichi as ti
 
@@ -39,13 +39,13 @@ class StreamFunctionModule(ModuleBase):
         )
 
         pt_vortex_splat_producer = SplatPtVortexProducer(
-            self.pt_vortex.n_vortices,
-            self.pt_vortex.gammas,
-            self.pt_vortex.face_ids,
-            self.mesh.V_pos,
-            self.mesh.F_verts,
-            self.pt_vortex.bary,
-            self.omega,
+            n_vortices=self.pt_vortex.n_vortices,
+            gammas=self.pt_vortex.gammas,
+            face_ids=self.pt_vortex.face_ids,
+            V_pos=self.mesh.V_pos,
+            F_verts=self.mesh.F_verts,
+            bary=self.pt_vortex.bary,
+            omega=self.omega,
         )
 
         self.declare_resource(
@@ -72,16 +72,15 @@ class StreamFunctionModule(ModuleBase):
         )
 
         stream_func_producer = StreamFuncProducer(
-            self.omega,
-            self.pt_vortex.n_vortices,
-            self.pt_vortex.face_ids,
-            self.mesh.F_verts,
-            self.poisson.constraint_mask,
-            self.poisson.constraint_value,
-            self.poisson.rhs,
-            self.poisson.u,
-            self.psi,
-            pin_vertex_id=0,
+            omega=self.omega,
+            n_vortices=self.pt_vortex.n_vortices,
+            vortices_face_ids=self.pt_vortex.face_ids,
+            F_verts=self.mesh.F_verts,
+            u=self.poisson.u,
+            constraint_mask=self.poisson.constraint_mask,
+            constraint_values=self.poisson.constraint_value,
+            rhs=self.poisson.rhs,
+            psi=self.psi,
         )
 
         self.declare_resource(

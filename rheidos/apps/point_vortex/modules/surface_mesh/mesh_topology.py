@@ -12,6 +12,8 @@ class TopologyProducerIO:
         ti.Field
     ]  # (nV, vec3f) # Doesn't depent on this but just need this to get nV
 
+    n_edges: ResourceRef[ti.Field] = out_field()  # () i32
+
     E_verts: ResourceRef[ti.Field] = out_field()  # (nE, vec2i) canonical (min,max)
     E_faces: ResourceRef[ti.Field] = (
         out_field()
@@ -35,41 +37,12 @@ class TopologyProducerIO:
 
 @ti.data_oriented
 class TopologyProducer(WiredProducer[TopologyProducerIO]):
-    def __init__(
-        self,
-        F_verts: ResourceRef[ti.Field],
-        V_pos: ResourceRef[ti.Field],
-        E_verts: ResourceRef[ti.Field],
-        E_faces: ResourceRef[ti.Field],
-        E_opp: ResourceRef[ti.Field],
-        F_edges: ResourceRef[ti.Field],
-        F_edge_sign: ResourceRef[ti.Field],
-        F_adj: ResourceRef[ti.Field],
-        V_incident: ResourceRef[ti.Field],
-    ) -> None:
-        io = TopologyProducerIO(
-            F_verts,
-            V_pos,
-            E_verts,
-            E_faces,
-            E_opp,
-            F_edges,
-            F_edge_sign,
-            F_adj,
-            V_incident,
-        )
-        super().__init__(io)
-
     def compute(self, reg: Registry) -> None:
         io = self.io
 
-        F = io.F_verts.peek()
-        if F is None:
-            raise RuntimeError("F_verts not set.")
-
-        Vpos = io.V_pos.peek()
-        if Vpos is None:
-            raise RuntimeError("V_pos not set (needed to determine nV).")
+        inputs = self.require_inputs()
+        F = inputs["F_verts"].get()
+        Vpos = inputs["V_pos"].get()
 
         # Taichi vector field has shape (nV,)
         if len(Vpos.shape) != 1:
@@ -127,6 +100,12 @@ class TopologyProducer(WiredProducer[TopologyProducerIO]):
         E_faces_np = np.array(E_faces_list, dtype=np.int32)  # (nE,2)
         E_opp_np = np.array(E_opp_list, dtype=np.int32)  # (nE,2)
         nE = int(E_verts_np.shape[0])
+
+        n_edges = io.n_edges.peek()
+        if n_edges is None or getattr(n_edges, "shape", None) != ():
+            n_edges = ti.field(dtype=ti.i32, shape=())
+            io.n_edges.set_buffer(n_edges, bump=False)
+        n_edges[None] = nE
 
         # --------------------
         # Pass 2: face -> edge incidence + sign
@@ -194,47 +173,14 @@ class TopologyProducer(WiredProducer[TopologyProducerIO]):
         # --------------------
         # Allocate / reuse buffers
         # --------------------
-        E = io.E_verts.peek()
-        EF = io.E_faces.peek()
-        EO = io.E_opp.peek()
-        FE = io.F_edges.peek()
-        FS = io.F_edge_sign.peek()
-        FA = io.F_adj.peek()
-        VI = io.V_incident.peek()
-
-        needs_alloc_topo = (
-            E is None
-            or EF is None
-            or EO is None
-            or FE is None
-            or FS is None
-            or FA is None
-            or E.shape != (nE,)
-            or EF.shape != (nE,)
-            or EO.shape != (nE,)
-            or FE.shape != (nF,)
-            or FS.shape != (nF,)
-            or FA.shape != (nF,)
-        )
-        if needs_alloc_topo:
-            E = ti.Vector.field(2, dtype=ti.i32, shape=(nE,))
-            EF = ti.Vector.field(2, dtype=ti.i32, shape=(nE,))
-            EO = ti.Vector.field(2, dtype=ti.i32, shape=(nE,))
-            FE = ti.Vector.field(3, dtype=ti.i32, shape=(nF,))
-            FS = ti.Vector.field(3, dtype=ti.i32, shape=(nF,))
-            FA = ti.Vector.field(3, dtype=ti.i32, shape=(nF,))
-
-            io.E_verts.set_buffer(E, bump=False)
-            io.E_faces.set_buffer(EF, bump=False)
-            io.E_opp.set_buffer(EO, bump=False)
-            io.F_edges.set_buffer(FE, bump=False)
-            io.F_edge_sign.set_buffer(FS, bump=False)
-            io.F_adj.set_buffer(FA, bump=False)
-
-        needs_alloc_vi = (VI is None) or (VI.shape != (nV,))
-        if needs_alloc_vi:
-            VI = ti.field(dtype=ti.i32, shape=(nV,))
-            io.V_incident.set_buffer(VI, bump=False)
+        outputs = self.ensure_outputs(reg)
+        E = outputs["E_verts"].peek()
+        EF = outputs["E_faces"].peek()
+        EO = outputs["E_opp"].peek()
+        FE = outputs["F_edges"].peek()
+        FS = outputs["F_edge_sign"].peek()
+        FA = outputs["F_adj"].peek()
+        VI = outputs["V_incident"].peek()
 
         # --------------------
         # Fill
@@ -250,6 +196,7 @@ class TopologyProducer(WiredProducer[TopologyProducerIO]):
         # --------------------
         # Commit
         # --------------------
+        io.n_edges.commit()
         io.E_verts.commit()
         io.E_faces.commit()
         io.E_opp.commit()

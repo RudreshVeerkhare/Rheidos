@@ -249,33 +249,9 @@ class AdvectVorticesRK4IO:
 class AdvectVorticesRK4Producer(WiredProducer[AdvectVorticesRK4IO]):
     def __init__(
         self,
-        V_pos: ResourceRef[ti.Field],
-        F_verts: ResourceRef[ti.Field],
-        F_adj: ResourceRef[ti.Field],
-        V_velocity: ResourceRef[ti.Field],
-        n_vortices: ResourceRef[ti.Field],
-        face_ids: ResourceRef[ti.Field],
-        bary: ResourceRef[ti.Field],
-        dt: ResourceRef[Any],
-        face_ids_out: ResourceRef[ti.Field],
-        bary_out: ResourceRef[ti.Field],
-        pos_out: ResourceRef[ti.Field],
+        **kwargs: Any,
     ) -> None:
-        super().__init__(
-            AdvectVorticesRK4IO(
-                V_pos,
-                F_verts,
-                F_adj,
-                V_velocity,
-                n_vortices,
-                face_ids,
-                bary,
-                dt,
-                face_ids_out,
-                bary_out,
-                pos_out,
-            )
-        )
+        super().__init__(**kwargs)
         self.sampler = SampleVortexVelProducer()
         self.adv = AdvectConstVelEventDrivenProducer()
 
@@ -342,34 +318,19 @@ class AdvectVorticesRK4Producer(WiredProducer[AdvectVorticesRK4IO]):
             x1 = V_pos[fv[0]]
             x2 = V_pos[fv[1]]
             x3 = V_pos[fv[2]]
-            pos_out[pid] = (
-                x1 * bary[pid][0] + x2 * bary[pid][1] + x3 * bary[pid][2]
-            )
+            pos_out[pid] = x1 * bary[pid][0] + x2 * bary[pid][1] + x3 * bary[pid][2]
 
     def compute(self, reg: Registry) -> None:
         io = self.io
-        V_pos = io.V_pos.get()
-        F_verts = io.F_verts.get()
-        F_adj = io.F_adj.get()
-        n_vortices = io.n_vortices.get()
-        face_ids = io.face_ids.get()
-        bary = io.bary.get()
-        dt_value = io.dt.get()
-
-        if (
-            V_pos is None
-            or F_verts is None
-            or F_adj is None
-            or n_vortices is None
-            or face_ids is None
-            or bary is None
-        ):
-            raise RuntimeError(
-                "AdvectVorticesRK4Producer missing one or more required inputs."
-            )
-
-        if dt_value is None:
-            raise RuntimeError("AdvectVorticesRK4Producer missing dt")
+        inputs = self.require_inputs()
+        V_pos = inputs["V_pos"].get()
+        F_verts = inputs["F_verts"].get()
+        F_adj = inputs["F_adj"].get()
+        V_vel = inputs["V_velocity"].get()
+        n_vortices = inputs["n_vortices"].get()
+        face_ids = inputs["face_ids"].get()
+        bary = inputs["bary"].get()
+        dt_value = inputs["dt"].get()
 
         if hasattr(n_vortices, "__getitem__"):
             n = int(n_vortices[None])
@@ -381,9 +342,10 @@ class AdvectVorticesRK4Producer(WiredProducer[AdvectVorticesRK4IO]):
         else:
             dt = float(dt_value)
 
-        shape = face_ids.shape
-        self._ensure_tmp_fields(shape)
-        face_ids_out, bary_out, pos_out = self._ensure_output_fields(face_ids, bary)
+        outputs = self.ensure_outputs(reg)
+        face_ids_out = outputs["face_ids_out"].peek()
+        bary_out = outputs["bary_out"].peek()
+        pos_out = outputs["pos_out"].peek()
 
         if n <= 0:
             io.face_ids_out.commit()
@@ -391,11 +353,11 @@ class AdvectVorticesRK4Producer(WiredProducer[AdvectVorticesRK4IO]):
             io.pos_out.commit()
             return
 
+        shape = face_ids.shape
+        self._ensure_tmp_fields(shape)
+
         self.adv.backup_state(face_ids, bary, self._p0_face, self._p0_bary, n)
 
-        V_vel = io.V_velocity.get()
-        if V_vel is None:
-            raise RuntimeError("AdvectVorticesRK4Producer missing V_velocity")
         self.sampler.run(
             F_verts=F_verts,
             V_vel=V_vel,
@@ -410,8 +372,6 @@ class AdvectVorticesRK4Producer(WiredProducer[AdvectVorticesRK4IO]):
         )
         self._touch_vortex_state()
         V_vel = io.V_velocity.get()
-        if V_vel is None:
-            raise RuntimeError("AdvectVorticesRK4Producer missing V_velocity")
         self.sampler.run(
             F_verts=F_verts,
             V_vel=V_vel,
@@ -427,8 +387,6 @@ class AdvectVorticesRK4Producer(WiredProducer[AdvectVorticesRK4IO]):
         )
         self._touch_vortex_state()
         V_vel = io.V_velocity.get()
-        if V_vel is None:
-            raise RuntimeError("AdvectVorticesRK4Producer missing V_velocity")
         self.sampler.run(
             F_verts=F_verts,
             V_vel=V_vel,
@@ -442,8 +400,6 @@ class AdvectVorticesRK4Producer(WiredProducer[AdvectVorticesRK4IO]):
         self.adv.advect_inplace(V_pos, F_verts, F_adj, face_ids, bary, self._k3, dt, n)
         self._touch_vortex_state()
         V_vel = io.V_velocity.get()
-        if V_vel is None:
-            raise RuntimeError("AdvectVorticesRK4Producer missing V_velocity")
         self.sampler.run(
             F_verts=F_verts,
             V_vel=V_vel,

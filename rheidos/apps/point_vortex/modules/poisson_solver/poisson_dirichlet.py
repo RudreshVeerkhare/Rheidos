@@ -53,31 +53,25 @@ class SolvePoissonDirichlet(WiredProducer[SolvePoissonDirichletIO]):
         If rhs is None, rhs=0 -> harmonic interpolation.
     """
 
+    max_iter = 800
+    tol = 1e-6
+    poll_block = 25
+    use_jacobi = True
+    always_rebuild_topology = False
+    block_dim = 256
+
     def __init__(
         self,
-        E_verts: ResourceRef[Any],
-        w: ResourceRef[Any],
-        mask: ResourceRef[Any],
-        value: ResourceRef[Any],
-        rhs: Optional[ResourceRef[Any]],
-        u: ResourceRef[Any],
-        *,
-        max_iter: int = 800,
-        tol: float = 1e-6,
-        poll_block: int = 25,
-        use_jacobi: bool = True,
-        always_rebuild_topology: bool = False,
-        block_dim: int = 256,
+        **kwargs: Any,
     ) -> None:
-        io = SolvePoissonDirichletIO(E_verts, w, mask, value, u, rhs)
-        super().__init__(io)
+        super().__init__(**kwargs)
 
-        self.max_iter = int(max_iter)
-        self.tol = float(tol)
-        self.poll_block = int(poll_block)
-        self.use_jacobi = bool(use_jacobi)
-        self.always_rebuild_topology = bool(always_rebuild_topology)
-        self.block_dim = int(block_dim)
+        self.max_iter = int(self.max_iter)
+        self.tol = float(self.tol)
+        self.poll_block = int(self.poll_block)
+        self.use_jacobi = bool(self.use_jacobi)
+        self.always_rebuild_topology = bool(self.always_rebuild_topology)
+        self.block_dim = int(self.block_dim)
 
         # cached sizes + topology identity
         self._nV: int = 0
@@ -505,17 +499,14 @@ class SolvePoissonDirichlet(WiredProducer[SolvePoissonDirichletIO]):
 
     def compute(self, reg: Registry) -> None:
         io = self.io
-
-        E = io.E_verts.peek()
-        w = io.w.peek()
-        mask = io.mask.peek()
-        val = io.value.peek()
+        inputs = self.require_inputs()
+        E = inputs["E_verts"].get()
+        w = inputs["w"].get()
+        mask = inputs["mask"].get()
+        val = inputs["value"].get()
 
         rhs_ref = io.rhs
         rhs = rhs_ref.peek() if rhs_ref is not None else None
-
-        if E is None or w is None or mask is None or val is None:
-            raise RuntimeError("Missing inputs for Poisson solve.")
 
         # ---- validation (cheap + prevents silent garbage) ----
         if len(E.shape) != 1:
@@ -538,10 +529,7 @@ class SolvePoissonDirichlet(WiredProducer[SolvePoissonDirichletIO]):
         nV = int(mask.shape[0])
 
         # ---- ensure output u exists and matches nV ----
-        u = io.u.peek()
-        if u is None or u.shape != (nV,):
-            u = ti.field(dtype=ti.f32, shape=(nV,))
-            io.u.set_buffer(u, bump=False)
+        u = self.ensure_outputs(reg)["u"].peek()
 
         # ---- allocate caches ----
         realloc = self._ensure_cache(nV, nE)

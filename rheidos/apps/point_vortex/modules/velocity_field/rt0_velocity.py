@@ -1,6 +1,4 @@
 from dataclasses import dataclass
-from typing import Any
-
 import taichi as ti
 from rheidos.compute import ResourceRef, WiredProducer, out_field, Registry
 
@@ -32,15 +30,6 @@ class FaceCornerVelocityRT0FromStreamProducer(
     - This yields flux-continuous fields (normal component continuous across edges),
       but tangential component may jump (RT0 is H(div), not C0).
     """
-
-    def __init__(
-        self,
-        V_pos: ResourceRef[ti.Field],
-        F_verts: ResourceRef[ti.Field],
-        psi: ResourceRef[ti.Field],
-        vel_FV: ResourceRef[ti.Field],
-    ) -> None:
-        super().__init__(FaceCornerVelocityRT0FromStreamIO(V_pos, F_verts, psi, vel_FV))
 
     @ti.func
     def _cross2(self, a: ti.math.vec2, b: ti.math.vec2) -> ti.f32:

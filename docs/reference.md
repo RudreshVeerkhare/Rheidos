@@ -9,10 +9,11 @@ Exports from `rheidos.compute`:
 - `ModuleBase`, `Namespace`, `World`
 - `ProducerBase`, `Registry`
 - `Resource`, `ResourceKey`, `ResourceKind`, `ResourceRef`, `ResourceSpec`
-- `WiredProducer`, `out_field`
+- `ResourceKindAdapter`, `register_resource_kind`
+- `WiredProducer`, `out_field`, `shape_from_scalar`, `shape_with_tail`
 
 ### ResourceSpec (dataclass, frozen)
-- `kind: ResourceKind` (`"taichi_field"`, `"numpy"`, `"python"`)
+- `kind: ResourceKind` (`"taichi_field"`, `"numpy"`, `"python"`, or custom via register)
 - `dtype: Optional[Any]`
 - `lanes: Optional[int]`
 - `shape: Optional[Shape]`
@@ -60,11 +61,41 @@ Exports from `rheidos.compute`:
 - `bump(name, unsafe=False) -> None`
 - `ensure(name) -> None`
 - `ensure_many(names) -> None`
+- `matches_spec(name, buf) -> bool`
 - `explain(name, depth=4) -> str`
+
+### ResourceKindAdapter
+- `resolve_shape(reg, spec) -> Optional[Shape]`
+- `allocate(reg, spec, shape) -> Any`
+- `matches_spec(reg, spec, buf) -> bool`
+- `requires_shape: bool`
+
+### register_resource_kind
+- `register_resource_kind(kind: str, adapter: ResourceKindAdapter) -> None`
 
 ### WiredProducer[IO]
 - Requires IO to be a dataclass.
 - Outputs are inferred from fields marked with `out_field()`.
+- `IO_TYPE: Optional[type]` for kwargs wiring (auto-inferred for direct generic subclasses).
+- `inputs: Tuple[ResourceName, ...]`
+- `outputs: Tuple[ResourceName, ...]`
+- `input_refs() -> Dict[str, ResourceRef[Any]]`
+- `output_refs() -> Dict[str, ResourceRef[Any]]`
+- `require_inputs(*, allow_none=(), ensure=True, ignore=()) -> Dict[str, Any]`
+- `ensure_outputs(reg, *, strict=True, realloc=True, require_shape=True) -> Dict[str, Any]`
+
+### out_field
+- `out_field(*, alloc: Optional[Callable[[Registry, IO], Any]] = None)`
+- Marks an IO dataclass field as an output.
+- If `alloc` is provided, `ensure_outputs` uses it to allocate the buffer.
+
+### shape_from_scalar
+- `shape_from_scalar(ref, *, tail=()) -> ShapeFn`
+- Builds a shape function from a scalar resource (Python, NumPy, or Taichi scalar).
+
+### shape_with_tail
+- `shape_with_tail(ref, *, tail=()) -> ShapeFn`
+- Extends the shape of a field/array resource with a static tail.
 
 ### ModuleBase
 - `NAME: str`

@@ -2,94 +2,15 @@ from rheidos.compute import (
     ModuleBase,
     ResourceSpec,
     World,
-    WiredProducer,
-    ResourceRef,
-    out_field,
 )
-from rheidos.compute.registry import Registry
 
-from .surface_mesh import SurfaceMeshModule
+from ..surface_mesh import SurfaceMeshModule
+from .vortex_world_position import VortexWorldPositionProducer
 
-import numpy as np
 import taichi as ti
+import numpy as np
 
-from dataclasses import dataclass
 from typing import Tuple
-
-
-@dataclass
-class VortexWorldPositionProducerIO:
-    V_pos: ResourceRef[ti.Field]  # (nV, vec3f)
-    F_verts: ResourceRef[ti.Field]  # (nF, vec3i)
-    n_vortices: ResourceRef[ti.Field]  # ()
-    face_ids: ResourceRef[ti.Field]  # (100, )
-    bary: ResourceRef[ti.Field]  # (100, vec3f)
-    pos_world: ResourceRef[ti.Field] = out_field()  # (100, vec3f)
-
-
-@ti.data_oriented
-class VortexWorldPositionProducer(WiredProducer[VortexWorldPositionProducerIO]):
-
-    def __init__(
-        self,
-        V_pos: ResourceRef[ti.Field],
-        F_verts: ResourceRef[ti.Field],
-        n_vortices: ResourceRef[ti.Field],
-        face_ids: ResourceRef[ti.Field],
-        bary: ResourceRef[ti.Field],
-        pos_world: ResourceRef[ti.Field],
-    ) -> None:
-        super().__init__(
-            VortexWorldPositionProducerIO(
-                V_pos, F_verts, n_vortices, face_ids, bary, pos_world
-            )
-        )
-
-    @ti.kernel
-    def _calculate_world_position(
-        self,
-        V: ti.template(),
-        F: ti.template(),
-        N: ti.template(),
-        face_ids: ti.template(),
-        bary: ti.template(),
-        pos_world: ti.template(),
-    ):
-        for vortex_id in range(N[None]):
-            fid = face_ids[vortex_id]
-            x1 = V[F[fid][0]]
-            x2 = V[F[fid][1]]
-            x3 = V[F[fid][2]]
-
-            pos_world[vortex_id] = (
-                x1 * bary[vortex_id][0]
-                + x2 * bary[vortex_id][1]
-                + x3 * bary[vortex_id][2]
-            )
-
-    def compute(self, reg: Registry) -> None:
-        V = self.io.V_pos.peek()
-        F = self.io.F_verts.peek()
-        n = self.io.n_vortices.peek()
-        face_ids = self.io.face_ids.peek()
-        bary = self.io.bary.peek()
-
-        if (
-            (V is None)
-            or (F is None)
-            or (n is None)
-            or (face_ids is None)
-            or (bary is None)
-        ):
-            raise RuntimeError(
-                "VortexWorldPositionProducer is missing one or more of V_pos/F_verts/n_vortices/face_ids/bary"
-            )
-
-        pos_world = self.io.pos_world.peek()
-
-        self._calculate_world_position(V, F, n, face_ids, bary, pos_world)
-
-        self.io.pos_world.commit()
 
 
 class PointVortexModule(ModuleBase):
@@ -177,12 +98,12 @@ class PointVortexModule(ModuleBase):
         )
 
         vortex_world_pos_producer = VortexWorldPositionProducer(
-            self.mesh.V_pos,
-            self.mesh.F_verts,
-            self.n_vortices,
-            self.face_ids,
-            self.bary,
-            self.pos_world,
+            V_pos=self.mesh.V_pos,
+            F_verts=self.mesh.F_verts,
+            n_vortices=self.n_vortices,
+            face_ids=self.face_ids,
+            bary=self.bary,
+            pos_world=self.pos_world,
         )
 
         self.declare_resource(

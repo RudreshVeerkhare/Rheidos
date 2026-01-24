@@ -1,0 +1,97 @@
+from rheidos.compute import ModuleBase, World, ResourceSpec, shape_of
+
+from ..surface_mesh import SurfaceMeshModule
+from ..point_vortex import PointVortexModule
+from ..velocity_field import VelocityFieldModule
+from .producer import AdvectVorticesBarycentricRK4Producer
+
+import taichi as ti
+
+
+class EdgeSimpleRK4AdvectionModule(ModuleBase):
+    NAME = "EdgeSimpleRK4AdvectionModule"
+
+    def __init__(self, world: World, *, scope: str = "") -> None:
+        super().__init__(world, scope=scope)
+
+        self.mesh = world.require(SurfaceMeshModule)
+        self.pt_vortex = world.require(PointVortexModule)
+        self.velocity = world.require(VelocityFieldModule)
+
+        self.dt = self.resource(
+            "dt",
+            spec=ResourceSpec(kind="python", dtype=float),
+            doc="Timestep size in seconds.",
+            declare=True,
+        )
+
+        self.face_ids_out = self.resource(
+            "face_ids_out",
+            spec=ResourceSpec(
+                kind="taichi_field",
+                dtype=ti.i32,
+                shape_fn=shape_of(self.pt_vortex.face_ids),
+                allow_none=True,
+            ),
+            doc="Updated face ids after RK4 advection. Shape: (maxV,) i32",
+            declare=False,
+        )
+
+        self.bary_out = self.resource(
+            "bary_out",
+            spec=ResourceSpec(
+                kind="taichi_field",
+                dtype=ti.f32,
+                shape_fn=shape_of(self.pt_vortex.bary),
+                lanes=3,
+                allow_none=True,
+            ),
+            doc="Updated barycentric coordinates after RK4 advection. Shape: (maxV, vec3f)",
+            declare=False,
+        )
+
+        self.pos_out = self.resource(
+            "pos_out",
+            spec=ResourceSpec(
+                kind="taichi_field",
+                dtype=ti.f32,
+                shape_fn=shape_of(self.pt_vortex.face_ids),
+                lanes=3,
+                allow_none=True,
+            ),
+            doc="Updated world-space positions after RK4 advection. Shape: (maxV, vec3f)",
+            declare=False,
+        )
+
+        rk4_producer = AdvectVorticesBarycentricRK4Producer(
+            V_pos=self.mesh.V_pos,
+            F_verts=self.mesh.F_verts,
+            F_adj=self.mesh.F_adj,
+            vel_F=self.velocity.F_velocity,
+            n_vortices=self.pt_vortex.n_vortices,
+            face_ids=self.pt_vortex.face_ids,
+            bary=self.pt_vortex.bary,
+            dt=self.dt,
+            face_ids_out=self.face_ids_out,
+            bary_out=self.bary_out,
+            pos_out=self.pos_out,
+        )
+
+        deps = (
+            self.mesh.V_pos,
+            self.mesh.F_verts,
+            self.mesh.F_adj,
+            self.velocity.F_velocity,
+            self.pt_vortex.n_vortices,
+            self.pt_vortex.face_ids,
+            self.pt_vortex.bary,
+            self.dt,
+        )
+
+        self.declare_resource(self.face_ids_out, deps=deps, producer=rk4_producer)
+        self.declare_resource(self.bary_out, deps=deps, producer=rk4_producer)
+        self.declare_resource(self.pos_out, deps=deps, producer=rk4_producer)
+
+    def advect(self, dt: float) -> None:
+        self.dt.set(float(dt))
+        self.face_ids_out.get()

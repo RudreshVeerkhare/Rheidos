@@ -1,6 +1,4 @@
 from dataclasses import dataclass
-from typing import Any
-
 import taichi as ti
 from rheidos.compute import ResourceRef, WiredProducer, out_field, Registry
 
@@ -27,15 +25,6 @@ class FaceVelocityFromStreamProducer(WiredProducer[FaceVelocityFromStreamIO]):
     Note: If your flow spins the "wrong way", flip the sign once globally
     (either v = n x gradpsi or v = -n x gradpsi depending on orientation conventions).
     """
-
-    def __init__(
-        self,
-        V_pos: ResourceRef[ti.Field],
-        F_verts: ResourceRef[ti.Field],
-        psi: ResourceRef[ti.Field],
-        vel_F: ResourceRef[ti.Field],
-    ) -> None:
-        super().__init__(FaceVelocityFromStreamIO(V_pos, F_verts, psi, vel_F))
 
     @ti.kernel
     def _compute_face_vel(
@@ -78,22 +67,12 @@ class FaceVelocityFromStreamProducer(WiredProducer[FaceVelocityFromStreamIO]):
 
     def compute(self, reg: Registry) -> None:
         io = self.io
-        V = io.V_pos.get()
-        F = io.F_verts.get()
-        psi = io.psi.get()
+        inputs = self.require_inputs()
+        V = inputs["V_pos"].get()
+        F = inputs["F_verts"].get()
+        psi = inputs["psi"].get()
 
-        if V is None or F is None or psi is None:
-            raise RuntimeError(
-                "FaceVelocityFromStreamProducer is missing one or more of V_pos/F_verts/psi"
-            )
-
-        nF = F.shape[0]
-
-        vel_F = io.vel_F.peek()
-        # For a vector field in Taichi, vel_F should be ti.Vector.field(3, ...)
-        if vel_F is None or vel_F.shape != (nF,):
-            vel_F = ti.Vector.field(3, ti.f32, shape=(nF,))
-            io.vel_F.set_buffer(vel_F, bump=False)
+        vel_F = self.ensure_outputs(reg)["vel_F"].peek()
 
         self._compute_face_vel(V, F, psi, vel_F)
         io.vel_F.commit()

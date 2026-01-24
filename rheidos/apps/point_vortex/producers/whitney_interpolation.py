@@ -22,33 +22,6 @@ class VelocityProducerIO:
 
 
 class VelocityProducer(WiredProducer[VelocityProducerIO]):
-
-    def __init__(
-        self,
-        face_ids: ResourceRef[np.ndarray],
-        barys: ResourceRef[np.ndarray],
-        edge_1form: ResourceRef[ti.Field],
-        F_edges: ResourceRef[ti.Field],
-        F_edge_sign: ResourceRef[ti.Field],
-        grad_l0: ResourceRef[ti.Field],
-        grad_l1: ResourceRef[ti.Field],
-        grad_l2: ResourceRef[ti.Field],
-        vel: ResourceRef[np.ndarray],
-    ) -> None:
-        super().__init__(
-            VelocityProducerIO(
-                face_ids,
-                barys,
-                edge_1form,
-                F_edges,
-                F_edge_sign,
-                grad_l0,
-                grad_l1,
-                grad_l2,
-                vel,
-            )
-        )
-
     @ti.kernel
     def whitney_vec_at(
         self,

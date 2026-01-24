@@ -297,7 +297,6 @@ Houdini node parameters (see `solver_sop.py`):
 Environment flags:
 
 - `RHEIDOS_UI=1` to enable the UI server (default on).
-- `RHEIDOS_TB=1` to enable TensorBoard export (default off).
 
 UI URL is stored in `session.stats["profile_ui_url"]` after a cook.
 

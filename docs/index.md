@@ -8,6 +8,7 @@ Choose your intent (Diataxis):
 - How-to guides: docs/how-to.md
 - Reference: docs/reference.md
 - Explanation: docs/explanation.md
+ - Producer helpers: docs/producer_helpers.md
 
 Quick map of the codebase:
 - Compute core: rheidos/compute/*

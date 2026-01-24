@@ -2,19 +2,14 @@ from rheidos.compute import (
     ModuleBase,
     World,
     ResourceSpec,
-    ResourceRef,
-    ShapeFn,
-    Registry,
-    Shape,
     shape_of,
 )
-from .surface_mesh import SurfaceMeshModule
-from .dec_operator import SurfaceDECModule
+from ..surface_mesh import SurfaceMeshModule
+from ..dec_operator import SurfaceDECModule
 
-from ..producers.poisson_dirichlet import SolvePoissonDirichlet
-from ..producers.scipy_cg import SolvePoissonDirichletScipyCG  # NEW
+from .poisson_dirichlet import SolvePoissonDirichlet
+from .scipy_cg import SolvePoissonDirichletScipyCG  # NEW
 
-from typing import Optional, Any
 import taichi as ti
 
 
@@ -90,10 +85,6 @@ class PoissonSolverModule(ModuleBase):
                 value=self.constraint_value,
                 rhs=self.rhs,
                 u=self.u,
-                max_iter=800,
-                tol=1e-6,
-                use_jacobi=True,
-                always_rebuild_topology=True,  # set False if mesh static and you want caching
             )
         else:
             solver = SolvePoissonDirichlet(
@@ -103,12 +94,6 @@ class PoissonSolverModule(ModuleBase):
                 value=self.constraint_value,
                 rhs=self.rhs,
                 u=self.u,
-                max_iter=800,
-                tol=1e-6,
-                poll_block=25,
-                use_jacobi=True,
-                always_rebuild_topology=False,
-                block_dim=256,
             )
 
         deps = (

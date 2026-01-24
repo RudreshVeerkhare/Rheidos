@@ -20,31 +20,6 @@ class FaceWhitneyCacheProducerIO:
 @ti.data_oriented
 class FaceWhitneyCacheProducer(WiredProducer[FaceWhitneyCacheProducerIO]):
     """Builds per-face quantities needed for Whitney 1-form reconstruction"""
-
-    def __init__(
-        self,
-        V_pos: ResourceRef[ti.Field],
-        F_verts: ResourceRef[ti.Field],
-        F_edge_sign: ResourceRef[ti.Field],
-        F_normal: ResourceRef[ti.Field],
-        F_area: ResourceRef[ti.Field],
-        grad_l0: ResourceRef[ti.Field],
-        grad_l1: ResourceRef[ti.Field],
-        grad_l2: ResourceRef[ti.Field],
-    ) -> None:
-        super().__init__(
-            FaceWhitneyCacheProducerIO(
-                V_pos,
-                F_verts,
-                F_edge_sign,
-                F_normal,
-                F_area,
-                grad_l0,
-                grad_l1,
-                grad_l2,
-            )
-        )
-
     @ti.kernel
     def _compute_bary_gradient(
         self,

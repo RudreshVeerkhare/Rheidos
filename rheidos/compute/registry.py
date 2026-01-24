@@ -1,8 +1,8 @@
 from typing import Tuple, Set, List, Any, Sequence, Optional, Iterable, Callable, TypeVar, Dict, Mapping
 from time import perf_counter_ns
 from dataclasses import dataclass, field
-import numpy as np
 from .resource import Resource, ResourceSpec, ResourceRef, ResourceKey
+from .resource_kinds import get_resource_kind
 from .profiler.ids import PRODUCER_IDS, RESOURCE_IDS
 from .typing import ResourceName
 
@@ -171,53 +171,23 @@ class Registry:
             if spec.allow_none:
                 return
             raise TypeError(f"[{r.name}] buffer is None but allow_none=False")
+        try:
+            adapter = get_resource_kind(spec.kind)
+        except KeyError as e:
+            raise ValueError(f"[{r.name}] {e}") from e
 
-        if spec.kind == "python":
-            return
+        try:
+            adapter.matches_spec(self, spec, buf)
+        except Exception as e:
+            raise TypeError(f"[{r.name}] {e}") from e
 
-        if spec.kind == "numpy":
-            if not isinstance(buf, np.ndarray):
-                raise TypeError(f"[{r.name}] expected numpy ndarray, got {type(buf)}")
-            if spec.dtype is not None and buf.dtype != np.dtype(spec.dtype):
-                raise TypeError(f"[{r.name}] expected dtype {spec.dtype}, got {buf.dtype}")
-            exp_shape = spec.shape
-            if exp_shape is None and spec.shape_fn is not None:
-                exp_shape = spec.shape_fn(self)
-            if exp_shape is not None and tuple(buf.shape) != tuple(exp_shape):
-                raise TypeError(f"[{r.name}] expected shape {exp_shape}, got {tuple(buf.shape)}")
-            return
-
-        if spec.kind == "taichi_field":
-            # Best-effort checks for Taichi fields.
-            if not hasattr(buf, "dtype") or not hasattr(buf, "shape"):
-                raise TypeError(f"[{r.name}] expected Taichi field-like buffer, got {type(buf)}")
-
-            if spec.dtype is not None:
-                try:
-                    if buf.dtype != spec.dtype:
-                        raise TypeError(f"[{r.name}] expected dtype {spec.dtype}, got {buf.dtype}")
-                except Exception as e:
-                    raise TypeError(f"[{r.name}] could not validate dtype: {e}") from e
-
-            exp_shape = spec.shape
-            if exp_shape is None and spec.shape_fn is not None:
-                exp_shape = spec.shape_fn(self)
-            if exp_shape is not None:
-                try:
-                    if tuple(buf.shape) != tuple(exp_shape):
-                        raise TypeError(f"[{r.name}] expected shape {exp_shape}, got {tuple(buf.shape)}")
-                except Exception as e:
-                    raise TypeError(f"[{r.name}] could not validate shape: {e}") from e
-
-            if spec.lanes is not None:
-                # Vector.field often exposes .n (lanes). If not available, skip.
-                lanes_actual = getattr(buf, "n", None)
-                if lanes_actual is not None and int(lanes_actual) != int(spec.lanes):
-                    raise TypeError(f"[{r.name}] expected lanes {spec.lanes}, got {lanes_actual}")
-
-            return
-
-        raise ValueError(f"[{r.name}] Unknown spec.kind={spec.kind}")
+    def matches_spec(self, name: ResourceName, buf: Any) -> bool:
+        r = self.get(name)
+        try:
+            self._validate_buffer(r, buf)
+        except Exception:
+            return False
+        return True
 
     # ---- ensure ----
 

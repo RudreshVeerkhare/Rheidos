@@ -1,9 +1,9 @@
 from rheidos.compute import ModuleBase, World, ResourceSpec, shape_of
 
-from .surface_mesh import SurfaceMeshModule
-from .point_vortex import PointVortexModule
-from .velocity_field import VelocityFieldModule
-from ..producers.rk4_advection import AdvectVorticesRK4Producer
+from ..surface_mesh import SurfaceMeshModule
+from ..point_vortex import PointVortexModule
+from ..velocity_field import VelocityFieldModule
+from .producer import AdvectVorticesRK4Producer
 
 import taichi as ti
 
@@ -64,17 +64,17 @@ class RK4AdvectionModule(ModuleBase):
         )
 
         rk4_producer = AdvectVorticesRK4Producer(
-            self.mesh.V_pos,
-            self.mesh.F_verts,
-            self.mesh.F_adj,
-            self.velocity.V_velocity,
-            self.pt_vortex.n_vortices,
-            self.pt_vortex.face_ids,
-            self.pt_vortex.bary,
-            self.dt,
-            self.face_ids_out,
-            self.bary_out,
-            self.pos_out,
+            V_pos=self.mesh.V_pos,
+            F_verts=self.mesh.F_verts,
+            F_adj=self.mesh.F_adj,
+            V_velocity=self.velocity.V_velocity,
+            n_vortices=self.pt_vortex.n_vortices,
+            face_ids=self.pt_vortex.face_ids,
+            bary=self.pt_vortex.bary,
+            dt=self.dt,
+            face_ids_out=self.face_ids_out,
+            bary_out=self.bary_out,
+            pos_out=self.pos_out,
         )
 
         deps = (

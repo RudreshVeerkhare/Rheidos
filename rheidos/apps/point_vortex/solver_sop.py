@@ -40,6 +40,10 @@ from rheidos.apps.point_vortex.modules.surface_mesh import SurfaceMeshModule
 from rheidos.apps.point_vortex.modules.point_vortex import PointVortexModule
 from rheidos.apps.point_vortex.modules.hamiltonian import HamiltonianModule
 
+from rheidos.apps.point_vortex.modules.edge_simple_rk4_advection import (
+    EdgeSimpleRK4AdvectionModule,
+)
+
 from rheidos.apps.point_vortex.modules.rk4_advection import RK4AdvectionModule
 
 # from rheidos.apps.point_vortex.modules.rt0_rk4_advection import RK4AdvectionModule
@@ -197,7 +201,7 @@ def step(ctx: CookContext) -> None:
         # Advection
         dt = 0.01  # use `ctx.dt` for real-time
         rk4_intergrator = world.require(RK4AdvectionModule)
-        rk4_intergrator.advect(ctx.dt)
+        rk4_intergrator.advect(dt)
 
     with prof.span("io_read_outputs", cat="solver"):
         nVortices = len(scatter_points)
