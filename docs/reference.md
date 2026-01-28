@@ -5,6 +5,7 @@ This reference lists the public API surface in the compute and Houdini packages.
 ## Module: rheidos.compute
 
 Exports from `rheidos.compute`:
+
 - `FieldLike`, `ResourceName`, `Shape`, `ShapeFn`
 - `ModuleBase`, `Namespace`, `World`
 - `ProducerBase`, `Registry`
@@ -13,6 +14,7 @@ Exports from `rheidos.compute`:
 - `WiredProducer`, `out_field`, `shape_from_scalar`, `shape_with_tail`
 
 ### ResourceSpec (dataclass, frozen)
+
 - `kind: ResourceKind` (`"taichi_field"`, `"numpy"`, `"python"`, or custom via register)
 - `dtype: Optional[Any]`
 - `lanes: Optional[int]`
@@ -21,6 +23,7 @@ Exports from `rheidos.compute`:
 - `allow_none: bool`
 
 ### Resource (dataclass)
+
 - `name: ResourceName`
 - `buffer: Any`
 - `deps: Tuple[ResourceName, ...]`
@@ -31,10 +34,12 @@ Exports from `rheidos.compute`:
 - `spec: Optional[ResourceSpec]`
 
 ### ResourceKey[T] (dataclass, frozen)
+
 - `full_name: str`
 - `spec: Optional[ResourceSpec]`
 
 ### ResourceRef[T]
+
 - `name: str`
 - `spec: Optional[ResourceSpec]`
 - `ensure() -> None`
@@ -48,10 +53,12 @@ Exports from `rheidos.compute`:
 - `bump(*, unsafe: bool = False) -> None`
 
 ### ProducerBase
+
 - `outputs: Tuple[ResourceName, ...]`
 - `compute(reg: Registry) -> None`
 
 ### Registry
+
 - `declare(name, *, buffer=None, deps=(), producer=None, description="", spec=None) -> Resource`
 - `get(name) -> Resource`
 - `read(name, *, ensure=True) -> Any`
@@ -65,15 +72,18 @@ Exports from `rheidos.compute`:
 - `explain(name, depth=4) -> str`
 
 ### ResourceKindAdapter
+
 - `resolve_shape(reg, spec) -> Optional[Shape]`
 - `allocate(reg, spec, shape) -> Any`
 - `matches_spec(reg, spec, buf) -> bool`
 - `requires_shape: bool`
 
 ### register_resource_kind
+
 - `register_resource_kind(kind: str, adapter: ResourceKindAdapter) -> None`
 
 ### WiredProducer[IO]
+
 - Requires IO to be a dataclass.
 - Outputs are inferred from fields marked with `out_field()`.
 - `IO_TYPE: Optional[type]` for kwargs wiring (auto-inferred for direct generic subclasses).
@@ -85,33 +95,39 @@ Exports from `rheidos.compute`:
 - `ensure_outputs(reg, *, strict=True, realloc=True, require_shape=True) -> Dict[str, Any]`
 
 ### out_field
+
 - `out_field(*, alloc: Optional[Callable[[Registry, IO], Any]] = None)`
 - Marks an IO dataclass field as an output.
 - If `alloc` is provided, `ensure_outputs` uses it to allocate the buffer.
 
 ### shape_from_scalar
+
 - `shape_from_scalar(ref, *, tail=()) -> ShapeFn`
 - Builds a shape function from a scalar resource (Python, NumPy, or Taichi scalar).
 
 ### shape_with_tail
+
 - `shape_with_tail(ref, *, tail=()) -> ShapeFn`
 - Extends the shape of a field/array resource with a static tail.
 
 ### ModuleBase
+
 - `NAME: str`
 - `resource(attr, *, spec=None, doc="", declare=False, buffer=None, deps=(), producer=None, description="") -> ResourceRef`
 - `declare_resource(ref, *, buffer=None, deps=(), producer=None, description="") -> None`
-- `require(module_cls) -> module instance`
+- `require(module_cls, *args, **kwargs) -> module instance`
 - `prefix: str`
 - `qualify(attr: str) -> str`
 
 ### World
+
 - `reg: Registry`
-- `require(module_cls, *, scope="") -> module instance`
+- `require(module_cls, *args, scope="", **kwargs) -> module instance`
 
 ## Module: rheidos.houdini
 
 Exports:
+
 - `AccessMode`, `CookContext`, `ComputeRuntime`, `SessionAccess`, `WorldSession`, `SessionKey`
 - `build_cook_context(node, geo_in, geo_out, session, geo_inputs=None, substep=0, is_solver=False) -> CookContext`
 - `get_runtime() -> ComputeRuntime`
@@ -133,6 +149,7 @@ Exports:
 ## Module: rheidos.houdini.debug
 
 ### DebugConfig (dataclass, frozen)
+
 - `enabled: bool`
 - `host: str`
 - `port: int`
@@ -143,6 +160,7 @@ Exports:
 - `log: bool`
 
 ### DebugState (dataclass)
+
 - `started: bool`
 - `host: str`
 - `port: int`
@@ -158,6 +176,7 @@ Exports:
 - `info_printed: bool`
 
 Functions:
+
 - `debug_config_from_node(node) -> DebugConfig`
 - `ensure_debug_server(cfg, node=None) -> DebugState`
 - `request_break_next(node=None) -> None`
@@ -167,11 +186,13 @@ Functions:
 ## Module: rheidos.houdini.geo
 
 Exports:
+
 - `GeometryIO`
 - `GeometrySchema`, `AttribDesc`
 - `OWNER_POINT`, `OWNER_PRIM`, `OWNER_VERTEX`, `OWNER_DETAIL`, `OWNERS`
 
 ### GeometryIO
+
 - `clear_cache() -> None`
 - `describe(owner: Optional[str] = None) -> GeometrySchema`
 - `read(owner, name, *, dtype=None, components=None) -> np.ndarray`
@@ -180,6 +201,7 @@ Exports:
 - `read_group(owner, group_name, *, as_mask=False) -> np.ndarray`
 
 ### GeometrySchema
+
 - `point: Tuple[AttribDesc, ...]`
 - `prim: Tuple[AttribDesc, ...]`
 - `vertex: Tuple[AttribDesc, ...]`
@@ -187,6 +209,7 @@ Exports:
 - `by_owner(owner: str) -> Tuple[AttribDesc, ...]`
 
 ### AttribDesc
+
 - `name: str`
 - `owner: str`
 - `storage_type: str`
@@ -195,6 +218,7 @@ Exports:
 ## Module: rheidos.houdini.runtime.cook_context
 
 ### CookContext
+
 - `node: hou.Node`
 - `frame: float`
 - `time: float`
@@ -231,6 +255,7 @@ Exports:
 ### Session access examples
 
 Read-only access (default) to another node session:
+
 ```python
 with ctx.session_access("/obj/geo1/py_sop2") as other:
     values = other.reg.read("some.resource", ensure=True)
@@ -238,6 +263,7 @@ with ctx.session_access("/obj/geo1/py_sop2") as other:
 ```
 
 Write access when you need to update the other session:
+
 ```python
 with ctx.session_access("/obj/geo1/py_sop2", mode="write") as other:
     other.reg.commit("some.resource", buffer=data)
@@ -249,13 +275,16 @@ Use `create=True` to create the target session if it does not exist yet.
 ## Module: rheidos.houdini.runtime.session
 
 ### SessionKey (dataclass, frozen)
+
 - `hip_path: str`
 - `node_path: str`
 
 ### AccessMode (type alias)
+
 - `"read" | "write"`
 
 ### WorldSession (dataclass)
+
 - `world: Optional[World]`
 - `user_module: Optional[ModuleType]`
 - `user_module_key: Optional[str]`
@@ -279,6 +308,7 @@ Use `create=True` to create the target session if it does not exist yet.
 - `clear_log() -> None`
 
 ### SessionAccess (dataclass)
+
 - `session: WorldSession`
 - `node_path: str`
 - `mode: AccessMode`
@@ -286,6 +316,7 @@ Use `create=True` to create the target session if it does not exist yet.
 - `log(message, **payload) -> None`
 
 ### ComputeRuntime
+
 - `sessions: Dict[SessionKey, WorldSession]`
 - `get_or_create_session(node) -> WorldSession`
 - `get_session_by_path(node_path, create=False) -> WorldSession`
@@ -294,6 +325,7 @@ Use `create=True` to create the target session if it does not exist yet.
 - `nuke_all(reason) -> None`
 
 Functions:
+
 - `get_runtime() -> ComputeRuntime`
 - `make_session_key(node) -> SessionKey`
 - `make_session_key_for_path(node_path) -> SessionKey`
@@ -305,10 +337,12 @@ Functions:
 ## Module: rheidos.houdini.runtime.resource_keys
 
 Constants:
+
 - `GEO_P`, `GEO_TRIANGLES`
 - `SIM_TIME`, `SIM_DT`, `SIM_FRAME`, `SIM_SUBSTEP`
 
 Functions:
+
 - `geo_P(index=0) -> str`
 - `geo_triangles(index=0) -> str`
 - `point_attrib(name, index=0) -> str`
@@ -335,6 +369,7 @@ Functions:
 ## Module: rheidos.houdini.nodes.config
 
 ### NodeConfig (dataclass, frozen)
+
 - `script_path: Optional[str]`
 - `module_path: Optional[str]`
 - `mode: str`
@@ -348,5 +383,6 @@ Functions:
 ## Module: rheidos.houdini.nodes
 
 Exports:
+
 - `NodeConfig`
 - `read_node_config(node) -> NodeConfig`

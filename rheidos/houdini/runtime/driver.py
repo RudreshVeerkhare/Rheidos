@@ -8,6 +8,7 @@ import os
 from typing import Any, Callable, Optional, TYPE_CHECKING
 import time
 import traceback
+from urllib.parse import urlparse
 
 import numpy as np
 
@@ -25,7 +26,10 @@ from .resource_keys import SIM_DT, SIM_FRAME, SIM_SUBSTEP, SIM_TIME
 from .session import WorldSession, get_runtime
 from .user_script import resolve_user_module
 from rheidos.compute.profiler.core import ProfilerConfig
-from rheidos.compute.profiler.runtime import reset_current_profiler, set_current_profiler
+from rheidos.compute.profiler.runtime import (
+    reset_current_profiler,
+    set_current_profiler,
+)
 from rheidos.compute.profiler.summary_server import (
     SummaryServer,
     SummaryServerConfig,
@@ -53,6 +57,19 @@ def _get_hou() -> "hou":
     return hou
 
 
+def _maybe_show_ui_message(title: str, message: str) -> None:
+    try:
+        hou = _get_hou()
+    except Exception:
+        return
+    try:
+        if not hou.isUIAvailable():
+            return
+        hou.ui.displayMessage(message, title=title)
+    except Exception:
+        return
+
+
 def _resource_exists(reg: Any, name: str) -> bool:
     """Check whether a registry-like object contains a named resource.
 
@@ -78,7 +95,9 @@ def _debug(enabled: bool, message: str) -> None:
         print(message)
 
 
-def _report_error(node: "hou.Node", message: str, tb_str: str, *, debug_log: bool) -> None:
+def _report_error(
+    node: "hou.Node", message: str, tb_str: str, *, debug_log: bool
+) -> None:
     """Report a cook/solver error to Houdini and optionally print a traceback.
 
     Args:
@@ -171,7 +190,9 @@ def _apply_snapshot(geo_out: "hou.Geometry", snapshot: "hou.Geometry") -> None:
     geo_out.merge(snapshot)
 
 
-def _get_callable(module: Any, name: str, *, required: bool) -> Optional[Callable[..., Any]]:
+def _get_callable(
+    module: Any, name: str, *, required: bool
+) -> Optional[Callable[..., Any]]:
     """Return a callable attribute from a user module or raise if required.
 
     Args:
@@ -242,9 +263,7 @@ def _prepare_session(node: "hou.Node") -> tuple[WorldSession, Any]:
 
 
 def _sanitize_tb_component(value: str) -> str:
-    return "".join(
-        c if (c.isalnum() or c in ("-", "_", ".")) else "_" for c in value
-    )
+    return "".join(c if (c.isalnum() or c in ("-", "_", ".")) else "_" for c in value)
 
 
 def _env_flag(name: str, default: bool) -> bool:
@@ -255,8 +274,8 @@ def _env_flag(name: str, default: bool) -> bool:
 
 
 def _make_log_session_id(pid: int) -> str:
-    ts = int(time.time() * 1e6)
-    return f"session-{pid}-{ts}"
+    ts = time.strftime("%Y%m%d-%H%M%S")
+    return f"session-{ts}-{pid}"
 
 
 def _get_log_session_id() -> str:
@@ -338,7 +357,9 @@ def _configure_profiler(session: WorldSession, config: Any, node: "hou.Node") ->
             mode=mode,
             export_hz=float(getattr(config, "profile_export_hz", 5.0)),
             taichi_enabled=taichi_enabled,
-            taichi_sample_every_n_cooks=int(getattr(config, "profile_taichi_every", 30)),
+            taichi_sample_every_n_cooks=int(
+                getattr(config, "profile_taichi_every", 30)
+            ),
             taichi_sync_on_sample=bool(getattr(config, "profile_taichi_sync", True)),
             trace_cooks=int(getattr(config, "profile_trace_cooks", 64)),
             trace_max_edges=int(getattr(config, "profile_trace_edges", 20000)),
@@ -400,8 +421,73 @@ def _configure_profiler(session: WorldSession, config: Any, node: "hou.Node") ->
             session.summary_server = SummaryServer(
                 session.summary_store, server_cfg, trace_provider=session.profiler
             )
-            session.summary_server.start(static_dir=static_dir)
-            session.stats["profile_ui_url"] = session.summary_server.url
+            try:
+                session.summary_server.start(static_dir=static_dir)
+                session.stats["profile_ui_url"] = session.summary_server.url
+                url = session.summary_server.url or ""
+                parsed = urlparse(url) if url else None
+                actual_port = parsed.port if parsed else None
+                host = parsed.hostname if parsed else server_cfg.host
+                owner = "<unknown>"
+                try:
+                    owner = node.path()
+                except Exception:
+                    pass
+                requested = server_cfg.port
+                port_detail = (
+                    f"{actual_port} (requested {requested})"
+                    if actual_port is not None and actual_port != requested
+                    else f"{actual_port or requested}"
+                )
+                message = "\n".join(
+                    [
+                        "Profiler UI server started",
+                        f"Owner: {owner}",
+                        f"Host: {host}",
+                        f"Port: {port_detail}",
+                        f"URL: {url}" if url else "URL: <unknown>",
+                        "Status: Success",
+                    ]
+                )
+                if session.stats.get("profile_ui_notice") != message:
+                    print("[rheidos] Profiler UI server started")
+                    print(f"[rheidos] Owner: {owner}")
+                    print(f"[rheidos] Host: {host}")
+                    print(f"[rheidos] Port: {port_detail}")
+                    if url:
+                        print(f"[rheidos] URL: {url}")
+                    _maybe_show_ui_message("Rheidos Profiler", message)
+                    session.stats["profile_ui_notice"] = message
+            except Exception as exc:
+                try:
+                    session.summary_server.stop()
+                except Exception:
+                    pass
+                session.summary_server = None
+                session.stats.pop("profile_ui_url", None)
+                owner = "<unknown>"
+                try:
+                    owner = node.path()
+                except Exception:
+                    pass
+                message = "\n".join(
+                    [
+                        "Profiler UI server failed to start",
+                        f"Owner: {owner}",
+                        f"Host: {server_cfg.host}",
+                        f"Port: {server_cfg.port}",
+                        f"Error: {exc}",
+                        "Status: Failed",
+                    ]
+                )
+                if session.stats.get("profile_ui_notice_failed") != message:
+                    print("[rheidos] Failed to start profiler UI server")
+                    print(f"[rheidos] Owner: {owner}")
+                    print(f"[rheidos] Host: {server_cfg.host}")
+                    print(f"[rheidos] Port: {server_cfg.port}")
+                    print(f"[rheidos] Error: {exc}")
+                    _maybe_show_ui_message("Rheidos Profiler", message)
+                    session.stats["profile_ui_notice_failed"] = message
     else:
         if session.summary_writer is not None:
             session.summary_writer.stop()
@@ -422,7 +508,9 @@ def _warn_mode_mismatch(node: "hou.Node", mode: str, expected: str) -> None:
     print(message)
 
 
-def _start_timings(session: WorldSession, enabled: bool) -> Optional[list[dict[str, Any]]]:
+def _start_timings(
+    session: WorldSession, enabled: bool
+) -> Optional[list[dict[str, Any]]]:
     if not enabled:
         session.stats.pop("timings", None)
         return None
@@ -526,7 +614,9 @@ def run_cook(
                 input_geos[0] = geo_in
         elif geo_in is not None:
             input_geos = [geo_in]
-        ctx = build_cook_context(node, input_geo, geo_out, session, geo_inputs=input_geos)
+        ctx = build_cook_context(
+            node, input_geo, geo_out, session, geo_inputs=input_geos
+        )
 
         _debug(config.debug_log, f"[cook] node={node.path()} module={module.__name__}")
         with session.profiler.span("run_cook", cat="houdini"):
@@ -625,7 +715,9 @@ def run_solver(
             is_solver=True,
         )
 
-        _debug(config.debug_log, f"[solver] node={node.path()} module={module.__name__}")
+        _debug(
+            config.debug_log, f"[solver] node={node.path()} module={module.__name__}"
+        )
         with session.profiler.span("run_solver", cat="houdini"):
             with session.profiler.span("solver_total", cat="cook"):
                 if probe is not None:

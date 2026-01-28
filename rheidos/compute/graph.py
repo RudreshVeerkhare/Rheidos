@@ -30,12 +30,16 @@ def _producer_label(producer: ProducerBase) -> str:
 
 
 def _module_label(key: ModuleKey) -> str:
-    scope, module_cls = key
+    scope, module_cls, args_key = key
     module_name = getattr(module_cls, "NAME", module_cls.__name__)
     prefix = f"{scope}.{module_name}" if scope else module_name
+    args, kwargs = args_key
+    parts = [repr(a) for a in args]
+    parts.extend(f"{k}={repr(v)}" for k, v in kwargs)
+    suffix = f"({', '.join(parts)})" if parts else ""
     if module_name != module_cls.__name__:
-        return f"{prefix} ({module_cls.__name__})"
-    return prefix
+        return f"{prefix}{suffix} ({module_cls.__name__})"
+    return f"{prefix}{suffix}"
 
 
 def _resource_list(reg: Registry, *, sort: bool) -> List[Resource]:
@@ -50,7 +54,7 @@ def _dot_escape(value: str) -> str:
 
 
 def _dot_node_id(prefix: str, value: str) -> str:
-    return f'{prefix}{_dot_escape(value)}'
+    return f"{prefix}{_dot_escape(value)}"
 
 
 def _dot_node(
@@ -70,13 +74,13 @@ def _format_resources(reg: Registry, *, sort: bool) -> List[str]:
     lines: List[str] = []
     for res in resources:
         producer = _producer_label(res.producer) if res.producer else "None"
-        lines.append(
-            f"- {res.name} | producer={producer} | deps={_fmt_list(res.deps)}"
-        )
+        lines.append(f"- {res.name} | producer={producer} | deps={_fmt_list(res.deps)}")
     return lines
 
 
-def _collect_producer_outputs(resources: Sequence[Resource]) -> Dict[ProducerBase, List[str]]:
+def _collect_producer_outputs(
+    resources: Sequence[Resource],
+) -> Dict[ProducerBase, List[str]]:
     outputs: Dict[ProducerBase, List[str]] = {}
     for res in resources:
         if res.producer is None:
@@ -197,7 +201,7 @@ def format_dependency_graph_dot(
     if include_modules:
         module_deps = world.module_dependencies()
         if module_deps:
-            lines.append('  subgraph cluster_modules {')
+            lines.append("  subgraph cluster_modules {")
             lines.append('    label="Modules";')
             lines.append('    color="lightgray";')
             module_keys = list(module_deps.keys())
@@ -207,7 +211,7 @@ def format_dependency_graph_dot(
                 label = _module_label(key)
                 node_id = _dot_node_id("mod::", label)
                 lines.append(
-                    '    '
+                    "    "
                     + _dot_node(
                         node_id,
                         label=label,

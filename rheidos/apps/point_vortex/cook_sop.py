@@ -52,7 +52,9 @@ def _taichi_initialized() -> bool:
 def _kernel_profiler_enabled(session) -> bool:
     profiler = getattr(session, "profiler", None)
     cfg = getattr(profiler, "cfg", None)
-    return bool(getattr(cfg, "enabled", False) and getattr(cfg, "taichi_enabled", False))
+    return bool(
+        getattr(cfg, "enabled", False) and getattr(cfg, "taichi_enabled", False)
+    )
 
 
 def _ensure_taichi_init(session) -> None:

@@ -1,9 +1,3 @@
-from .graph import (
-    export_dependency_graph_dot,
-    format_dependency_graph,
-    format_dependency_graph_dot,
-    print_dependency_graph,
-)
 from .registry import ProducerBase, Registry
 from .resource import Resource, ResourceKey, ResourceKind, ResourceRef, ResourceSpec
 from .resource_kinds import ResourceKindAdapter, register_resource_kind
@@ -24,9 +18,7 @@ def shape_of(ref: ResourceRef[Any]) -> ShapeFn:
     return fn
 
 
-def shape_from_scalar(
-    ref: ResourceRef[Any], *, tail: Tuple[int, ...] = ()
-) -> ShapeFn:
+def shape_from_scalar(ref: ResourceRef[Any], *, tail: Tuple[int, ...] = ()) -> ShapeFn:
     def fn(reg: Registry) -> Optional[Shape]:
         buf = reg.read(ref.name, ensure=False)
         if buf is None:
@@ -43,9 +35,7 @@ def shape_from_scalar(
     return fn
 
 
-def shape_with_tail(
-    ref: ResourceRef[Any], *, tail: Tuple[int, ...] = ()
-) -> ShapeFn:
+def shape_with_tail(ref: ResourceRef[Any], *, tail: Tuple[int, ...] = ()) -> ShapeFn:
     def fn(reg: Registry) -> Optional[Shape]:
         buf = reg.read(ref.name, ensure=False)
         if buf is None or not hasattr(buf, "shape"):
@@ -57,13 +47,9 @@ def shape_with_tail(
 
 __all__ = [
     "FieldLike",
-    "export_dependency_graph_dot",
-    "format_dependency_graph",
-    "format_dependency_graph_dot",
     "ModuleBase",
     "Namespace",
     "module_resource_deps",
-    "print_dependency_graph",
     "ProducerBase",
     "Registry",
     "Resource",

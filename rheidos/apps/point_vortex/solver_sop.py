@@ -39,6 +39,7 @@ from rheidos.houdini.geo import OWNER_POINT, OWNER_PRIM
 from rheidos.apps.point_vortex.modules.surface_mesh import SurfaceMeshModule
 from rheidos.apps.point_vortex.modules.point_vortex import PointVortexModule
 from rheidos.apps.point_vortex.modules.hamiltonian import HamiltonianModule
+from rheidos.apps.point_vortex.modules.bary_advection import BaryAdvectionModule
 
 from rheidos.apps.point_vortex.modules.edge_simple_rk4_advection import (
     EdgeSimpleRK4AdvectionModule,
@@ -200,8 +201,14 @@ def step(ctx: CookContext) -> None:
     with prof.span("compute_advect", cat="solver"):
         # Advection
         dt = 0.01  # use `ctx.dt` for real-time
-        rk4_intergrator = world.require(RK4AdvectionModule)
-        rk4_intergrator.advect(dt)
+        # rk4_intergrator = world.require(RK4AdvectionModule)
+        # rk4_intergrator.advect(dt)
+
+        bary_advection = world.require(BaryAdvectionModule)
+        bary_advection.dt.set(0.01)
+        bary_out = bary_advection.bary_out.get()
+        point_vortices.bary.get().copy_from(bary_out)
+        point_vortices.bary.bump()
 
     with prof.span("io_read_outputs", cat="solver"):
         nVortices = len(scatter_points)
@@ -223,6 +230,15 @@ def step(ctx: CookContext) -> None:
     tb = getattr(ctx.session, "tb", None)
     if tb is not None and h_value is not None:
         tb.add_scalar("hamiltonian", h_value, tb.next_step())
+        if new_barys.size > 0:
+            step = tb.next_step()
+            tb.add_scalar("bary/min", float(new_barys.min()), step)
+            tb.add_scalar("bary/max", float(new_barys.max()), step)
+            tb.add_scalar("bary/mean", float(new_barys.mean()), step)
+            bary_sum = new_barys.sum(axis=1)
+            tb.add_scalar("bary/sum_min", float(bary_sum.min()), step)
+            tb.add_scalar("bary/sum_max", float(bary_sum.max()), step)
+            tb.add_scalar("bary/sum_mean", float(bary_sum.mean()), step)
 
     # # Write new positions to sim state
     # point_vortices.set_bary(new_bary)

@@ -2,6 +2,7 @@ from rheidos.compute import (
     ModuleBase,
     ResourceSpec,
     World,
+    shape_from_scalar,
 )
 
 from ..surface_mesh import SurfaceMeshModule
@@ -43,10 +44,12 @@ class PointVortexModule(ModuleBase):
         self.gammas = self.resource(
             "gammas",
             spec=ResourceSpec(
-                kind="taichi_field", dtype=ti.f32, shape=(100,), allow_none=False
+                kind="taichi_field",
+                dtype=ti.f32,
+                shape_fn=shape_from_scalar(self.n_vortices),
+                allow_none=True,
             ),
-            doc="Strengths of point vortices. Max capacity 100 elements.",
-            buffer=ti.field(dtype=ti.f32, shape=(100,)),
+            doc="Strengths of point vortices. Dynamically allocated based on n_vortices.",
             declare=True,
         )
 
@@ -56,10 +59,9 @@ class PointVortexModule(ModuleBase):
             spec=ResourceSpec(
                 kind="taichi_field",
                 dtype=ti.i32,
-                shape=(100,),
-                allow_none=False,
+                shape_fn=shape_from_scalar(self.n_vortices),
+                allow_none=True,
             ),
-            buffer=ti.field(ti.i32, shape=(100,)),
             declare=True,
         )
 
@@ -68,12 +70,11 @@ class PointVortexModule(ModuleBase):
             spec=ResourceSpec(
                 kind="taichi_field",
                 dtype=ti.f32,
-                shape=(100,),
                 lanes=3,
-                allow_none=False,
+                shape_fn=shape_from_scalar(self.n_vortices),
+                allow_none=True,
             ),
-            doc="Barycentric coordinates of point vortex inside a face. Shape: (100, vec3f)",
-            buffer=ti.Vector.field(3, dtype=ti.f32, shape=(100,)),
+            doc="Barycentric coordinates of point vortex inside a face. Dynamically allocated based on n_vortices.",
             declare=True,
         )
 
@@ -86,14 +87,11 @@ class PointVortexModule(ModuleBase):
             spec=ResourceSpec(
                 kind="taichi_field",
                 dtype=ti.f32,
-                shape=(100,),
                 lanes=3,
-                allow_none=False,
+                shape_fn=shape_from_scalar(self.n_vortices),
+                allow_none=True,
             ),
-            doc="3D world coordinates of points",
-            # buffer=ti.Vector.field(
-            #     3, dtype=ti.f32, shape=(100,)
-            # ),  # TODO: BUGFIX: Setting buffer here get's overridden by the declare function
+            doc="3D world coordinates of points. Dynamically allocated based on n_vortices.",
             declare=False,
         )
 
@@ -115,7 +113,6 @@ class PointVortexModule(ModuleBase):
                 self.face_ids,
                 self.bary,
             ),
-            buffer=ti.Vector.field(3, dtype=ti.f32, shape=(100,)),
             producer=vortex_world_pos_producer,
         )
 
@@ -137,9 +134,6 @@ class PointVortexModule(ModuleBase):
         count = int(count)
         if count < 0:
             raise ValueError(f"n_vortices must be >= 0, got {count}")
-        capacity = int(self.face_ids.get().shape[0])
-        if count > capacity:
-            raise ValueError(f"n_vortices ({count}) exceeds capacity ({capacity})")
 
         field = self.n_vortices.peek()
         if field is None:
@@ -165,16 +159,13 @@ class PointVortexModule(ModuleBase):
         if face_ids_np.ndim != 1:
             raise ValueError(f"face_ids expected shape (N,), got {face_ids_np.shape}")
 
-        field = self.face_ids.get()
-        capacity = int(field.shape[0])
-        if face_ids_np.shape[0] > capacity:
-            raise ValueError(
-                f"face_ids length {face_ids_np.shape[0]} exceeds capacity {capacity}"
-            )
-        if face_ids_np.shape[0] != capacity:
-            padded = np.zeros((capacity,), dtype=np.int32)
-            padded[: face_ids_np.shape[0]] = face_ids_np
-            face_ids_np = padded
+        field = self.face_ids.peek()
+        target_size = int(face_ids_np.shape[0])
+
+        # Resize buffer if needed
+        if field is None or tuple(field.shape) != (target_size,):
+            field = ti.field(ti.i32, shape=(target_size,))
+            self.face_ids.set_buffer(field, bump=False)
 
         field.from_numpy(face_ids_np)
         self.face_ids.bump()
@@ -184,16 +175,13 @@ class PointVortexModule(ModuleBase):
         if bary_np.ndim != 2 or bary_np.shape[1] != 3:
             raise ValueError(f"bary expected shape (N, 3), got {bary_np.shape}")
 
-        field = self.bary.get()
-        capacity = int(field.shape[0])
-        if bary_np.shape[0] > capacity:
-            raise ValueError(
-                f"bary length {bary_np.shape[0]} exceeds capacity {capacity}"
-            )
-        if bary_np.shape[0] != capacity:
-            padded = np.zeros((capacity, 3), dtype=np.float32)
-            padded[: bary_np.shape[0]] = bary_np
-            bary_np = padded
+        field = self.bary.peek()
+        target_size = int(bary_np.shape[0])
+
+        # Resize buffer if needed
+        if field is None or tuple(field.shape) != (target_size,):
+            field = ti.Vector.field(3, dtype=ti.f32, shape=(target_size,))
+            self.bary.set_buffer(field, bump=False)
 
         field.from_numpy(bary_np)
         self.bary.bump()
@@ -203,16 +191,13 @@ class PointVortexModule(ModuleBase):
         if gammas_np.ndim != 1:
             raise ValueError(f"gammas expected shape (N,), got {gammas_np.shape}")
 
-        field = self.gammas.get()
-        capacity = int(field.shape[0])
-        if gammas_np.shape[0] > capacity:
-            raise ValueError(
-                f"gammas length {gammas_np.shape[0]} exceeds capacity {capacity}"
-            )
-        if gammas_np.shape[0] != capacity:
-            padded = np.zeros((capacity,), dtype=np.float32)
-            padded[: gammas_np.shape[0]] = gammas_np
-            gammas_np = padded
+        field = self.gammas.peek()
+        target_size = int(gammas_np.shape[0])
+
+        # Resize buffer if needed
+        if field is None or tuple(field.shape) != (target_size,):
+            field = ti.field(dtype=ti.f32, shape=(target_size,))
+            self.gammas.set_buffer(field, bump=False)
 
         field.from_numpy(gammas_np)
         self.gammas.bump()
