@@ -19,11 +19,14 @@ import taichi as ti
 from dataclasses import dataclass
 from typing import Any, Callable
 
+from taichi.math import dot, cross, length, normalize, pi
+
 
 @dataclass
 class BaryAdvectionRK4ProducerIO:
     dt: ResourceRef[float]
     bary: ResourceRef[ti.Field]
+    vortex_gammas: ResourceRef[ti.Field]
     psi: ResourceRef[ti.Field]
     faceids: ResourceRef[ti.Field]
     F_verts: ResourceRef[ti.Field]
@@ -87,9 +90,13 @@ class BaryAdvectionRK4Producer(WiredProducer[BaryAdvectionRK4ProducerIO]):
     @ti.kernel
     def _bary_dot(
         self,
+        bary: ti.template(),
+        vortex_gammas: ti.template(),
         faceids: ti.template(),
         face_areas: ti.template(),
         f_verts: ti.template(),
+        v_pos: ti.template(),
+        f_normals: ti.template(),
         psi: ti.template(),
         bary_dot: ti.template(),
     ):
@@ -108,6 +115,50 @@ class BaryAdvectionRK4Producer(WiredProducer[BaryAdvectionRK4ProducerIO]):
             bary_dot[vid][0] = (p3 - p2) / (2 * A)
             bary_dot[vid][1] = (p1 - p3) / (2 * A)
             bary_dot[vid][2] = (p2 - p1) / (2 * A)
+
+            # remove the self term
+
+            # $$\vec{\alpha} = \sum_{i=0}^2 \lambda_i \hat{x}_i, \quad \hat{x}_i = (p - p_i)/||p - p_i||$$
+
+            x1 = v_pos[v1]
+            x2 = v_pos[v2]
+            x3 = v_pos[v3]
+
+            p = x1 * bary[vid][0] + x2 * bary[vid][1] + x3 * bary[vid][2]
+
+            x1_hat = ti.math.normalize(p - x1)
+            d1 = length(p - x1)
+            x2_hat = ti.math.normalize(p - x2)
+            d2 = length(p - x2)
+            x3_hat = ti.math.normalize(p - x3)
+            d3 = length(p - x3)
+
+            alpha = (
+                bary[vid][0] * x1_hat / d1
+                + bary[vid][1] * x2_hat / d2
+                + bary[vid][2] * x3_hat / d3
+            )
+
+            n_hat = f_normals[faceid]
+            e12 = x2 - x1
+            e23 = x3 - x2
+            e31 = x1 - x3
+
+            bary_dot[vid][0] -= (
+                vortex_gammas[vid]
+                * dot(n_hat, cross(alpha, cross(n_hat, e23)))
+                / (4 * pi * A)
+            )
+            bary_dot[vid][1] -= (
+                vortex_gammas[vid]
+                * dot(n_hat, cross(alpha, cross(n_hat, e31)))
+                / (4 * pi * A)
+            )
+            bary_dot[vid][2] -= (
+                vortex_gammas[vid]
+                * dot(n_hat, cross(alpha, cross(n_hat, e12)))
+                / (4 * pi * A)
+            )
 
     # RK4 wants a function of type => dy/dt = F(x, t)
 
@@ -251,6 +302,7 @@ class BaryAdvectionRK4Producer(WiredProducer[BaryAdvectionRK4ProducerIO]):
         outputs = self.ensure_outputs(reg)
 
         bary = inputs["bary"].get()
+        vortex_gammas = inputs["vortex_gammas"].get()
         dt = inputs["dt"].get()
         faceids = inputs["faceids"].get()
         F_verts = inputs["F_verts"].get()
@@ -272,28 +324,68 @@ class BaryAdvectionRK4Producer(WiredProducer[BaryAdvectionRK4ProducerIO]):
 
         # step 1
         psi = inputs["psi"].get()  # refresh psi
-        self._bary_dot(faceids, F_area, F_verts, psi, k1)
+        self._bary_dot(
+            bary,
+            vortex_gammas,
+            faceids,
+            F_area,
+            F_verts,
+            V_pos,
+            F_normals,
+            psi,
+            k1,
+        )
 
         # step 2
         self._step_y(bary_out, bary, dt / 2, k1)
         # self._project_sum1(bary_out)
         inputs["bary"].bump()
         psi = inputs["psi"].get()
-        self._bary_dot(faceids, F_area, F_verts, psi, k2)
+        self._bary_dot(
+            bary,
+            vortex_gammas,
+            faceids,
+            F_area,
+            F_verts,
+            V_pos,
+            F_normals,
+            psi,
+            k2,
+        )
 
         # step 3
         self._step_y(bary_out, bary, dt / 2, k2)
         # self._project_sum1(bary_out)
         inputs["bary"].bump()
         psi = inputs["psi"].get()
-        self._bary_dot(faceids, F_area, F_verts, psi, k3)
+        self._bary_dot(
+            bary,
+            vortex_gammas,
+            faceids,
+            F_area,
+            F_verts,
+            V_pos,
+            F_normals,
+            psi,
+            k3,
+        )
 
         # step 4
         self._step_y(bary_out, bary, dt, k3)
         # self._project_sum1(bary_out)
         inputs["bary"].bump()
         psi = inputs["psi"].get()
-        self._bary_dot(faceids, F_area, F_verts, psi, k4)
+        self._bary_dot(
+            bary,
+            vortex_gammas,
+            faceids,
+            F_area,
+            F_verts,
+            V_pos,
+            F_normals,
+            psi,
+            k4,
+        )
 
         # final step
         self._final_step(bary_out, dt, k1, k2, k3, k4)
@@ -419,6 +511,7 @@ class BaryAdvectionModule(ModuleBase):
         producer = BaryAdvectionRK4Producer(
             dt=self.dt,
             bary=self.pt_vortex.bary,
+            vortex_gammas=self.pt_vortex.gammas,
             faceids=self.pt_vortex.face_ids,
             F_verts=self.mesh.F_verts,
             F_area=self.mesh.F_area,
@@ -435,5 +528,7 @@ class BaryAdvectionModule(ModuleBase):
         )
 
         self.declare_resource(
-            self.bary_out, deps=(self.stream_func.psi,), producer=producer
+            self.bary_out,
+            deps=(self.stream_func.psi, self.pt_vortex.gammas),
+            producer=producer,
         )
