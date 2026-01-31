@@ -32,6 +32,8 @@ from rheidos.apps.point_vortex.app import cook  # <-- your app's cook(ctx)
 
 import taichi as ti
 
+from rheidos.houdini.runtime.taichi_runtime import taichi_init
+
 
 def _taichi_initialized() -> bool:
     checker = getattr(ti, "is_initialized", None)
@@ -63,7 +65,7 @@ def _ensure_taichi_init(session) -> None:
     if _taichi_initialized():
         session.stats["taichi_initialized"] = True
         return
-    ti.init(kernel_profiler=_kernel_profiler_enabled(session))
+    taichi_init({"kernel_profiler": _kernel_profiler_enabled(session)})
     session.stats["taichi_initialized"] = True
 
 

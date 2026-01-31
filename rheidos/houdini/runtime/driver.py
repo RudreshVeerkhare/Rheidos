@@ -24,6 +24,7 @@ from .cook_context import CookContext, build_cook_context
 from .publish import publish_geometry_minimal
 from .resource_keys import SIM_DT, SIM_FRAME, SIM_SUBSTEP, SIM_TIME
 from .session import WorldSession, get_runtime
+from .dev_state import reset_guard
 from .user_script import resolve_user_module
 from rheidos.compute.profiler.core import ProfilerConfig
 from rheidos.compute.profiler.runtime import (
@@ -570,6 +571,7 @@ def _maybe_debug(node: "hou.Node") -> None:
         return
 
 
+@reset_guard("cook")
 def run_cook(
     node: "hou.Node",
     geo_in: Optional["hou.Geometry"],
@@ -652,6 +654,7 @@ def run_cook(
             session.profiler.set_taichi_sample(False)
 
 
+@reset_guard("solver")
 def run_solver(
     node: "hou.Node",
     geo_prev: Optional["hou.Geometry"],

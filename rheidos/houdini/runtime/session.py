@@ -26,10 +26,22 @@ __all__ = [
     "SessionAccess",
     "SessionKey",
     "WorldSession",
+    "get_sim_context",
     "get_runtime",
     "make_session_key",
     "make_session_key_for_path",
+    "set_sim_context",
 ]
+
+_SIM_ATTR = "RHEIDOS_SIM"
+
+
+def _get_hou():
+    try:
+        import hou  # type: ignore
+    except Exception:
+        return None
+    return hou
 
 
 @dataclass(frozen=True)
@@ -261,15 +273,47 @@ class ComputeRuntime:
         if session is not None:
             session.reset(reason)
 
-    def nuke_all(self, reason: str) -> None:
+    def nuke_all(self, reason: str, *, reset_taichi: bool = True) -> None:
         for session in self.sessions.values():
             session.reset(reason)
         self.sessions.clear()
-        reset_taichi_hard()
+        if reset_taichi:
+            reset_taichi_hard()
 
 
 _RUNTIME = ComputeRuntime()
 
 
-def get_runtime() -> ComputeRuntime:
+def get_sim_context(*, create: bool = False) -> Optional[Any]:
+    hou = _get_hou()
+    if hou is None:
+        return None
+    sim = getattr(hou.session, _SIM_ATTR, None)
+    if sim is None and create:
+        from .sim_context import SimContext
+
+        sim = SimContext()
+        setattr(hou.session, _SIM_ATTR, sim)
+    return sim
+
+
+def set_sim_context(sim: Optional[Any]) -> None:
+    hou = _get_hou()
+    if hou is None:
+        return
+    setattr(hou.session, _SIM_ATTR, sim)
+
+
+def get_runtime(*, create: bool = True) -> ComputeRuntime:
+    sim = get_sim_context(create=create)
+    if sim is not None:
+        runtime = getattr(sim, "runtime", None)
+        if runtime is None and create:
+            runtime = ComputeRuntime()
+            try:
+                setattr(sim, "runtime", runtime)
+            except Exception:
+                pass
+        if runtime is not None:
+            return runtime
     return _RUNTIME

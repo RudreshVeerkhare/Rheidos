@@ -91,7 +91,7 @@ class VelocityFieldModule(ModuleBase):
         )
 
         per_vert_vel_producer = PerVertexVelProducer(
-            V_incident=self.mesh.V_incident,
+            V_incident_count=self.mesh.V_incident_count,
             F_verts=self.mesh.F_verts,
             F_velocity=self.F_velocity,
             V_velocity=self.V_velocity,

@@ -8,7 +8,7 @@ from rheidos.compute import ResourceRef, WiredProducer, out_field, Registry
 
 @dataclass
 class PerVertexVelProducerIO:
-    V_incident: ResourceRef[ti.Field]  # (nV, i32)
+    V_incident_count: ResourceRef[ti.Field]  # (nV, i32)
     F_verts: ResourceRef[ti.Field]  # (nF, vec3i)
     F_velocity: ResourceRef[ti.Field]  # (nF, vec3f)
 
@@ -20,7 +20,7 @@ class PerVertexVelProducer(WiredProducer[PerVertexVelProducerIO]):
     @ti.kernel
     def _split_velocity_per_vertex(
         self,
-        V_incident: ti.template(),
+        V_incident_count: ti.template(),
         F_verts: ti.template(),
         F_velocity: ti.template(),
         V_velocity: ti.template(),
@@ -42,19 +42,19 @@ class PerVertexVelProducer(WiredProducer[PerVertexVelProducerIO]):
             ti.atomic_add(V_velocity[v3], face_vel)
 
         # Calculate average
-        for vid in V_incident:
-            v_count = V_incident[vid]
+        for vid in V_incident_count:
+            v_count = V_incident_count[vid]
             V_velocity[vid] = V_velocity[vid] / (ti.f32(v_count))
 
     def compute(self, reg: Registry) -> None:
         io = self.io
         inputs = self.require_inputs()
-        V_incident = inputs["V_incident"].get()
+        V_incident_count = inputs["V_incident_count"].get()
         F_verts = inputs["F_verts"].get()
         F_velocity = inputs["F_velocity"].get()
 
         V_vel = self.ensure_outputs(reg)["V_velocity"].peek()
 
-        self._split_velocity_per_vertex(V_incident, F_verts, F_velocity, V_vel)
+        self._split_velocity_per_vertex(V_incident_count, F_verts, F_velocity, V_vel)
 
         io.V_velocity.commit()

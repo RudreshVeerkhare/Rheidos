@@ -53,6 +53,8 @@ from rheidos.apps.point_vortex.modules.stream_func import StreamFunctionModule
 
 
 import taichi as ti
+
+from rheidos.houdini.runtime.taichi_runtime import taichi_init
 import numpy as np
 from time import perf_counter_ns
 from rheidos.compute.profiler.core import profiled
@@ -340,7 +342,9 @@ def _ensure_taichi_init(session) -> None:
     if _taichi_initialized():
         session.stats["taichi_initialized"] = True
         return
-    ti.init(arch=ti.metal, kernel_profiler=_kernel_profiler_enabled(session))
+    taichi_init(
+        {"arch": ti.metal, "kernel_profiler": _kernel_profiler_enabled(session)}
+    )
     session.stats["taichi_initialized"] = True
 
 

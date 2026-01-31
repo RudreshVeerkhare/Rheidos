@@ -88,6 +88,20 @@ Caveats:
 - Type aliases or indirection can hide the generic argument from `__orig_bases__`.
 - If inference fails, kwargs wiring raises a clear error asking for `IO_TYPE`.
 
+## Post-wiring setup hook
+
+`WiredProducer.setup()` is a no-op hook called at the end of `__init__`, after
+`self.io`, `self.inputs`, and `self.outputs` are wired. Override it to perform
+lightweight initialization that needs access to wired refs.
+
+Example:
+
+```python
+class AddProducer(WiredProducer[AddIO]):
+    def setup(self) -> None:
+        self.has_a = self.io.a.peek() is not None
+```
+
 ## Input validation with require_inputs
 
 `require_inputs` performs common input checks and returns a dict of ResourceRef objects:

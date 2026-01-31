@@ -93,6 +93,11 @@ class WiredProducer(ProducerBase, Generic[IO]):
                 ins.append(ref.name)
         self.inputs = tuple(ins)
         self.outputs = tuple(outs)
+        self.setup()
+
+    def setup(self) -> None:
+        """Hook for post-wiring initialization."""
+        pass
 
     def _iter_io_fields(self, *, kind: str) -> Iterable[Tuple[Any, Any]]:
         for f in fields(self.io):

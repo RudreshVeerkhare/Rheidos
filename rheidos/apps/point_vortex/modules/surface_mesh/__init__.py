@@ -118,8 +118,8 @@ class SurfaceMeshModule(ModuleBase):
             ),
         )
 
-        self.V_incident = self.resource(
-            "V_incident",
+        self.V_incident_count = self.resource(
+            "V_incident_count",
             spec=ResourceSpec(
                 kind="taichi_field",
                 dtype=ti.i32,
@@ -127,6 +127,15 @@ class SurfaceMeshModule(ModuleBase):
                 shape_fn=shape_of(self.V_pos),
             ),
             doc="Count of faces a vertex is incident on. Shape: (nV, i32)",
+        )
+
+        self.V_incident = self.resource(
+            "V_incident",
+            spec=ResourceSpec(kind="python", dtype=dict, allow_none=True),
+            doc=(
+                "Python dict mapping vertex id to incident face ids. "
+                "Keys: vertex id, values: list of face ids."
+            ),
         )
 
         topology_producer = TopologyProducer(
@@ -139,6 +148,7 @@ class SurfaceMeshModule(ModuleBase):
             F_edges=self.F_edges,
             F_edge_sign=self.F_edge_sign,
             F_adj=self.F_adj,
+            V_incident_count=self.V_incident_count,
             V_incident=self.V_incident,
         )
         deps = (self.F_verts, self.V_pos)
@@ -150,6 +160,9 @@ class SurfaceMeshModule(ModuleBase):
         self.declare_resource(self.F_edges, deps=deps, producer=topology_producer)
         self.declare_resource(self.F_edge_sign, deps=deps, producer=topology_producer)
         self.declare_resource(self.F_adj, deps=deps, producer=topology_producer)
+        self.declare_resource(
+            self.V_incident_count, deps=deps, producer=topology_producer
+        )
         self.declare_resource(self.V_incident, deps=deps, producer=topology_producer)
 
         # Geometry/Metric dependant resources

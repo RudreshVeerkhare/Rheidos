@@ -89,6 +89,7 @@ Exports from `rheidos.compute`:
 - `IO_TYPE: Optional[type]` for kwargs wiring (auto-inferred for direct generic subclasses).
 - `inputs: Tuple[ResourceName, ...]`
 - `outputs: Tuple[ResourceName, ...]`
+- `setup() -> None` (post-wiring hook called at end of init)
 - `input_refs() -> Dict[str, ResourceRef[Any]]`
 - `output_refs() -> Dict[str, ResourceRef[Any]]`
 - `require_inputs(*, allow_none=(), ensure=True, ignore=()) -> Dict[str, Any]`

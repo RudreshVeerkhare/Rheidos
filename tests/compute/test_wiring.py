@@ -99,6 +99,30 @@ class TestWiredProducerInit:
         producer = SimpleProducer(out=out_ref)
         assert isinstance(producer.io, SimpleIO)
 
+    def test_setup_called_after_wiring(self):
+        """setup hook runs after io/inputs/outputs are wired."""
+
+        @dataclass
+        class SimpleIO:
+            input: ResourceRef
+            output: ResourceRef = out_field()
+
+        class SimpleProducer(WiredProducer[SimpleIO]):
+            def setup(self):
+                self.setup_called = True
+                assert isinstance(self.io, SimpleIO)
+                assert "input" in self.inputs
+                assert "output" in self.outputs
+
+            def compute(self, reg):
+                pass
+
+        registry = Registry()
+        in_ref = ResourceRef(registry, ResourceKey("input"))
+        out_ref = ResourceRef(registry, ResourceKey("output"))
+        producer = SimpleProducer(input=in_ref, output=out_ref)
+        assert getattr(producer, "setup_called", False)
+
     def test_init_non_dataclass_raises(self):
         """Non-dataclass IO raises TypeError."""
 

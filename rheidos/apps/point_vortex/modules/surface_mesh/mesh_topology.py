@@ -1,8 +1,12 @@
 from rheidos.compute import WiredProducer, ResourceRef, Registry, out_field
-from typing import Dict, List, Tuple
+from typing import Dict, List, Set, Tuple
 from dataclasses import dataclass
 import taichi as ti
 import numpy as np
+
+
+def _alloc_v_incident(reg: Registry, io: object) -> Dict[int, List[int]]:
+    return {}
 
 
 @dataclass
@@ -30,9 +34,12 @@ class TopologyProducerIO:
     F_adj: ResourceRef[ti.Field] = (
         out_field()
     )  # (nF, vec3i) per-face adjacency across the edge opposite each vertex
-    V_incident: ResourceRef[ti.Field] = (
+    V_incident_count: ResourceRef[ti.Field] = (
         out_field()
     )  # (nV, i32) Count of faces a vertex is incident on.
+    V_incident: ResourceRef[Dict[int, List[int]]] = out_field(
+        alloc=_alloc_v_incident
+    )  # dict: vertex id -> unique incident face ids
 
 
 @ti.data_oriented
@@ -162,13 +169,34 @@ class TopologyProducer(WiredProducer[TopologyProducerIO]):
             F_adj_np[f, 2] = nf2 if nf2 != -1 else -1
 
         # --------------------
-        # Pass 4 (NEW): V_incident from faces, sized by V_pos
+        # Pass 4 (NEW): V_incident_count from faces, sized by V_pos
         # --------------------
         if nV == 0:
-            V_incident_np = np.zeros((0,), dtype=np.int32)
+            V_incident_count_np = np.zeros((0,), dtype=np.int32)
         else:
             flat = F_np.reshape(-1) if nF > 0 else np.zeros((0,), dtype=np.int32)
-            V_incident_np = np.bincount(flat, minlength=nV).astype(np.int32)  # (nV,)
+            V_incident_count_np = np.bincount(flat, minlength=nV).astype(
+                np.int32
+            )  # (nV,)
+
+        # --------------------
+        # Pass 5 (NEW): V_incident dict (unique face ids per vertex)
+        # --------------------
+        if nV == 0:
+            V_incident_dict: Dict[int, List[int]] = {}
+        else:
+            V_incident_dict = {v: [] for v in range(nV)}
+            seen: Dict[int, Set[int]] = {}
+            for f in range(nF):
+                a, b, c = int(F_np[f, 0]), int(F_np[f, 1]), int(F_np[f, 2])
+                for v in (a, b, c):
+                    s = seen.get(v)
+                    if s is None:
+                        seen[v] = {f}
+                        V_incident_dict[v].append(f)
+                    elif f not in s:
+                        s.add(f)
+                        V_incident_dict[v].append(f)
 
         # --------------------
         # Allocate / reuse buffers
@@ -180,7 +208,8 @@ class TopologyProducer(WiredProducer[TopologyProducerIO]):
         FE = outputs["F_edges"].peek()
         FS = outputs["F_edge_sign"].peek()
         FA = outputs["F_adj"].peek()
-        VI = outputs["V_incident"].peek()
+        VI = outputs["V_incident_count"].peek()
+        VIC = outputs["V_incident"].peek()
 
         # --------------------
         # Fill
@@ -191,7 +220,12 @@ class TopologyProducer(WiredProducer[TopologyProducerIO]):
         FE.from_numpy(F_edges_np)
         FS.from_numpy(F_sign_np)
         FA.from_numpy(F_adj_np)
-        VI.from_numpy(V_incident_np)
+        VI.from_numpy(V_incident_count_np)
+        if isinstance(VIC, dict):
+            VIC.clear()
+            VIC.update(V_incident_dict)
+        else:
+            io.V_incident.set_buffer(V_incident_dict, bump=False)
 
         # --------------------
         # Commit
@@ -203,4 +237,5 @@ class TopologyProducer(WiredProducer[TopologyProducerIO]):
         io.F_edges.commit()
         io.F_edge_sign.commit()
         io.F_adj.commit()
+        io.V_incident_count.commit()
         io.V_incident.commit()

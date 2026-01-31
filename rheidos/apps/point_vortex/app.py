@@ -8,6 +8,8 @@ import numpy as np
 
 import taichi as ti
 
+from rheidos.houdini.runtime.taichi_runtime import taichi_init
+
 from rheidos.houdini.geo import OWNER_POINT, OWNER_PRIM
 from rheidos.houdini.runtime import GEO_P, GEO_TRIANGLES
 
@@ -47,7 +49,7 @@ def _ensure_taichi_init(session) -> None:
     if _taichi_initialized():
         session.stats["taichi_initialized"] = True
         return
-    ti.init(kernel_profiler=_kernel_profiler_enabled(session))
+    taichi_init({"kernel_profiler": _kernel_profiler_enabled(session)})
     session.stats["taichi_initialized"] = True
 
 
