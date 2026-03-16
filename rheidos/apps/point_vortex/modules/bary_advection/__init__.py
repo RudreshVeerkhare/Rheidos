@@ -4,22 +4,18 @@ from rheidos.compute import (
     ResourceSpec,
     ResourceRef,
     shape_of,
-    shape_from_scalar,
     WiredProducer,
     out_field,
 )
 from rheidos.compute.registry import Registry
 
-
 from ..point_vortex import PointVortexModule
 from ..stream_func import StreamFunctionModule
 from ..surface_mesh import SurfaceMeshModule
+from ..self_vel_basis import SelfVelBasisModule
 
 import taichi as ti
 from dataclasses import dataclass
-from typing import Any, Callable
-
-from taichi.math import dot, cross, length, normalize, pi
 
 
 @dataclass
@@ -34,9 +30,11 @@ class BaryAdvectionRK4ProducerIO:
     F_normals: ResourceRef[ti.Field]
     F_adj: ResourceRef[ti.Field]
     V_pos: ResourceRef[ti.Field]
+    self_vel_basis: ResourceRef[ti.Field]
+    query_face_id: ResourceRef[int]
 
+    # Outputs
     bary_out: ResourceRef[ti.Field] = out_field()
-    # face_ids_out: ResourceRef[ti.Field] = out_field()
     k1: ResourceRef[ti.Field] = out_field()
     k2: ResourceRef[ti.Field] = out_field()
     k3: ResourceRef[ti.Field] = out_field()
@@ -46,14 +44,14 @@ class BaryAdvectionRK4ProducerIO:
 @ti.data_oriented
 class BaryAdvectionRK4Producer(WiredProducer[BaryAdvectionRK4ProducerIO]):
 
+    IO_TYPE = BaryAdvectionRK4ProducerIO
+
+    # ---------------------------
+    # Small helpers
+    # ---------------------------
+
     @ti.func
-    def _barycentric(
-        self,
-        p,
-        a,
-        b,
-        c,
-    ):
+    def _barycentric(self, p, a, b, c):
         v0 = b - a
         v1 = c - a
         v2 = p - a
@@ -87,6 +85,46 @@ class BaryAdvectionRK4Producer(WiredProducer[BaryAdvectionRK4ProducerIO]):
             out = bc / s
         return out
 
+    @ti.func
+    def _safe_normalize(
+        self, v: ti.types.vector(3, ti.f32)
+    ) -> ti.types.vector(3, ti.f32):
+        n2 = v.dot(v)
+        out = ti.math.vec3(0.0, 0.0, 1.0)
+        if n2 > 1e-20:
+            out = v / ti.sqrt(n2)
+        return out
+
+    @ti.func
+    def _project_tangent(self, v, n_hat):
+        return v - (v.dot(n_hat)) * n_hat
+
+    @ti.func
+    def _bary_grads(
+        self,
+        a: ti.types.vector(3, ti.f32),
+        b: ti.types.vector(3, ti.f32),
+        c: ti.types.vector(3, ti.f32),
+        n_hat: ti.types.vector(3, ti.f32),
+        A: ti.f32,
+    ):
+        # Gradients of barycentric coordinates on a 3D triangle (tangent vectors)
+        inv2A = 1.0 / (2.0 * A + 1e-20)
+
+        # edge opposite vertex a is (b,c), etc.
+        e0 = c - b  # opposite a
+        e1 = a - c  # opposite b
+        e2 = b - a  # opposite c
+
+        g0 = ti.math.cross(n_hat, e0) * inv2A
+        g1 = ti.math.cross(n_hat, e1) * inv2A
+        g2 = ti.math.cross(n_hat, e2) * inv2A
+        return g0, g1, g2
+
+    # ---------------------------
+    # Compute d(bary)/dt (with self-velocity subtraction)
+    # ---------------------------
+
     @ti.kernel
     def _bary_dot(
         self,
@@ -98,71 +136,67 @@ class BaryAdvectionRK4Producer(WiredProducer[BaryAdvectionRK4ProducerIO]):
         v_pos: ti.template(),
         f_normals: ti.template(),
         psi: ti.template(),
+        self_vel_basis: ti.template(),  # (nF, 3) vec3 entries
         bary_dot: ti.template(),
     ):
         for vid in faceids:
             faceid = faceids[vid]
-            v1 = f_verts[faceid][0]
-            v2 = f_verts[faceid][1]
-            v3 = f_verts[faceid][2]
+            if faceid < 0:
+                continue
 
-            p1 = psi[v1]
-            p2 = psi[v2]
-            p3 = psi[v3]
+            i0 = f_verts[faceid][0]
+            i1 = f_verts[faceid][1]
+            i2 = f_verts[faceid][2]
+
+            p0 = psi[i0]
+            p1 = psi[i1]
+            p2 = psi[i2]
 
             A = face_areas[faceid]
+            inv2A = 1.0 / (2.0 * A + 1e-20)
 
-            bary_dot[vid][0] = (p3 - p2) / (2 * A)
-            bary_dot[vid][1] = (p1 - p3) / (2 * A)
-            bary_dot[vid][2] = (p2 - p1) / (2 * A)
+            # Base barycentric rates from psi (your original formula)
+            lamdot0 = (p2 - p1) * inv2A
+            lamdot1 = (p0 - p2) * inv2A
+            lamdot2 = (p1 - p0) * inv2A
 
-            # remove the self term
+            # --- self velocity subtraction ---
+            # Interpolate self-velocity using *clamped* bary weights (safer at RK stages)
+            bw = self._clamp_renorm_bary(bary[vid])
 
-            # $$\vec{\alpha} = \sum_{i=0}^2 \lambda_i \hat{x}_i, \quad \hat{x}_i = (p - p_i)/||p - p_i||$$
-
-            x1 = v_pos[v1]
-            x2 = v_pos[v2]
-            x3 = v_pos[v3]
-
-            p = x1 * bary[vid][0] + x2 * bary[vid][1] + x3 * bary[vid][2]
-
-            x1_hat = ti.math.normalize(p - x1)
-            d1 = length(p - x1)
-            x2_hat = ti.math.normalize(p - x2)
-            d2 = length(p - x2)
-            x3_hat = ti.math.normalize(p - x3)
-            d3 = length(p - x3)
-
-            alpha = (
-                bary[vid][0] * x1_hat / d1
-                + bary[vid][1] * x2_hat / d2
-                + bary[vid][2] * x3_hat / d3
+            u_self = (
+                bw[0] * self_vel_basis[faceid, 0]
+                + bw[1] * self_vel_basis[faceid, 1]
+                + bw[2] * self_vel_basis[faceid, 2]
             )
 
-            n_hat = f_normals[faceid]
-            e12 = x2 - x1
-            e23 = x3 - x2
-            e31 = x1 - x3
+            # If your basis is "per unit gamma", keep this.
+            # If your basis ALREADY includes gamma, delete the next line.
+            u_self *= vortex_gammas[vid]
 
-            bary_dot[vid][0] -= (
-                vortex_gammas[vid]
-                * dot(n_hat, cross(alpha, cross(n_hat, e23)))
-                / (4 * pi * A)
-            )
-            bary_dot[vid][1] -= (
-                vortex_gammas[vid]
-                * dot(n_hat, cross(alpha, cross(n_hat, e31)))
-                / (4 * pi * A)
-            )
-            bary_dot[vid][2] -= (
-                vortex_gammas[vid]
-                * dot(n_hat, cross(alpha, cross(n_hat, e12)))
-                / (4 * pi * A)
-            )
+            n_hat = self._safe_normalize(f_normals[faceid])
+            u_self = self._project_tangent(u_self, n_hat)
 
-    # RK4 wants a function of type => dy/dt = F(x, t)
+            x0 = v_pos[i0]
+            x1 = v_pos[i1]
+            x2 = v_pos[i2]
+            g0, g1, g2 = self._bary_grads(x0, x1, x2, n_hat, A)
 
-    # Buffers for k1, k2, k3, k4 and step function callback
+            lamdot0 -= u_self.dot(g0)
+            lamdot1 -= u_self.dot(g1)
+            lamdot2 -= u_self.dot(g2)
+
+            # Optional: kill tiny drift in sum-to-zero
+            m = (lamdot0 + lamdot1 + lamdot2) / 3.0
+            lamdot0 -= m
+            lamdot1 -= m
+            lamdot2 -= m
+
+            bary_dot[vid] = ti.math.vec3(lamdot0, lamdot1, lamdot2)
+
+    # ---------------------------
+    # RK4 plumbing
+    # ---------------------------
 
     @ti.kernel
     def _step_y(
@@ -176,12 +210,6 @@ class BaryAdvectionRK4Producer(WiredProducer[BaryAdvectionRK4ProducerIO]):
             bary_out[vid] = bary_in[vid] + scale * bary_dot[vid]
 
     @ti.kernel
-    def _project_sum1(self, bary: ti.template()):
-        for i in bary:
-            s = bary[i][0] + bary[i][1] + bary[i][2]
-            bary[i] = bary[i] / s
-
-    @ti.kernel
     def _final_step(
         self,
         bary: ti.template(),  # (nV, vec3f)
@@ -193,17 +221,12 @@ class BaryAdvectionRK4Producer(WiredProducer[BaryAdvectionRK4ProducerIO]):
     ):
         for vid in bary:
             bary[vid] = (
-                bary[vid] + dt * (k1[vid] + 2 * k2[vid] + 2 * k3[vid] + k4[vid]) / 6
+                bary[vid] + dt * (k1[vid] + 2 * k2[vid] + 2 * k3[vid] + k4[vid]) / 6.0
             )
 
-    @ti.func
-    def bary_cords(
-        self,
-        x1: ti.types.vector(3, dtype=ti.f32),
-        x2: ti.types.vector(3, dtype=ti.f32),
-        A: ti.f32,
-    ) -> ti.f32:
-        return ti.math.length(ti.math.cross(x1, x2)) / A
+    # ---------------------------
+    # Edge-walk face id update (your existing code)
+    # ---------------------------
 
     @ti.kernel
     def _update_face_ids(
@@ -212,16 +235,17 @@ class BaryAdvectionRK4Producer(WiredProducer[BaryAdvectionRK4ProducerIO]):
         faceids: ti.template(),  # (maxV,)
         F_verts: ti.template(),  # (nF, vec3i)
         F_normals: ti.template(),  # (nF, vec3f)
-        F_adj: ti.template(),  # (nF, vec3i) adjacency opposite each vertex index
+        F_adj: ti.template(),  # (nF, vec3i)
         V_pos: ti.template(),  # (nV, vec3f)
     ):
         for vid in barys:
             faceid = faceids[vid]
-            assert faceid >= 0, f"face doesn't exists: {faceid}"
+            if faceid < 0:
+                continue
 
             bary = barys[vid]
 
-            # Find most-negative bary component (edge crossed when min < 0)
+            # Find most-negative bary component
             min_idx = 0
             min_val = bary[0]
             if bary[1] < min_val:
@@ -234,14 +258,11 @@ class BaryAdvectionRK4Producer(WiredProducer[BaryAdvectionRK4ProducerIO]):
             if min_val >= 0.0:
                 continue
 
-            # Neighbor face across edge opposite min_idx
             opp_face_id = F_adj[faceid][min_idx]
             assert opp_face_id >= 0, f"Opposite face doesn't exists: {opp_face_id}"
 
-            # Vertices of current face
-            p_opp = F_verts[faceid][min_idx]  # vertex opposite the crossed edge
+            p_opp = F_verts[faceid][min_idx]
 
-            # Indices of the other two vertices (edge we crossed is (p1,p2))
             v1 = 1
             v2 = 2
             if min_idx == 1:
@@ -254,50 +275,60 @@ class BaryAdvectionRK4Producer(WiredProducer[BaryAdvectionRK4ProducerIO]):
             p1 = F_verts[faceid][v1]
             p2 = F_verts[faceid][v2]
 
-            # Current world-space point from (possibly slightly invalid) bary
+            # World-space point from current bary
             x = (
                 V_pos[p1] * bary[v1]
                 + V_pos[p2] * bary[v2]
                 + V_pos[p_opp] * bary[min_idx]
             )
 
-            # Rotate point around shared edge to bring it into the neighbor face plane
+            # Rotate around shared edge to neighbor face plane
             axis = V_pos[p2] - V_pos[p1]
             axis_len2 = axis.dot(axis)
             if axis_len2 > 1e-20:
                 axis = axis / ti.sqrt(axis_len2)
                 n0 = F_normals[faceid]
                 n1 = F_normals[opp_face_id]
-                n0_len = ti.sqrt(n0.dot(n0))
-                n1_len = ti.sqrt(n1.dot(n1))
-                if n0_len > 1e-20 and n1_len > 1e-20:
-                    n0 = n0 / n0_len
-                    n1 = n1 / n1_len
-                    s = axis.dot(ti.math.cross(n0, n1))
-                    c = n0.dot(n1)
-                    theta = ti.atan2(s, c)
+                n0 = self._safe_normalize(n0)
+                n1 = self._safe_normalize(n1)
 
-                    v = x - V_pos[p1]
-                    half = 0.5 * theta
-                    qv = axis * ti.sin(half)
-                    qw = ti.cos(half)
+                s = axis.dot(ti.math.cross(n0, n1))
+                c = n0.dot(n1)
+                theta = ti.atan2(s, c)
 
-                    t = 2.0 * ti.math.cross(qv, v)
-                    v_rot = v + qw * t + ti.math.cross(qv, t)
-                    x = V_pos[p1] + v_rot
+                v = x - V_pos[p1]
+                half = 0.5 * theta
+                qv = axis * ti.sin(half)
+                qw = ti.cos(half)
 
-            # Recompute barycentric coords on neighbor face using rotated world point
+                t = 2.0 * ti.math.cross(qv, v)
+                v_rot = v + qw * t + ti.math.cross(qv, t)
+                x = V_pos[p1] + v_rot
+
+            # Recompute bary on neighbor
             a = V_pos[F_verts[opp_face_id][0]]
             b = V_pos[F_verts[opp_face_id][1]]
             c = V_pos[F_verts[opp_face_id][2]]
-
             nbary = self._barycentric(x, a, b, c)
 
-            # Commit updates
             barys[vid] = nbary
             faceids[vid] = opp_face_id
 
+    # ---------------------------
+    # Main compute
+    # ---------------------------
+
     def compute(self, reg: Registry) -> None:
+        # ----------------------------------------------------
+        # IMPORTANT: set query_face_id BEFORE self_vel_basis.get()
+        # ----------------------------------------------------
+        faceids = self.io.faceids.get()
+        for fid in faceids.to_numpy():
+            self.io.query_face_id.set(fid)
+
+            # trigger vel basis calculation
+            self.io.self_vel_basis.get()
+
         inputs = self.require_inputs()
         outputs = self.ensure_outputs(reg)
 
@@ -317,13 +348,13 @@ class BaryAdvectionRK4Producer(WiredProducer[BaryAdvectionRK4ProducerIO]):
         k3 = outputs["k3"].peek()
         k4 = outputs["k4"].peek()
 
-        bary_out.copy_from(
-            bary
-        )  # for first 4 steps use bary_out as cache for bary_start
-        # cause we need to update the bary_in to retrigger the poisson solve
+        # Cache start state
+        bary_out.copy_from(bary)
 
+        # ---------------- RK4 ----------------
+        self_vel_basis = inputs["self_vel_basis"].get()
         # step 1
-        psi = inputs["psi"].get()  # refresh psi
+        psi = inputs["psi"].get()
         self._bary_dot(
             bary,
             vortex_gammas,
@@ -333,12 +364,14 @@ class BaryAdvectionRK4Producer(WiredProducer[BaryAdvectionRK4ProducerIO]):
             V_pos,
             F_normals,
             psi,
+            self_vel_basis,
             k1,
         )
+        # Update face ids if crossed edges
+        self._update_face_ids(bary_out, faceids, F_verts, F_normals, F_adj, V_pos)
 
         # step 2
-        self._step_y(bary_out, bary, dt / 2, k1)
-        # self._project_sum1(bary_out)
+        self._step_y(bary_out, bary, dt / 2.0, k1)
         inputs["bary"].bump()
         psi = inputs["psi"].get()
         self._bary_dot(
@@ -350,12 +383,13 @@ class BaryAdvectionRK4Producer(WiredProducer[BaryAdvectionRK4ProducerIO]):
             V_pos,
             F_normals,
             psi,
+            self_vel_basis,
             k2,
-        )
+        )  # Update face ids if crossed edges
+        self._update_face_ids(bary_out, faceids, F_verts, F_normals, F_adj, V_pos)
 
         # step 3
-        self._step_y(bary_out, bary, dt / 2, k2)
-        # self._project_sum1(bary_out)
+        self._step_y(bary_out, bary, dt / 2.0, k2)
         inputs["bary"].bump()
         psi = inputs["psi"].get()
         self._bary_dot(
@@ -367,12 +401,14 @@ class BaryAdvectionRK4Producer(WiredProducer[BaryAdvectionRK4ProducerIO]):
             V_pos,
             F_normals,
             psi,
+            self_vel_basis,
             k3,
         )
+        # Update face ids if crossed edges
+        self._update_face_ids(bary_out, faceids, F_verts, F_normals, F_adj, V_pos)
 
         # step 4
         self._step_y(bary_out, bary, dt, k3)
-        # self._project_sum1(bary_out)
         inputs["bary"].bump()
         psi = inputs["psi"].get()
         self._bary_dot(
@@ -384,16 +420,16 @@ class BaryAdvectionRK4Producer(WiredProducer[BaryAdvectionRK4ProducerIO]):
             V_pos,
             F_normals,
             psi,
+            self_vel_basis,
             k4,
         )
+        # Update face ids if crossed edges
+        self._update_face_ids(bary_out, faceids, F_verts, F_normals, F_adj, V_pos)
 
-        # final step
+        # final combine into bary_out
         self._final_step(bary_out, dt, k1, k2, k3, k4)
-        # self._project_sum1(bary_out)
 
-        # update faceid if vortex crosses an edge
-
-        # 1. Add overflow check
+        # Update face ids if crossed edges
         self._update_face_ids(bary_out, faceids, F_verts, F_normals, F_adj, V_pos)
 
         self.io.bary_out.commit()
@@ -408,24 +444,13 @@ class BaryAdvectionModule(ModuleBase):
         self.mesh = world.require(SurfaceMeshModule)
         self.pt_vortex = world.require(PointVortexModule)
         self.stream_func = world.require(StreamFunctionModule)
+        self.self_vel_basis = world.require(SelfVelBasisModule)
 
         self.dt = self.resource(
             "dt",
             spec=ResourceSpec(kind="python", dtype=float),
             doc="Timestep size in seconds.",
             declare=True,
-        )
-
-        self.face_ids_out = self.resource(
-            "face_ids_out",
-            spec=ResourceSpec(
-                kind="taichi_field",
-                dtype=ti.i32,
-                shape_fn=shape_of(self.pt_vortex.face_ids),
-                allow_none=True,
-            ),
-            doc="Updated face ids after RK4 advection. Shape: (maxV,) i32",
-            declare=False,
         )
 
         self.bary_out = self.resource(
@@ -441,21 +466,6 @@ class BaryAdvectionModule(ModuleBase):
             declare=False,
         )
 
-        self.pos_out = self.resource(
-            "pos_out",
-            spec=ResourceSpec(
-                kind="taichi_field",
-                dtype=ti.f32,
-                shape_fn=shape_of(self.pt_vortex.face_ids),
-                lanes=3,
-                allow_none=True,
-            ),
-            doc="Updated world-space positions after RK4 advection. Shape: (maxV, vec3f)",
-            declare=False,
-        )
-
-        # Scratch buffers for RK4
-
         self.k1 = self.resource(
             "k1",
             spec=ResourceSpec(
@@ -468,7 +478,6 @@ class BaryAdvectionModule(ModuleBase):
             doc="k1 buffer for step 1",
             declare=True,
         )
-
         self.k2 = self.resource(
             "k2",
             spec=ResourceSpec(
@@ -481,7 +490,6 @@ class BaryAdvectionModule(ModuleBase):
             doc="k2 buffer for step 2",
             declare=True,
         )
-
         self.k3 = self.resource(
             "k3",
             spec=ResourceSpec(
@@ -494,7 +502,6 @@ class BaryAdvectionModule(ModuleBase):
             doc="k3 buffer for step 3",
             declare=True,
         )
-
         self.k4 = self.resource(
             "k4",
             spec=ResourceSpec(
@@ -519,8 +526,10 @@ class BaryAdvectionModule(ModuleBase):
             F_normals=self.mesh.F_normal,
             F_adj=self.mesh.F_adj,
             V_pos=self.mesh.V_pos,
+            self_vel_basis=self.self_vel_basis.vel_basis,
+            query_face_id=self.self_vel_basis.query_face_id,
+            # outputs
             bary_out=self.bary_out,
-            # face_ids_out=self.face_ids_out,
             k1=self.k1,
             k2=self.k2,
             k3=self.k3,

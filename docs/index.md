@@ -9,6 +9,7 @@ Choose your intent (Diataxis):
 - Reference: docs/reference.md
 - Explanation: docs/explanation.md
  - Producer helpers: docs/producer_helpers.md
+ - point_vortex_p2 internals: docs/point_vortex_p2.md
 
 Quick map of the codebase:
 - Compute core: rheidos/compute/*

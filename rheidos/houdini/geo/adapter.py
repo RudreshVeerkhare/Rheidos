@@ -154,6 +154,13 @@ def _normalize_values(owner: str, values: Any) -> np.ndarray:
 
 @dataclass
 class GeometryIO:
+    """Geometry adapter that reads from `geo_in` and writes to `geo_out`.
+
+    Prefer the owner-specific helpers such as `read_point()` and
+    `write_prim()` for most callers. The generic `read()` and `write()`
+    methods remain available for compatibility and dynamic owner cases.
+    """
+
     geo_in: "hou.Geometry"
     geo_out: Optional["hou.Geometry"] = None
 
@@ -253,6 +260,46 @@ class GeometryIO:
         self._cache[cache_key] = arr
         return arr
 
+    def read_point(
+        self,
+        name: str,
+        *,
+        dtype: Optional[Any] = None,
+        components: Optional[int] = None,
+    ) -> np.ndarray:
+        """Read a point attribute from `geo_in`."""
+        return self.read(OWNER_POINT, name, dtype=dtype, components=components)
+
+    def read_prim(
+        self,
+        name: str,
+        *,
+        dtype: Optional[Any] = None,
+        components: Optional[int] = None,
+    ) -> np.ndarray:
+        """Read a primitive attribute from `geo_in`."""
+        return self.read(OWNER_PRIM, name, dtype=dtype, components=components)
+
+    def read_vertex(
+        self,
+        name: str,
+        *,
+        dtype: Optional[Any] = None,
+        components: Optional[int] = None,
+    ) -> np.ndarray:
+        """Read a vertex attribute from `geo_in`."""
+        return self.read(OWNER_VERTEX, name, dtype=dtype, components=components)
+
+    def read_detail(
+        self,
+        name: str,
+        *,
+        dtype: Optional[Any] = None,
+        components: Optional[int] = None,
+    ) -> np.ndarray:
+        """Read a detail attribute from `geo_in`."""
+        return self.read(OWNER_DETAIL, name, dtype=dtype, components=components)
+
     def write(self, owner: str, name: str, values: Any, *, create: bool = True) -> None:
         owner = _validate_owner(owner)
         if self.geo_out is None:
@@ -289,6 +336,46 @@ class GeometryIO:
             _write_float_attrib(self.geo_out, owner, name, values_np)
         else:
             raise TypeError(f"Unsupported attribute data type for '{name}'")
+
+    def write_point(
+        self,
+        name: str,
+        values: Any,
+        *,
+        create: bool = True,
+    ) -> None:
+        """Write a point attribute to `geo_out`."""
+        self.write(OWNER_POINT, name, values, create=create)
+
+    def write_prim(
+        self,
+        name: str,
+        values: Any,
+        *,
+        create: bool = True,
+    ) -> None:
+        """Write a primitive attribute to `geo_out`."""
+        self.write(OWNER_PRIM, name, values, create=create)
+
+    def write_vertex(
+        self,
+        name: str,
+        values: Any,
+        *,
+        create: bool = True,
+    ) -> None:
+        """Write a vertex attribute to `geo_out`."""
+        self.write(OWNER_VERTEX, name, values, create=create)
+
+    def write_detail(
+        self,
+        name: str,
+        values: Any,
+        *,
+        create: bool = True,
+    ) -> None:
+        """Write a detail attribute to `geo_out`."""
+        self.write(OWNER_DETAIL, name, values, create=create)
 
     def read_prims(self, arity: int = 3) -> np.ndarray:
         hou = _get_hou()

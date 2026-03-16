@@ -12,6 +12,7 @@ license = { text = "MIT" }
 authors = [{ name = "Rudresh Veerkhare" }]
 dependencies = [
     "numpy>=1.23",
+    "scipy>=1.10",
     "panda3d>=1.10",
     "taichi>=1.7",
     "trimesh>=4.0",

@@ -7,8 +7,6 @@
 # Edit the IMPORT section + optional hooks below.
 
 import hou
-
-from rheidos.houdini.geo import OWNER_DETAIL, OWNER_POINT, OWNER_PRIM
 from rheidos.houdini.debug import (
     consume_break_next_button,
     debug_config_from_node,
@@ -168,7 +166,7 @@ def node1() -> None:
     _ensure_taichi_init(session)
     ## Read mesh input (index 0) explicitly via the primary IO.
     mesh_io = ctx.io
-    mesh_points = mesh_io.read(OWNER_POINT, "P", components=3)
+    mesh_points = mesh_io.read_point("P", components=3)
     mesh_triangles = mesh_io.read_prims(arity=3)
     nV = int(mesh_points.shape[0])
     nF = int(mesh_triangles.shape[0])
@@ -184,23 +182,23 @@ def node1() -> None:
 
     ## Read scatter points input (index 1) via the input IO.
     points_io = ctx.input_io(1)
-    scatter_points = points_io.read(OWNER_POINT, "P", components=3)
+    scatter_points = points_io.read_point("P", components=3)
 
     point_vortices = world.require(PointVortexModule)
     point_vortices.set_n_vortices(len(scatter_points))
-    point_vortices.set_bary(points_io.read(OWNER_POINT, "bary", components=3))
-    point_vortices.set_face_ids(points_io.read(OWNER_POINT, "faceid"))
-    point_vortices.set_gammas(points_io.read(OWNER_POINT, "gamma"))
+    point_vortices.set_bary(points_io.read_point("bary", components=3))
+    point_vortices.set_face_ids(points_io.read_point("faceid"))
+    point_vortices.set_gammas(points_io.read_point("gamma"))
 
     ## Read stream function and set the output
     pt_vortex_sim = world.require(StreamFunctionModule)
     psi = pt_vortex_sim.psi.get().to_numpy()
-    ctx.write(OWNER_POINT, "stream_func", psi, create=True)
+    ctx.write_point("stream_func", psi, create=True)
 
     ## Calculate facewise constant velocity field from stream function
     vel_module = world.require(VelocityFieldModule)
     F_velocity = vel_module.F_velocity.get().to_numpy()
-    ctx.write(OWNER_PRIM, "velocity", F_velocity, create=True)
+    ctx.write_prim("velocity", F_velocity, create=True)
 
 
 def node2() -> None:

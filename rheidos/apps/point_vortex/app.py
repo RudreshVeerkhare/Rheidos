@@ -163,8 +163,8 @@ def cook(ctx: CookContext) -> None:
     # ctx.write(OWNER_PRIM, "bary", )
 
     u = poisson.u.get().to_numpy().astype(np.float32, copy=False)
-    ctx.write(OWNER_POINT, "u", u, create=True)
+    ctx.write_point("u", u, create=True)
 
     F_normals = mesh.F_normal.get()
     face_normal = F_normals.to_numpy().astype(np.float32, copy=False)
-    ctx.write(OWNER_PRIM, "face_normal", face_normal, create=True)
+    ctx.write_prim("face_normal", face_normal, create=True)

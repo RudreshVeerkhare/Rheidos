@@ -34,12 +34,11 @@ from rheidos.houdini.runtime.resource_keys import (
     SIM_TIME,
 )
 
-from rheidos.houdini.geo import OWNER_POINT, OWNER_PRIM
-
 from rheidos.apps.point_vortex.modules.surface_mesh import SurfaceMeshModule
 from rheidos.apps.point_vortex.modules.point_vortex import PointVortexModule
 from rheidos.apps.point_vortex.modules.hamiltonian import HamiltonianModule
 from rheidos.apps.point_vortex.modules.bary_advection import BaryAdvectionModule
+from rheidos.apps.point_vortex.modules.vel_advection import VelAdvectionModule
 
 from rheidos.apps.point_vortex.modules.edge_simple_rk4_advection import (
     EdgeSimpleRK4AdvectionModule,
@@ -158,7 +157,7 @@ def setup(ctx: CookContext) -> None:
     mesh_io = ctx.input_io(1)
     if mesh_io is None:
         raise RuntimeError(f"Expected triangle mesh on input 1, received {mesh_io}")
-    mesh_points = mesh_io.read(OWNER_POINT, "P", components=3)
+    mesh_points = mesh_io.read_point("P", components=3)
     mesh_triangles = mesh_io.read_prims(arity=3)
     nV = int(mesh_points.shape[0])
     nF = int(mesh_triangles.shape[0])
@@ -186,10 +185,10 @@ def step(ctx: CookContext) -> None:
     with prof.span("io_read_inputs", cat="solver"):
         # Read scatter points input (index 1) via the input IO.
         points_io = ctx.io
-        scatter_points = points_io.read(OWNER_POINT, "P", components=3)
-        bary = points_io.read(OWNER_POINT, "bary", components=3)
-        face_ids = points_io.read(OWNER_POINT, "faceid")
-        gammas = points_io.read(OWNER_POINT, "gamma")
+        scatter_points = points_io.read_point("P", components=3)
+        bary = points_io.read_point("bary", components=3)
+        face_ids = points_io.read_point("faceid")
+        gammas = points_io.read_point("gamma")
 
     with prof.span("compute_setup", cat="solver"):
         world = ctx.world()
@@ -249,9 +248,9 @@ def step(ctx: CookContext) -> None:
     # per_face_vel = vel_module.F_velocity.get()
     # ctx.write(OWNER_PRIM, "velocity", per_face_vel.to_numpy(), create=True)
     with prof.span("io_write_outputs", cat="solver"):
-        ctx.write(OWNER_POINT, "faceid", new_faceids)
-        ctx.write(OWNER_POINT, "bary", new_barys)
-        ctx.write(OWNER_POINT, "P", new_pos)
+        ctx.write_point("faceid", new_faceids)
+        ctx.write_point("bary", new_barys)
+        ctx.write_point("P", new_pos)
     # # ctx.write(OWNER_POINT, "faceid", )
 
     # _velocity = world.require(VelocityFieldModule)
@@ -466,12 +465,12 @@ def probe():
         frame = pt_vortex.frame.get()[None]
         f_vel = _velocity.F_velocity.get()
         v_vel = _velocity.V_velocity.get()
-        ctx.write(OWNER_PRIM, "velocity", f_vel.to_numpy(), create=True)
-        ctx.write(OWNER_POINT, "velocity", v_vel.to_numpy(), create=True)
+        ctx.write_prim("velocity", f_vel.to_numpy(), create=True)
+        ctx.write_point("velocity", v_vel.to_numpy(), create=True)
 
         stream_func = _world.require(StreamFunctionModule)
         psi = stream_func.psi.get()
-        ctx.write(OWNER_POINT, "stream_func", psi.to_numpy(), create=True)
+        ctx.write_point("stream_func", psi.to_numpy(), create=True)
 
 
 def _seed_output(geo_out: hou.Geometry, source: hou.Geometry) -> None:

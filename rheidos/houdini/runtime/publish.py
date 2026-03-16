@@ -122,7 +122,7 @@ def publish_geometry_minimal(ctx: CookContext, *, input_index: Optional[int] = N
         points_key = geo_P(input_index)
         triangles_key = geo_triangles(input_index)
 
-    points = io.read(OWNER_POINT, "P", components=3)
+    points = io.read_point("P", components=3)
     if points.ndim != 2 or points.shape[1] != 3:
         raise ValueError(f"geo.P expected (N, 3), got {points.shape}")
     triangles = _read_triangles_cached(ctx, input_index=input_index)
@@ -172,7 +172,7 @@ def publish_point_attrib(
         if io is None:
             raise RuntimeError(f"Input geometry {input_index} is not connected.")
         key_index = input_index
-    values = io.read(OWNER_POINT, name)
+    values = io.read_point(name)
     _validate_count(ctx, OWNER_POINT, values, name, input_index=input_index)
     ctx.publish(point_attrib(name, index=key_index), values)
 
@@ -191,7 +191,7 @@ def publish_prim_attrib(
         if io is None:
             raise RuntimeError(f"Input geometry {input_index} is not connected.")
         key_index = input_index
-    values = io.read(OWNER_PRIM, name)
+    values = io.read_prim(name)
     _validate_count(ctx, OWNER_PRIM, values, name, input_index=input_index)
     ctx.publish(prim_attrib(name, index=key_index), values)
 

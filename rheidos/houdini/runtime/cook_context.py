@@ -12,7 +12,7 @@ from rheidos.compute.resource import ResourceSpec
 from rheidos.compute.world import World
 
 from ..geo.adapter import GeometryIO
-from ..geo.schema import GeometrySchema, OWNER_POINT
+from ..geo.schema import GeometrySchema
 from .session import WorldSession
 
 if TYPE_CHECKING:
@@ -51,6 +51,13 @@ def _make_read_only_io(geo: "hou.Geometry") -> GeometryIO:
 
 @dataclass
 class CookContext:
+    """Runtime cook context with geometry IO and compute-world access.
+
+    Prefer the owner-specific `read_*()` and `write_*()` helpers for direct
+    Houdini attribute access. The generic `read()` and `write()` methods
+    remain available for compatibility and dynamic owner cases.
+    """
+
     node: "hou.Node"
     frame: float
     time: float
@@ -115,8 +122,56 @@ class CookContext:
     ) -> np.ndarray:
         return self.io.read(owner, name, dtype=dtype, components=components)
 
+    def read_point(
+        self,
+        name: str,
+        *,
+        dtype: Optional[Any] = None,
+        components: Optional[int] = None,
+    ) -> np.ndarray:
+        return self.io.read_point(name, dtype=dtype, components=components)
+
+    def read_prim(
+        self,
+        name: str,
+        *,
+        dtype: Optional[Any] = None,
+        components: Optional[int] = None,
+    ) -> np.ndarray:
+        return self.io.read_prim(name, dtype=dtype, components=components)
+
+    def read_vertex(
+        self,
+        name: str,
+        *,
+        dtype: Optional[Any] = None,
+        components: Optional[int] = None,
+    ) -> np.ndarray:
+        return self.io.read_vertex(name, dtype=dtype, components=components)
+
+    def read_detail(
+        self,
+        name: str,
+        *,
+        dtype: Optional[Any] = None,
+        components: Optional[int] = None,
+    ) -> np.ndarray:
+        return self.io.read_detail(name, dtype=dtype, components=components)
+
     def write(self, owner: str, name: str, values: Any, *, create: bool = True) -> None:
         self.io.write(owner, name, values, create=create)
+
+    def write_point(self, name: str, values: Any, *, create: bool = True) -> None:
+        self.io.write_point(name, values, create=create)
+
+    def write_prim(self, name: str, values: Any, *, create: bool = True) -> None:
+        self.io.write_prim(name, values, create=create)
+
+    def write_vertex(self, name: str, values: Any, *, create: bool = True) -> None:
+        self.io.write_vertex(name, values, create=create)
+
+    def write_detail(self, name: str, values: Any, *, create: bool = True) -> None:
+        self.io.write_detail(name, values, create=create)
 
     def read_prims(self, arity: int = 3) -> np.ndarray:
         return self.io.read_prims(arity=arity)
@@ -136,10 +191,10 @@ class CookContext:
         return self.read_group(owner, group_name, as_mask=as_mask)
 
     def P(self) -> np.ndarray:
-        return self.read(OWNER_POINT, "P", components=3)
+        return self.read_point("P", components=3)
 
     def set_P(self, values: Any) -> None:
-        self.write(OWNER_POINT, "P", values, create=True)
+        self.write_point("P", values, create=True)
 
     def triangles(self) -> np.ndarray:
         return self.read_prims(arity=3)

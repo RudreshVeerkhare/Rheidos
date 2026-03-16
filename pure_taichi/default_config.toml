@@ -1,0 +1,29 @@
+seed = 1234
+
+[mesh]
+kind = "icosphere"
+subdivisions = 2
+radius = 1.0
+
+[solver]
+backend = "auto"
+pin_index = 0
+
+[time]
+dt = 0.01
+substeps = 1
+max_hops = 32
+
+[vortex]
+preset = "ring"
+n_vortices = 12
+gamma_scale = 1.0
+
+[render]
+width = 1280
+height = 720
+vsync = true
+show_glyphs = true
+show_stream_tint = true
+glyph_scale = 0.1
+vortex_radius = 0.01
