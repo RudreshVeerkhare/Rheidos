@@ -5,9 +5,14 @@ import numpy as np
 from dataclasses import dataclass
 
 from rheidos.compute import (
+    ModuleBase,
     Registry,
+    ResourceSpec,
     ResourceRef,
     ResourceKey,
+    World,
+    producer,
+    producer_output,
     WiredProducer,
     out_field,
 )
@@ -29,6 +34,130 @@ class TestOutField:
 
         field_obj = out_field(alloc=alloc_fn)
         assert field_obj.metadata.get("alloc") is alloc_fn
+
+
+class TestProducerDecorator:
+    """Test decorator-based producer metadata."""
+
+    def test_producer_output_records_alloc(self):
+        """producer_output stores name and alloc callable."""
+
+        def alloc_fn(reg, ctx):
+            return np.zeros((2,), dtype=np.float32)
+
+        output = producer_output("result", alloc=alloc_fn)
+        assert output.name == "result"
+        assert output.alloc is alloc_fn
+
+    def test_producer_attaches_spec(self):
+        """producer attaches metadata that bind_producers can discover."""
+
+        class DemoModule(ModuleBase):
+            NAME = "demo"
+
+            @producer(
+                inputs=("a", "b"),
+                outputs=("out", producer_output("cache")),
+                allow_none=("b",),
+                ignore=("scratch",),
+            )
+            def run(self, ctx):
+                pass
+
+        spec = DemoModule.run.__dict__["__rheidos_producer_spec__"]
+        assert spec.inputs == ("a", "b")
+        assert tuple(output.name for output in spec.outputs) == ("out", "cache")
+        assert spec.allow_none == ("b",)
+        assert spec.ignore == ("scratch",)
+
+
+class TestDecoratedProducerRuntime:
+    """Test decorator-based producer execution."""
+
+    def test_context_ensure_outputs_uses_custom_alloc(self):
+        """Decorated producers can allocate outputs through ctx.ensure_outputs()."""
+        world = World()
+
+        def alloc_out(_reg, ctx):
+            return np.zeros_like(ctx.inputs.a.peek())
+
+        class AllocModule(ModuleBase):
+            NAME = "alloc"
+
+            def __init__(self, world, **kwargs):
+                super().__init__(world, **kwargs)
+                self.a = self.resource(
+                    "a",
+                    declare=True,
+                    buffer=np.array([2.0], dtype=np.float32),
+                )
+                self.out = self.resource("out")
+                self.bind_producers()
+
+            @producer(
+                inputs=("a",),
+                outputs=(producer_output("out", alloc=alloc_out),),
+            )
+            def fill(self, ctx):
+                out = ctx.ensure_outputs(require_shape=False)["out"].peek()
+                out[:] = ctx.inputs.a.get() + 3.0
+                ctx.outputs.out.commit()
+
+        module = world.require(AllocModule)
+        world.reg.ensure(module.out.name)
+        assert np.array_equal(module.out.peek(), np.array([5.0], dtype=np.float32))
+
+    def test_context_commit_rejects_unknown_output(self):
+        """ctx.commit rejects unknown output names."""
+        world = World()
+
+        class BadCommitModule(ModuleBase):
+            NAME = "bad_commit"
+
+            def __init__(self, world, **kwargs):
+                super().__init__(world, **kwargs)
+                self.a = self.resource("a", declare=True, buffer=np.array([1.0]))
+                self.out = self.resource(
+                    "out",
+                    spec=ResourceSpec(kind="numpy", dtype=np.float64, shape=(1,)),
+                )
+                self.bind_producers()
+
+            @producer(inputs=("a",), outputs=("out",))
+            def run(self, ctx):
+                ctx.commit(missing=np.array([1.0]))
+
+        module = world.require(BadCommitModule)
+        with pytest.raises(KeyError, match="Did you mean 'out'\\?"):
+            world.reg.ensure(module.out.name)
+
+    def test_context_inputs_attribute_typo_is_informative(self):
+        """ctx.inputs attribute errors include close-name suggestions."""
+        world = World()
+
+        class TypoInputModule(ModuleBase):
+            NAME = "typo_input"
+
+            def __init__(self, world, **kwargs):
+                super().__init__(world, **kwargs)
+                self.mesh = self.resource(
+                    "mesh",
+                    declare=True,
+                    buffer=np.array([1.0]),
+                )
+                self.out = self.resource(
+                    "out",
+                    spec=ResourceSpec(kind="numpy", dtype=np.float64, shape=(1,)),
+                )
+                self.bind_producers()
+
+            @producer(inputs=("mesh",), outputs=("out",))
+            def run(self, ctx):
+                ctx.inputs.mseh.get()
+
+        module = world.require(TypoInputModule)
+        with pytest.raises(AttributeError, match="Did you mean 'mesh'\\?"):
+            world.reg.ensure(module.out.name)
 
 
 class TestWiredProducerIOType:

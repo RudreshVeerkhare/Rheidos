@@ -16,8 +16,8 @@ from rheidos.houdini.debug import (
 )
 from rheidos.houdini.runtime import (
     build_cook_context,
-    get_runtime,
     publish_geometry_minimal,
+    session,
 )
 
 from rheidos.apps.point_vortex.modules.surface_mesh import SurfaceMeshModule
@@ -31,6 +31,8 @@ from rheidos.apps.point_vortex.app import cook  # <-- your app's cook(ctx)
 import taichi as ti
 
 from rheidos.houdini.runtime.taichi_runtime import taichi_init
+
+P1_SESSION_KEY = "p1"
 
 
 def _taichi_initialized() -> bool:
@@ -136,7 +138,8 @@ def _get_input_geos(node: hou.Node) -> list[hou.Geometry | None]:
     return geos
 
 
-def node1() -> None:
+@session(P1_SESSION_KEY)
+def node1(session) -> None:
     node = hou.pwd()
     geo_out = node.geometry()
 
@@ -155,8 +158,6 @@ def node1() -> None:
 
     # Pass mesh through to output so downstream SOPs see the surface.
     _seed_output(geo_out, mesh_geo)
-
-    session = get_runtime().get_or_create_session(node)
 
     ctx = build_cook_context(
         node, mesh_geo, geo_out, session, geo_inputs=[mesh_geo, points_geo]
@@ -201,13 +202,15 @@ def node1() -> None:
     ctx.write_prim("velocity", F_velocity, create=True)
 
 
-def node2() -> None:
+@session(P1_SESSION_KEY)
+def node2(session) -> None:
     # fetch session from the old node1 and output the updated points geometry
     # TODO: Make sure this runs after node1
     pass
 
 
-def run_cook() -> None:
+@session
+def run_cook(session) -> None:
     node = hou.pwd()
     geo_out = node.geometry()
 
@@ -226,13 +229,10 @@ def run_cook() -> None:
     else:
         input_geos = [geo_in]
 
-    # 2) Get/create a persistent session for this node (cached across cooks)
-    session = get_runtime().get_or_create_session(node)
-
-    # 3) Build CookContext (input geo, output geo, session state)
+    # 2) Build CookContext (input geo, output geo, session state)
     ctx = build_cook_context(node, geo_in, geo_out, session, geo_inputs=input_geos)
 
-    # 4) Publish minimal geometry resources into the compute registry/world
+    # 3) Publish minimal geometry resources into the compute registry/world
     publish_geometry_minimal(ctx)
 
     # === OPTIONAL: publish extra stuff your app might want ===
@@ -240,7 +240,7 @@ def run_cook() -> None:
     # ctx.publish("ui.some_int", int(node.evalParm("some_int")))
     # ctx.publish("ui.some_toggle", bool(node.evalParm("some_toggle")))
 
-    # 5) Run your app logic
+    # 4) Run your app logic
     cook(ctx)
 
     # === OPTIONAL: apply outputs back to Houdini if your app writes resources ===

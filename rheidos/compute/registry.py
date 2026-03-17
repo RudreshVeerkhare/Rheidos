@@ -56,6 +56,13 @@ class Registry:
     def __init__(self) -> None:
         self._res: Dict[ResourceName, Resource] = {}
 
+    def declared_names(self) -> Set[ResourceName]:
+        return set(self._res)
+
+    def undeclare_many(self, names: Iterable[ResourceName]) -> None:
+        for name in names:
+            self._res.pop(name, None)
+
     # ---- declare ----
 
     def declare(

@@ -175,19 +175,23 @@ spec=ResourceSpec(
 `shape_from_scalar` accepts a `ResourceRef` that holds a scalar (Python, NumPy,
 or Taichi scalar field). It returns `(n,)` or `(n, ...)` with the optional tail.
 
-Use `shape_with_tail` for shapes derived from another field/array:
+Use `shape_map` for shapes derived from another field/array when you need to
+transform the resolved shape lazily:
 
 ```python
-from rheidos.compute import shape_with_tail
+from rheidos.compute import shape_map
 
 spec=ResourceSpec(
     kind="taichi_field",
     dtype=ti.f32,
-    shape_fn=shape_with_tail(mesh.F_verts, tail=(3,)),
+    shape_fn=shape_map(mesh.F_verts, lambda shape: (shape[0], 3)),
     lanes=3,
     allow_none=True,
 )
 ```
+
+Convenience wrappers remain available for common cases: `shape_of`,
+`shape_from_axis`, and `shape_with_tail`.
 
 ## Custom allocators with out_field(alloc=...)
 

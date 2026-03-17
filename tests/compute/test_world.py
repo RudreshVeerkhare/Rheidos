@@ -1,9 +1,9 @@
 """Tests for rheidos.compute.world module."""
 
-import pytest
 import numpy as np
+import pytest
 
-from rheidos.compute import World, ModuleBase, ResourceRef, ResourceKey
+from rheidos.compute import ModuleBase, ResourceRef, ResourceKey, World, producer
 
 
 class TestNamespace:
@@ -264,6 +264,225 @@ class TestModuleRequire:
             world.require(DepModule, [1, 2, 3])
 
 
+class TestModuleProducerBinding:
+    """Test ModuleBase.bind_producers()."""
+
+    def test_bind_producers_declares_outputs(self):
+        """bind_producers declares outputs with a hidden producer adapter."""
+        world = World()
+
+        class DecoratedModule(ModuleBase):
+            NAME = "decorated"
+
+            def __init__(self, world, **kwargs):
+                super().__init__(world, **kwargs)
+                self.a = self.resource("a", declare=True, buffer=np.array([2.0]))
+                self.b = self.resource("b", declare=True, buffer=np.array([3.0]))
+                self.sum_out = self.resource("sum_out")
+                self.bind_producers()
+
+            @producer(inputs=("a", "b"), outputs=("sum_out",))
+            def build_sum(self, ctx):
+                ctx.commit(sum_out=ctx.inputs.a.get() + ctx.inputs.b.get())
+
+        module = world.require(DecoratedModule)
+        resource = world.reg.get(module.sum_out.name)
+        assert resource.deps == (module.a.name, module.b.name)
+        assert resource.producer is not None
+        assert resource.producer.debug_name().endswith("DecoratedModule.build_sum")
+
+        world.reg.ensure(module.sum_out.name)
+        assert np.array_equal(module.sum_out.peek(), np.array([5.0]))
+
+    def test_bind_producers_rejects_duplicate_binding(self):
+        """bind_producers raises if called twice for the same method."""
+        world = World()
+
+        class DecoratedModule(ModuleBase):
+            NAME = "duplicate"
+
+            def __init__(self, world, **kwargs):
+                super().__init__(world, **kwargs)
+                self.a = self.resource("a", declare=True, buffer=np.array([1.0]))
+                self.out = self.resource("out")
+                self.bind_producers()
+
+            @producer(inputs=("a",), outputs=("out",))
+            def build(self, ctx):
+                ctx.commit(out=ctx.inputs.a.get())
+
+        module = world.require(DecoratedModule)
+        with pytest.raises(RuntimeError, match="already bound"):
+            module.bind_producers()
+
+    def test_bind_producers_rejects_missing_attr(self):
+        """bind_producers raises when a decorated resource attr is missing."""
+        world = World()
+
+        class MissingAttrModule(ModuleBase):
+            NAME = "missing_attr"
+
+            def __init__(self, world, **kwargs):
+                super().__init__(world, **kwargs)
+                self.out = self.resource("out")
+                self.bind_producers()
+
+            @producer(inputs=("missing",), outputs=("out",))
+            def build(self, ctx):
+                pass
+
+        with pytest.raises(AttributeError, match="unknown input resource 'missing'"):
+            world.require(MissingAttrModule)
+
+    def test_bind_producers_suggests_close_local_name(self):
+        """bind_producers suggests close local resource names on typos."""
+        world = World()
+
+        class TypoModule(ModuleBase):
+            NAME = "typo"
+
+            def __init__(self, world, **kwargs):
+                super().__init__(world, **kwargs)
+                self.count = self.resource("count", declare=True, buffer=np.array([1.0]))
+                self.out = self.resource("out")
+                self.bind_producers()
+
+            @producer(inputs=("coutn",), outputs=("out",))
+            def build(self, ctx):
+                pass
+
+        with pytest.raises(AttributeError, match="Did you mean 'count'\\?"):
+            world.require(TypoModule)
+
+    def test_bind_producers_rejects_non_ref_attr(self):
+        """bind_producers raises when a decorated attr is not a ResourceRef."""
+        world = World()
+
+        class WrongAttrModule(ModuleBase):
+            NAME = "wrong_attr"
+
+            def __init__(self, world, **kwargs):
+                super().__init__(world, **kwargs)
+                self.a = 123
+                self.out = self.resource("out")
+                self.bind_producers()
+
+            @producer(inputs=("a",), outputs=("out",))
+            def build(self, ctx):
+                pass
+
+        with pytest.raises(TypeError, match="expected 'a' to be a ResourceRef"):
+            world.require(WrongAttrModule)
+
+    def test_bind_producers_rejects_declared_output(self):
+        """bind_producers requires decorated outputs to be undeclared refs."""
+        world = World()
+
+        class DeclaredOutputModule(ModuleBase):
+            NAME = "declared_output"
+
+            def __init__(self, world, **kwargs):
+                super().__init__(world, **kwargs)
+                self.a = self.resource("a", declare=True, buffer=np.array([1.0]))
+                self.out = self.resource("out", declare=True)
+                self.bind_producers()
+
+            @producer(inputs=("a",), outputs=("out",))
+            def build(self, ctx):
+                pass
+
+        with pytest.raises(RuntimeError, match="already declared"):
+            world.require(DeclaredOutputModule)
+
+    def test_bind_producers_validates_required_inputs_on_compute(self):
+        """Decorated producers validate required inputs before method execution."""
+        world = World()
+
+        class MissingInputModule(ModuleBase):
+            NAME = "missing_input"
+
+            def __init__(self, world, **kwargs):
+                super().__init__(world, **kwargs)
+                self.a = self.resource("a", declare=True)
+                self.out = self.resource("out")
+                self.bind_producers()
+
+            @producer(inputs=("a",), outputs=("out",))
+            def build(self, ctx):
+                ctx.commit(out=np.array([9.0]))
+
+        module = world.require(MissingInputModule)
+        with pytest.raises(RuntimeError, match="missing required inputs: a"):
+            world.reg.ensure(module.out.name)
+
+    def test_bind_producers_supports_required_module_resource_paths(self):
+        """Decorated inputs can reference ResourceRefs on required modules."""
+        world = World()
+
+        class MeshModule(ModuleBase):
+            NAME = "mesh"
+
+            def __init__(self, world, **kwargs):
+                super().__init__(world, **kwargs)
+                self.V_pos = self.resource(
+                    "V_pos",
+                    declare=True,
+                    buffer=np.array([[1.0, 2.0, 3.0]]),
+                )
+
+        class ConsumerModule(ModuleBase):
+            NAME = "consumer"
+
+            def __init__(self, world, **kwargs):
+                super().__init__(world, **kwargs)
+                self.mesh = self.require(MeshModule)
+                self.count = self.resource("count")
+                self.bind_producers()
+
+            @producer(inputs=("mesh.V_pos",), outputs=("count",))
+            def build_count(self, ctx):
+                verts = ctx.inputs.mesh.V_pos.get()
+                ctx.commit(count=np.array([verts.shape[0]]))
+
+        module = world.require(ConsumerModule)
+        resource = world.reg.get(module.count.name)
+        assert resource.deps == (module.mesh.V_pos.name,)
+
+        world.reg.ensure(module.count.name)
+        assert np.array_equal(module.count.peek(), np.array([1]))
+
+    def test_bind_producers_suggests_close_nested_name(self):
+        """bind_producers suggests close dotted resource paths on typos."""
+        world = World()
+
+        class MeshModule(ModuleBase):
+            NAME = "mesh"
+
+            def __init__(self, world, **kwargs):
+                super().__init__(world, **kwargs)
+                self.V_pos = self.resource(
+                    "V_pos",
+                    declare=True,
+                    buffer=np.array([[1.0, 2.0, 3.0]]),
+                )
+
+        class ConsumerModule(ModuleBase):
+            NAME = "consumer"
+
+            def __init__(self, world, **kwargs):
+                super().__init__(world, **kwargs)
+                self.mesh = self.require(MeshModule)
+                self.out = self.resource("out")
+                self.bind_producers()
+
+            @producer(inputs=("mesh.V_pso",), outputs=("out",))
+            def build(self, ctx):
+                pass
+
+        with pytest.raises(AttributeError, match="Did you mean 'mesh.V_pos'\\?"):
+            world.require(ConsumerModule)
+
+
 class TestWorld:
     """Test World class."""
 
@@ -311,6 +530,52 @@ class TestWorld:
 
         assert a1 is a2
         assert a1 is not b1
+
+    def test_world_require_rolls_back_failed_module_init(self):
+        """Failed module init should not poison later require() retries."""
+        world = World()
+
+        class DepModule(ModuleBase):
+            NAME = "dep"
+
+            def __init__(self, world, **kwargs):
+                super().__init__(world, **kwargs)
+                self.value = self.resource(
+                    "value",
+                    declare=True,
+                    buffer=np.array([1.0]),
+                )
+
+        class BrokenModule(ModuleBase):
+            NAME = "broken"
+
+            def __init__(self, world, **kwargs):
+                super().__init__(world, **kwargs)
+                self.dep = self.require(DepModule)
+                self.count = self.resource(
+                    "count",
+                    declare=True,
+                    buffer=np.array([2.0]),
+                )
+                self.out = self.resource("out")
+                self.bind_producers()
+
+            @producer(inputs=("coutn",), outputs=("out",))
+            def build(self, ctx):
+                pass
+
+        for _ in range(2):
+            with pytest.raises(AttributeError, match="Did you mean 'count'\\?"):
+                world.require(BrokenModule)
+
+        assert world._modules == {}
+        with pytest.raises(KeyError):
+            world.reg.get("broken.count")
+        with pytest.raises(KeyError):
+            world.reg.get("dep.value")
+
+        dep = world.require(DepModule)
+        assert np.array_equal(dep.value.peek(), np.array([1.0]))
 
     def test_world_module_dependencies(self):
         """World tracks module dependencies."""

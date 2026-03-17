@@ -1,5 +1,5 @@
 import hou
-from rheidos.houdini.runtime import build_cook_context, get_runtime
+from rheidos.houdini.runtime import build_cook_context, session
 from rheidos.houdini.debug import (
     consume_break_next_button,
     debug_config_from_node,
@@ -8,7 +8,10 @@ from rheidos.houdini.debug import (
     request_break_next,
 )
 
-from .app import cook
+from .app import cook, cook2
+
+P1_SESSION_KEY = "p1"
+
 
 def _get_input_geo(node: hou.Node, index: int) -> hou.Geometry:
     inputs = node.inputs()
@@ -20,7 +23,8 @@ def _get_input_geo(node: hou.Node, index: int) -> hou.Geometry:
     return geo
 
 
-def node1() -> None:
+@session(P1_SESSION_KEY)
+def node1(session) -> None:
     node = hou.pwd()
     geo_out = node.geometry()
 
@@ -37,7 +41,6 @@ def node1() -> None:
     geo_out.clear()
     geo_out.merge(mesh_geo)
 
-    session = get_runtime().get_or_create_session(node)
     ctx = build_cook_context(
         node, mesh_geo, geo_out, session, geo_inputs=[mesh_geo, vort_geo]
     )
@@ -47,7 +50,8 @@ def node1() -> None:
     print("Here from node 1!")
 
 
-def node2() -> None:
+@session(P1_SESSION_KEY)
+def node2(session) -> None:
     node = hou.pwd()
     geo_out = node.geometry()
 
@@ -59,14 +63,15 @@ def node2() -> None:
 
     # Input 0: mesh, Input 1: Point-vortex state points
     mesh_geo = _get_input_geo(node, 0)
-    vort_geo = _get_input_geo(node, 1)
+    probe_geo = _get_input_geo(node, 1)
 
     geo_out.clear()
-    geo_out.merge(vort_geo)
+    geo_out.merge(probe_geo)
 
-    session = get_runtime().get_or_create_session(node)
     ctx = build_cook_context(
-        node, mesh_geo, geo_out, session, geo_inputs=[mesh_geo, vort_geo]
+        node, mesh_geo, geo_out, session, geo_inputs=[mesh_geo, probe_geo]
     )
+
+    cook2(ctx)
 
     print("Here from node 2!")

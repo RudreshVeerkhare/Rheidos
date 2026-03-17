@@ -4,14 +4,16 @@ import numpy as np
 
 from rheidos.compute import (
     ModuleBase,
+    ProducerContext,
     ResourceSpec,
     World,
-    shape_from_axis,
+    producer,
+    shape_map,
     shape_from_scalar,
 )
 
-from .mesh_geometry import GeometryProducer
-from .mesh_topology import TopologyProducer
+from .mesh_geometry import build_face_geometry
+from .mesh_topology import build_mesh_topology
 
 
 class SurfaceMeshModule(ModuleBase):
@@ -74,7 +76,7 @@ class SurfaceMeshModule(ModuleBase):
             spec=ResourceSpec(
                 kind="numpy",
                 dtype=np.int32,
-                shape_fn=shape_from_axis(self.F_verts, tail=(3,)),
+                shape_fn=shape_map(self.F_verts, lambda shape: (shape[0], 3)),
                 allow_none=True,
             ),
             doc="Edge id per face directed edge (a->b, b->c, c->a). Shape: (nF,3)",
@@ -84,7 +86,7 @@ class SurfaceMeshModule(ModuleBase):
             spec=ResourceSpec(
                 kind="numpy",
                 dtype=np.int32,
-                shape_fn=shape_from_axis(self.F_verts, tail=(3,)),
+                shape_fn=shape_map(self.F_verts, lambda shape: (shape[0], 3)),
                 allow_none=True,
             ),
             doc="Edge orientation sign per face directed edge. Shape: (nF,3)",
@@ -94,7 +96,7 @@ class SurfaceMeshModule(ModuleBase):
             spec=ResourceSpec(
                 kind="numpy",
                 dtype=np.int32,
-                shape_fn=shape_from_axis(self.F_verts, tail=(3,)),
+                shape_fn=shape_map(self.F_verts, lambda shape: (shape[0], 3)),
                 allow_none=True,
             ),
             doc="Per-face adjacency across opposite edges. Shape: (nF,3)",
@@ -104,7 +106,7 @@ class SurfaceMeshModule(ModuleBase):
             spec=ResourceSpec(
                 kind="numpy",
                 dtype=np.int32,
-                shape_fn=shape_from_axis(self.V_pos),
+                shape_fn=shape_map(self.V_pos, lambda shape: (shape[0],)),
                 allow_none=True,
             ),
             doc="Count of faces incident on each vertex. Shape: (nV,)",
@@ -120,43 +122,12 @@ class SurfaceMeshModule(ModuleBase):
             doc="Count of boundary edges in the mesh.",
         )
 
-        topology_producer = TopologyProducer(
-            V_pos=self.V_pos,
-            F_verts=self.F_verts,
-            n_edges=self.n_edges,
-            E_verts=self.E_verts,
-            E_faces=self.E_faces,
-            E_opp=self.E_opp,
-            F_edges=self.F_edges,
-            F_edge_sign=self.F_edge_sign,
-            F_adj=self.F_adj,
-            V_incident_count=self.V_incident_count,
-            V_incident=self.V_incident,
-            boundary_edge_count=self.boundary_edge_count,
-        )
-        deps = (self.F_verts, self.V_pos)
-
-        self.declare_resource(self.n_edges, deps=deps, producer=topology_producer)
-        self.declare_resource(self.E_verts, deps=deps, producer=topology_producer)
-        self.declare_resource(self.E_faces, deps=deps, producer=topology_producer)
-        self.declare_resource(self.E_opp, deps=deps, producer=topology_producer)
-        self.declare_resource(self.F_edges, deps=deps, producer=topology_producer)
-        self.declare_resource(self.F_edge_sign, deps=deps, producer=topology_producer)
-        self.declare_resource(self.F_adj, deps=deps, producer=topology_producer)
-        self.declare_resource(
-            self.V_incident_count, deps=deps, producer=topology_producer
-        )
-        self.declare_resource(self.V_incident, deps=deps, producer=topology_producer)
-        self.declare_resource(
-            self.boundary_edge_count, deps=deps, producer=topology_producer
-        )
-
         self.F_area = self.resource(
             "F_area",
             spec=ResourceSpec(
                 kind="numpy",
                 dtype=np.float64,
-                shape_fn=shape_from_axis(self.F_verts),
+                shape_fn=shape_map(self.F_verts, lambda shape: (shape[0],)),
                 allow_none=True,
             ),
             doc="Scalar area per triangle face. Shape: (nF,)",
@@ -166,25 +137,69 @@ class SurfaceMeshModule(ModuleBase):
             spec=ResourceSpec(
                 kind="numpy",
                 dtype=np.float64,
-                shape_fn=shape_from_axis(self.F_verts, tail=(3,)),
+                shape_fn=shape_map(self.F_verts, lambda shape: (shape[0], 3)),
                 allow_none=True,
             ),
             doc="Unit normal per triangle face. Shape: (nF,3)",
         )
-
-        geometry_producer = GeometryProducer(
-            V_pos=self.V_pos,
-            F_verts=self.F_verts,
-            F_normal=self.F_normal,
-            F_area=self.F_area,
-        )
-        self.declare_resource(
-            self.F_normal, deps=(self.F_verts, self.V_pos), producer=geometry_producer
-        )
-        self.declare_resource(
-            self.F_area, deps=(self.F_verts, self.V_pos), producer=geometry_producer
-        )
+        self.bind_producers()
 
     def set_mesh(self, vertices: np.ndarray, faces: np.ndarray) -> None:
         self.V_pos.set(np.ascontiguousarray(vertices, dtype=np.float64))
         self.F_verts.set(np.ascontiguousarray(faces, dtype=np.int32))
+
+    @producer(
+        inputs=("V_pos", "F_verts"),
+        outputs=(
+            "n_edges",
+            "E_verts",
+            "E_faces",
+            "E_opp",
+            "F_edges",
+            "F_edge_sign",
+            "F_adj",
+            "V_incident_count",
+            "V_incident",
+            "boundary_edge_count",
+        ),
+    )
+    def build_topology(self, ctx: ProducerContext) -> None:
+        outputs = build_mesh_topology(
+            ctx.inputs.V_pos.get(),
+            ctx.inputs.F_verts.get(),
+        )
+        (
+            n_edges,
+            e_verts,
+            e_faces,
+            e_opp,
+            f_edges,
+            f_edge_sign,
+            f_adj,
+            v_incident_count,
+            v_incident,
+            boundary_edge_count,
+        ) = outputs
+        ctx.commit(
+            n_edges=int(n_edges),
+            E_verts=e_verts,
+            E_faces=e_faces,
+            E_opp=e_opp,
+            F_edges=f_edges,
+            F_edge_sign=f_edge_sign,
+            F_adj=f_adj,
+            V_incident_count=v_incident_count,
+            V_incident=v_incident,
+            boundary_edge_count=int(boundary_edge_count),
+        )
+
+    @producer(
+        inputs=("V_pos", "F_verts"),
+        outputs=("F_area", "F_normal"),
+    )
+    def build_geometry(self, ctx: ProducerContext) -> None:
+        f_area, f_normal = build_face_geometry(
+            ctx.inputs.V_pos.get(),
+            ctx.inputs.F_verts.get(),
+        )
+        ctx.commit(F_area=f_area, F_normal=f_normal)

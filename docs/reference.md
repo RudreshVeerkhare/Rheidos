@@ -11,7 +11,7 @@ Exports from `rheidos.compute`:
 - `ProducerBase`, `Registry`
 - `Resource`, `ResourceKey`, `ResourceKind`, `ResourceRef`, `ResourceSpec`
 - `ResourceKindAdapter`, `register_resource_kind`
-- `WiredProducer`, `out_field`, `shape_from_scalar`, `shape_with_tail`
+- `WiredProducer`, `out_field`, `shape_map`, `shape_of`, `shape_from_axis`, `shape_from_scalar`, `shape_with_tail`
 
 ### ResourceSpec (dataclass, frozen)
 
@@ -101,6 +101,22 @@ Exports from `rheidos.compute`:
 - Marks an IO dataclass field as an output.
 - If `alloc` is provided, `ensure_outputs` uses it to allocate the buffer.
 
+### shape_map
+
+- `shape_map(ref, mapper) -> ShapeFn`
+- Lazily resolves a resource shape and applies `mapper` to produce the final shape tuple.
+- Returns `None` if the resource is unset, has no `.shape`, or the mapper raises.
+
+### shape_of
+
+- `shape_of(ref) -> ShapeFn`
+- Convenience wrapper for `shape_map(ref, lambda shape: shape)`.
+
+### shape_from_axis
+
+- `shape_from_axis(ref, axis=0, *, tail=()) -> ShapeFn`
+- Convenience wrapper that projects one axis from a resource shape and appends an optional tail.
+
 ### shape_from_scalar
 
 - `shape_from_scalar(ref, *, tail=()) -> ShapeFn`
@@ -134,6 +150,7 @@ Exports:
 - `get_runtime() -> ComputeRuntime`
 - `make_session_key(node) -> SessionKey`
 - `make_session_key_for_path(node_path) -> SessionKey`
+- `session`, usable as `@session`, `@session("name")`, or `@session(key="name")`
 - `run_cook(node, geo_in, geo_out) -> None`
 - `run_solver(node, geo_prev, geo_in, geo_out, substep=0) -> None`
 - `publish_geometry_minimal(ctx, input_index=None) -> None`
@@ -319,10 +336,10 @@ Use `create=True` to create the target session if it does not exist yet.
 ### ComputeRuntime
 
 - `sessions: Dict[SessionKey, WorldSession]`
-- `get_or_create_session(node) -> WorldSession`
+- `get_or_create_session(node, key=None) -> WorldSession`
 - `get_session_by_path(node_path, create=False) -> WorldSession`
 - `session_access(node_path, mode="read", create=False) -> SessionAccess`
-- `reset_session(node, reason) -> None`
+- `reset_session(node, reason, key=None) -> None`
 - `nuke_all(reason) -> None`
 
 Functions:
@@ -330,6 +347,31 @@ Functions:
 - `get_runtime() -> ComputeRuntime`
 - `make_session_key(node) -> SessionKey`
 - `make_session_key_for_path(node_path) -> SessionKey`
+- `session`, for manual Houdini entrypoints only
+
+Decorator examples:
+
+```python
+from rheidos.houdini.runtime import session
+
+@session
+def run_cook(session):
+    ...
+
+@session("p1")
+def node1(session):
+    ...
+
+@session(key="p1")
+def node2(*, session):
+    ...
+```
+
+Notes:
+
+- `@session` injects the node-local session, equivalent to the old `get_or_create_session(node)` pattern.
+- `@session("name")` injects a named shared session scoped to the current `.hip` file/runtime.
+- This decorator is intended only for hand-written Houdini SOP entrypoints such as `node1()`, `node2()`, `run_cook()`, and `run_solver()`. Driver-managed app callables like `cook(ctx)`, `setup(ctx)`, and `step(ctx)` are unchanged in this pass.
 
 ## Module: rheidos.houdini.runtime.user_script
 

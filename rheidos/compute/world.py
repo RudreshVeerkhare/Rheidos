@@ -1,7 +1,9 @@
 from dataclasses import dataclass
+from difflib import get_close_matches
 import re
 from typing import (
     Any,
+    Callable,
     Dict,
     Iterable,
     List,
@@ -16,6 +18,7 @@ from typing import (
 
 from .resource import ResourceRef, ResourceKey
 from .registry import Registry, ResourceSpec, ProducerBase
+from .wiring import _DecoratedMethodProducer, get_producer_spec
 
 M = TypeVar("M", bound="ModuleBase")
 ArgsKey = Tuple[Tuple[Any, ...], Tuple[Tuple[str, Any], ...]]
@@ -68,6 +71,7 @@ class ModuleBase:
         self.world = world
         self.reg = world.reg
         self.scope = scope
+        self._bound_producer_methods: Set[str] = set()
 
         root = Namespace((scope,)) if scope else Namespace(())
         self.ns = root.child(self.NAME)
@@ -134,6 +138,139 @@ class ModuleBase:
             description=description or ref.doc,
             spec=ref.spec,
         )
+
+    def _binding_candidates(self, value: Any) -> List[str]:
+        try:
+            items = vars(value).items()
+        except TypeError:
+            return []
+        names = []
+        for name, child in items:
+            if name.startswith("_"):
+                continue
+            if isinstance(child, (ResourceRef, ModuleBase)):
+                names.append(name)
+        return sorted(names)
+
+    def _binding_help(
+        self,
+        *,
+        missing: str,
+        container: Any,
+        path_prefix: str = "",
+    ) -> str:
+        candidates = self._binding_candidates(container)
+        parts: List[str] = []
+        suggestion = get_close_matches(missing, candidates, n=1, cutoff=0.6)
+        if suggestion:
+            guess = suggestion[0]
+            if path_prefix:
+                guess = f"{path_prefix}{guess}"
+            parts.append(f"Did you mean '{guess}'?")
+        if candidates:
+            visible = [f"{path_prefix}{name}" if path_prefix else name for name in candidates]
+            parts.append(f"Available names: {', '.join(visible)}.")
+        return (" " + " ".join(parts)) if parts else ""
+
+    def _resolve_bound_resource(
+        self,
+        attr: str,
+        *,
+        method_name: str,
+        kind: str,
+    ) -> ResourceRef[Any]:
+        value: Any = self
+        resolved_parts: List[str] = []
+        for part in attr.split("."):
+            resolved_parts.append(part)
+            if not hasattr(value, part):
+                resolved_attr = ".".join(resolved_parts)
+                prefix = ".".join(resolved_parts[:-1])
+                help_text = self._binding_help(
+                    missing=part,
+                    container=value,
+                    path_prefix=f"{prefix}." if prefix else "",
+                )
+                raise AttributeError(
+                    f"{self.__class__.__name__}.{method_name} references unknown "
+                    f"{kind} resource '{resolved_attr}'.{help_text}"
+                )
+            value = getattr(value, part)
+        if not isinstance(value, ResourceRef):
+            help_text = self._binding_help(
+                missing="",
+                container=value,
+                path_prefix=f"{attr}." if attr else "",
+            )
+            raise TypeError(
+                f"{self.__class__.__name__}.{method_name} expected '{attr}' "
+                f"to be a ResourceRef, got {type(value).__name__}.{help_text}"
+            )
+        return value
+
+    def _iter_decorated_methods(
+        self,
+    ) -> Iterable[Tuple[str, Callable[..., Any], Any]]:
+        seen: Set[str] = set()
+        for cls in self.__class__.__mro__:
+            for name, value in vars(cls).items():
+                if name in seen:
+                    continue
+                seen.add(name)
+                spec = get_producer_spec(value)
+                if spec is None:
+                    continue
+                yield name, getattr(self, name), spec
+
+    def bind_producers(self) -> None:
+        for method_name, method, spec in self._iter_decorated_methods():
+            if method_name in self._bound_producer_methods:
+                raise RuntimeError(
+                    f"{self.__class__.__name__}.{method_name} is already bound"
+                )
+
+            input_refs = {
+                name: self._resolve_bound_resource(
+                    name,
+                    method_name=method_name,
+                    kind="input",
+                )
+                for name in spec.inputs
+            }
+            output_refs: Dict[str, ResourceRef[Any]] = {}
+            output_allocs: Dict[str, Any] = {}
+            for output in spec.outputs:
+                ref = self._resolve_bound_resource(
+                    output.name,
+                    method_name=method_name,
+                    kind="output",
+                )
+                try:
+                    self.reg.get(ref.name)
+                except KeyError:
+                    pass
+                else:
+                    raise RuntimeError(
+                        f"{self.__class__.__name__}.{method_name} output "
+                        f"'{output.name}' is already declared"
+                    )
+                output_refs[output.name] = ref
+                output_allocs[output.name] = output.alloc
+
+            producer = _DecoratedMethodProducer(
+                module=self,
+                method_name=method_name,
+                bound_method=method,
+                input_refs=input_refs,
+                output_refs=output_refs,
+                output_allocs=output_allocs,
+                allow_none=spec.allow_none,
+                ignore=spec.ignore,
+            )
+            deps = tuple(input_refs.values())
+            for ref in output_refs.values():
+                self.declare_resource(ref, deps=deps, producer=producer)
+            self._bound_producer_methods.add(method_name)
 
 
 def module_resource_deps(
@@ -209,6 +346,11 @@ class World:
             cycle_str = " -> ".join(fmt(k) for k in cyc)
             raise RuntimeError(f"Module dependency cycle detected: {cycle_str}")
 
+        modules_before = dict(self._modules)
+        module_deps_before = {
+            module_key: set(deps) for module_key, deps in self._module_deps.items()
+        }
+        resource_names_before = self.reg.declared_names()
         self._record_module_dep(parent, key)
 
         # Build
@@ -218,6 +360,15 @@ class World:
             m = module_cls(self, *args, scope=scope, **kwargs)
             self._modules[key] = m
             return cast(M, m)
+        except Exception:
+            # Roll back anything declared during the failed build so retries
+            # surface the original exception instead of duplicate declarations.
+            self._modules = modules_before
+            self._module_deps = module_deps_before
+            self.reg.undeclare_many(
+                self.reg.declared_names() - resource_names_before
+            )
+            raise
         finally:
             # Always unwind even if __init__ raises
             popped = self._building_stack.pop()

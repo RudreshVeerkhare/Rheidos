@@ -4,9 +4,12 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass, field
+from functools import wraps
+import inspect
 from types import ModuleType
-from typing import Any, Deque, Dict, Optional, Tuple, TYPE_CHECKING, Literal
+from typing import Any, Callable, Deque, Dict, Optional, Tuple, TYPE_CHECKING, Literal, overload
 import time
+import warnings
 
 import numpy as np
 
@@ -30,10 +33,16 @@ __all__ = [
     "get_runtime",
     "make_session_key",
     "make_session_key_for_path",
+    "session",
     "set_sim_context",
 ]
 
 _SIM_ATTR = "RHEIDOS_SIM"
+_SHARED_SESSION_PREFIX = "::rheidos_shared_session__:"
+_SESSION_OWNER_MODULE_KEY = "decorator_session_owner_module"
+_SESSION_OWNER_QUALNAME_KEY = "decorator_session_owner_qualname"
+_SESSION_OWNER_FILE_KEY = "decorator_session_owner_file"
+_SESSION_OWNER_WARNING_KEY = "decorator_session_owner_mismatch_warned"
 
 
 def _get_hou():
@@ -66,6 +75,204 @@ def make_session_key_for_path(node_path: str) -> SessionKey:
         raise RuntimeError("Houdini 'hou' module not available") from exc
 
     return SessionKey(hip_path=hou.hipFile.path(), node_path=node_path)
+
+
+def _normalize_session_name(key: Any) -> str:
+    if not isinstance(key, str):
+        raise TypeError("session key must be a string")
+    value = key.strip()
+    if not value:
+        raise ValueError("session key must be a non-empty string")
+    return value
+
+
+def _make_shared_session_key(key: str) -> SessionKey:
+    try:
+        import hou  # type: ignore
+    except Exception as exc:  # pragma: no cover - only runs in Houdini
+        raise RuntimeError("Houdini 'hou' module not available") from exc
+
+    name = _normalize_session_name(key)
+    return SessionKey(
+        hip_path=hou.hipFile.path(),
+        node_path=f"{_SHARED_SESSION_PREFIX}{name}",
+    )
+
+
+def _make_runtime_session_key(node: "hou.Node", *, key: Optional[str] = None) -> SessionKey:
+    if key is None:
+        return make_session_key(node)
+    return _make_shared_session_key(key)
+
+
+def _session_scope_label(key: Optional[str]) -> str:
+    if key is None:
+        return "node-local session"
+    return f"named session '{key}'"
+
+
+def _resolve_entrypoint_node(
+    fn_name: str, *, key: Optional[str] = None
+) -> "hou.Node":
+    hou = _get_hou()
+    scope = _session_scope_label(key)
+    if hou is None:
+        raise RuntimeError(
+            f"@session could not resolve the {scope} for '{fn_name}': Houdini 'hou' module not available"
+        )
+    pwd = getattr(hou, "pwd", None)
+    if not callable(pwd):
+        raise RuntimeError(
+            f"@session could not resolve the {scope} for '{fn_name}': hou.pwd() is unavailable"
+        )
+    try:
+        node = pwd()
+    except Exception as exc:
+        raise RuntimeError(
+            f"@session could not resolve the {scope} for '{fn_name}': hou.pwd() failed"
+        ) from exc
+    if node is None:
+        raise RuntimeError(
+            f"@session could not resolve the {scope} for '{fn_name}': hou.pwd() returned None"
+        )
+    return node
+
+
+def _get_owner_metadata(fn: Callable[..., Any]) -> tuple[str, str, str]:
+    module_name = getattr(fn, "__module__", "<unknown>")
+    qualname = getattr(fn, "__qualname__", getattr(fn, "__name__", "<unknown>"))
+    try:
+        filename = inspect.getsourcefile(fn) or inspect.getfile(fn) or "<unknown>"
+    except (OSError, TypeError):
+        filename = "<unknown>"
+    return module_name, qualname, filename
+
+
+def _register_named_session_owner(
+    session_obj: "WorldSession",
+    *,
+    key: str,
+    fn: Callable[..., Any],
+) -> None:
+    module_name, qualname, filename = _get_owner_metadata(fn)
+    first_module = session_obj.stats.get(_SESSION_OWNER_MODULE_KEY)
+    first_qualname = session_obj.stats.get(_SESSION_OWNER_QUALNAME_KEY)
+    first_file = session_obj.stats.get(_SESSION_OWNER_FILE_KEY)
+
+    if first_module is None and first_file is None:
+        session_obj.stats[_SESSION_OWNER_MODULE_KEY] = module_name
+        session_obj.stats[_SESSION_OWNER_QUALNAME_KEY] = qualname
+        session_obj.stats[_SESSION_OWNER_FILE_KEY] = filename
+        return
+
+    if first_module == module_name and first_file == filename:
+        return
+
+    if session_obj.stats.get(_SESSION_OWNER_WARNING_KEY):
+        return
+
+    first_owner = f"{first_module}.{first_qualname}" if first_module and first_qualname else "<unknown>"
+    current_owner = f"{module_name}.{qualname}"
+    message = (
+        f"Named session '{key}' was first claimed by '{first_owner}'"
+        f" ({first_file or '<unknown>'}) and is now reused by "
+        f"'{current_owner}' ({filename}). Sharing will continue."
+    )
+    warnings.warn(message, RuntimeWarning, stacklevel=3)
+    session_obj.log_event(
+        "session.named_owner_mismatch",
+        session_key=key,
+        first_owner_module=first_module,
+        first_owner_qualname=first_qualname,
+        first_owner_file=first_file,
+        current_owner_module=module_name,
+        current_owner_qualname=qualname,
+        current_owner_file=filename,
+    )
+    session_obj.stats[_SESSION_OWNER_WARNING_KEY] = True
+
+
+def _decorate_session_entrypoint(
+    fn: Callable[..., Any],
+    *,
+    key: Optional[str],
+) -> Callable[..., Any]:
+    sig = inspect.signature(fn)
+    if "session" not in sig.parameters:
+        raise TypeError(
+            f"@session target '{fn.__qualname__}' must accept a 'session' parameter"
+        )
+
+    @wraps(fn)
+    def wrapped(*args: Any, **kwargs: Any) -> Any:
+        bound = sig.bind_partial(*args, **kwargs)
+        if "session" in bound.arguments:
+            raise TypeError(
+                f"@session target '{fn.__qualname__}' injects 'session'; do not pass it explicitly"
+            )
+
+        node = _resolve_entrypoint_node(fn.__qualname__, key=key)
+        session_obj = get_runtime().get_or_create_session(node, key=key)
+        if key is not None:
+            _register_named_session_owner(session_obj, key=key, fn=fn)
+        bound.arguments["session"] = session_obj
+        return fn(*bound.args, **bound.kwargs)
+
+    return wrapped
+
+
+@overload
+def session(fn: Callable[..., Any]) -> Callable[..., Any]:
+    ...
+
+
+@overload
+def session(name: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    ...
+
+
+@overload
+def session(
+    fn: None = None, *, key: str
+) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    ...
+
+
+def session(
+    fn: Optional[Callable[..., Any]] = None,
+    *,
+    key: Optional[str] = None,
+) -> Any:
+    """Inject a runtime session into a manual Houdini entrypoint.
+
+    Supported forms:
+    - ``@session`` for node-local sessions
+    - ``@session("name")`` for shared named sessions
+    - ``@session(key="name")`` for shared named sessions
+    """
+
+    if callable(fn) and key is None:
+        return _decorate_session_entrypoint(fn, key=None)
+
+    if fn is None:
+        normalized_key = None if key is None else _normalize_session_name(key)
+
+        def decorator(target: Callable[..., Any]) -> Callable[..., Any]:
+            return _decorate_session_entrypoint(target, key=normalized_key)
+
+        return decorator
+
+    if key is None:
+        normalized_key = _normalize_session_name(fn)
+
+        def decorator(target: Callable[..., Any]) -> Callable[..., Any]:
+            return _decorate_session_entrypoint(target, key=normalized_key)
+
+        return decorator
+
+    raise TypeError(
+        "session() supports only @session, @session('name'), or @session(key='name')"
+    )
 
 
 AccessMode = Literal["read", "write"]
@@ -237,12 +444,14 @@ class ComputeRuntime:
     def __init__(self) -> None:
         self.sessions: Dict[SessionKey, WorldSession] = {}
 
-    def get_or_create_session(self, node: "hou.Node") -> WorldSession:
-        key = make_session_key(node)
-        session = self.sessions.get(key)
+    def get_or_create_session(
+        self, node: "hou.Node", *, key: Optional[str] = None
+    ) -> WorldSession:
+        session_key = _make_runtime_session_key(node, key=key)
+        session = self.sessions.get(session_key)
         if session is None:
             session = WorldSession()
-            self.sessions[key] = session
+            self.sessions[session_key] = session
         return session
 
     def get_session_by_path(
@@ -267,9 +476,11 @@ class ComputeRuntime:
         session = self.get_session_by_path(node_path, create=create)
         return SessionAccess(session=session, node_path=node_path, mode=mode)
 
-    def reset_session(self, node: "hou.Node", reason: str) -> None:
-        key = make_session_key(node)
-        session = self.sessions.get(key)
+    def reset_session(
+        self, node: "hou.Node", reason: str, *, key: Optional[str] = None
+    ) -> None:
+        session_key = _make_runtime_session_key(node, key=key)
+        session = self.sessions.get(session_key)
         if session is not None:
             session.reset(reason)
 

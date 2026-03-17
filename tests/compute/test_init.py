@@ -1,9 +1,28 @@
 """Tests for rheidos.compute.__init__.py helpers."""
 
-import pytest
 import numpy as np
+from rheidos.compute import (
+    ProducerContext,
+    ProducerResourceNamespace,
+    Registry,
+    shape_from_axis,
+    shape_map,
+    shape_of,
+    shape_from_scalar,
+    shape_with_tail,
+)
 
-from rheidos.compute import Registry, shape_of, shape_from_scalar, shape_with_tail
+
+class TestProducerTypingExports:
+    """Test public typing exports for decorator producers."""
+
+    def test_producer_context_exported(self):
+        """ProducerContext is publicly exported for method annotations."""
+        assert ProducerContext.__name__ == "ProducerContext"
+
+    def test_producer_resource_namespace_exported(self):
+        """ProducerResourceNamespace is publicly exported for ctx.inputs/outputs."""
+        assert ProducerResourceNamespace.__name__ == "ProducerResourceNamespace"
 
 
 class TestShapeOf:
@@ -13,7 +32,6 @@ class TestShapeOf:
         """shape_of returns a function."""
         registry = Registry()
         registry.declare("data", buffer=np.zeros((10, 5)))
-        ref = registry.get("data")
 
         from rheidos.compute import ResourceRef, ResourceKey
 
@@ -57,6 +75,88 @@ class TestShapeOf:
         fn = shape_of(resource_ref)
         shape = fn(registry)
         assert shape is None
+
+
+class TestShapeMap:
+    """Test shape_map() helper."""
+
+    def test_shape_map_returns_fn(self):
+        """shape_map returns a function."""
+        registry = Registry()
+        registry.declare("data", buffer=np.zeros((10, 5)))
+
+        from rheidos.compute import ResourceRef, ResourceKey
+
+        resource_ref = ResourceRef(registry, ResourceKey("data"))
+        fn = shape_map(resource_ref, lambda shape: (shape[0],))
+        assert callable(fn)
+
+    def test_shape_map_resolves_mapped_shape(self):
+        """shape_map applies the mapper to the resolved shape."""
+        registry = Registry()
+        registry.declare("data", buffer=np.zeros((10, 5)))
+
+        from rheidos.compute import ResourceRef, ResourceKey
+
+        resource_ref = ResourceRef(registry, ResourceKey("data"))
+        fn = shape_map(resource_ref, lambda shape: (shape[0], 3))
+        shape = fn(registry)
+        assert shape == (10, 3)
+
+    def test_shape_map_missing_resource(self):
+        """shape_map with missing resource returns None."""
+        registry = Registry()
+        registry.declare("missing")
+
+        from rheidos.compute import ResourceRef, ResourceKey
+
+        resource_ref = ResourceRef(registry, ResourceKey("missing"))
+        fn = shape_map(resource_ref, lambda shape: shape)
+        shape = fn(registry)
+        assert shape is None
+
+    def test_shape_map_no_shape_attr(self):
+        """shape_map with buffer lacking shape returns None."""
+        registry = Registry()
+        registry.declare("data", buffer=42)
+
+        from rheidos.compute import ResourceRef, ResourceKey
+
+        resource_ref = ResourceRef(registry, ResourceKey("data"))
+        fn = shape_map(resource_ref, lambda shape: shape)
+        shape = fn(registry)
+        assert shape is None
+
+    def test_shape_map_mapper_error_returns_none(self):
+        """shape_map returns None when the mapper raises."""
+        registry = Registry()
+        registry.declare("data", buffer=np.zeros((10, 5)))
+
+        from rheidos.compute import ResourceRef, ResourceKey
+
+        def mapper(shape):
+            raise ValueError(f"bad shape: {shape}")
+
+        resource_ref = ResourceRef(registry, ResourceKey("data"))
+        fn = shape_map(resource_ref, mapper)
+        shape = fn(registry)
+        assert shape is None
+
+    def test_shape_map_supports_projection_and_extension(self):
+        """shape_map supports shrinking and extending resolved shapes."""
+        registry = Registry()
+        registry.declare("data", buffer=np.zeros((10, 5)))
+        registry.declare("vector", buffer=np.zeros((10,)))
+
+        from rheidos.compute import ResourceRef, ResourceKey
+
+        data_ref = ResourceRef(registry, ResourceKey("data"))
+        vector_ref = ResourceRef(registry, ResourceKey("vector"))
+        project = shape_map(data_ref, lambda shape: (shape[0],))
+        extend = shape_map(vector_ref, lambda shape: (shape[0], 3))
+
+        assert project(registry) == (10,)
+        assert extend(registry) == (10, 3)
 
 
 class TestShapeFromScalar:
@@ -107,6 +207,46 @@ class TestShapeFromScalar:
 
         resource_ref = ResourceRef(registry, ResourceKey("data"))
         fn = shape_from_scalar(resource_ref)
+        shape = fn(registry)
+        assert shape is None
+
+
+class TestShapeFromAxis:
+    """Test shape_from_axis() helper."""
+
+    def test_shape_from_axis_basic(self):
+        """shape_from_axis projects one axis into a scalar shape."""
+        registry = Registry()
+        registry.declare("data", buffer=np.zeros((10, 5)))
+
+        from rheidos.compute import ResourceRef, ResourceKey
+
+        resource_ref = ResourceRef(registry, ResourceKey("data"))
+        fn = shape_from_axis(resource_ref, axis=0)
+        shape = fn(registry)
+        assert shape == (10,)
+
+    def test_shape_from_axis_with_tail(self):
+        """shape_from_axis appends a tail after projection."""
+        registry = Registry()
+        registry.declare("data", buffer=np.zeros((10, 5)))
+
+        from rheidos.compute import ResourceRef, ResourceKey
+
+        resource_ref = ResourceRef(registry, ResourceKey("data"))
+        fn = shape_from_axis(resource_ref, axis=0, tail=(3,))
+        shape = fn(registry)
+        assert shape == (10, 3)
+
+    def test_shape_from_axis_invalid_axis_returns_none(self):
+        """shape_from_axis returns None when the axis is invalid."""
+        registry = Registry()
+        registry.declare("data", buffer=np.zeros((10, 5)))
+
+        from rheidos.compute import ResourceRef, ResourceKey
+
+        resource_ref = ResourceRef(registry, ResourceKey("data"))
+        fn = shape_from_axis(resource_ref, axis=2)
         shape = fn(registry)
         assert shape is None
 

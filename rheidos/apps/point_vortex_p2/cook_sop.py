@@ -2,7 +2,7 @@
 
 import hou
 
-from rheidos.houdini.runtime import build_cook_context, get_runtime
+from rheidos.houdini.runtime import build_cook_context, session
 
 from rheidos.apps.point_vortex_p2.app import cook
 
@@ -22,7 +22,8 @@ def _seed_output(geo_out: hou.Geometry, src: hou.Geometry) -> None:
     geo_out.merge(src)
 
 
-def run_cook() -> None:
+@session
+def run_cook(session) -> None:
     node = hou.pwd()
     geo_out = node.geometry()
 
@@ -32,7 +33,6 @@ def run_cook() -> None:
 
     _seed_output(geo_out, mesh_geo)
 
-    session = get_runtime().get_or_create_session(node)
     ctx = build_cook_context(
         node,
         mesh_geo,

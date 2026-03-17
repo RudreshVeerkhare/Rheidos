@@ -22,9 +22,9 @@ from rheidos.houdini.debug import (
 )
 from rheidos.houdini.runtime import (
     build_cook_context,
-    get_runtime,
     publish_geometry_minimal,
     CookContext,
+    session,
 )
 from rheidos.houdini.runtime import driver as runtime_driver
 from rheidos.houdini.runtime.resource_keys import (
@@ -347,12 +347,12 @@ def _ensure_taichi_init(session) -> None:
     session.stats["taichi_initialized"] = True
 
 
-def run_solver_new() -> None:
+@session
+def run_solver_new(session) -> None:
     node = hou.pwd()
     geo_out = node.geometry()
 
     t0 = perf_counter_ns()
-    session = get_runtime().get_or_create_session(node)
     t1 = perf_counter_ns()
     prof_cfg = _profiler_cfg_from_node(node)
     prof_token, probe = _enter_profiler(node, session, prof_cfg)
@@ -435,7 +435,8 @@ def _get_input_geo(node: hou.Node, index: int = 0) -> hou.Geometry:
     return geo_in
 
 
-def probe():
+@session
+def probe(session):
     node = hou.pwd()
     geo_out = node.geometry()
 
@@ -453,8 +454,6 @@ def probe():
 
     # Pass mesh through to output so downstream SOPs see the surface.
     _seed_output(geo_out, mesh_geo)
-
-    session = get_runtime().get_or_create_session(node)
 
     ctx = build_cook_context(node, mesh_geo, geo_out, session)
 
@@ -495,7 +494,8 @@ def _publish_sim_keys(ctx) -> None:
     ctx.publish(SIM_SUBSTEP, ctx.substep)
 
 
-def run_solver() -> None:
+@session
+def run_solver(session) -> None:
     node = hou.pwd()
     geo_out = node.geometry()
 
@@ -520,7 +520,6 @@ def run_solver() -> None:
     _seed_output(geo_out, source)
 
     # 2) Persistent session for this node
-    session = get_runtime().get_or_create_session(node)
     _ensure_state(session)
     prof_cfg = _profiler_cfg_from_node(node)
     prof_token, probe = _enter_profiler(node, session, prof_cfg)

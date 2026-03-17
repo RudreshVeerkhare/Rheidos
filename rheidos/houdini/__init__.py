@@ -31,6 +31,7 @@ from .runtime import (
     publish_prim_attrib,
     run_cook,
     run_solver,
+    session,
 )
 
 __all__ = [
@@ -62,4 +63,5 @@ __all__ = [
     "publish_prim_attrib",
     "run_cook",
     "run_solver",
+    "session",
 ]

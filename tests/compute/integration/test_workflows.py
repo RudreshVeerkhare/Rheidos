@@ -9,6 +9,7 @@ from rheidos.compute import (
     ProducerBase,
     Registry,
     WiredProducer,
+    producer,
     out_field,
     ResourceRef,
     ResourceKey,
@@ -200,6 +201,47 @@ class TestModuleSystem:
         b = world.require(ModuleB)
         assert a is not b
         assert isinstance(b.a, ModuleA)
+
+
+class TestDecoratedModuleProducers:
+    """Test decorator-based module producer integration."""
+
+    def test_multi_output_method_runs_once_per_ensure_context(self):
+        """One decorated method backs all of its outputs with one producer."""
+        world = World()
+        run_count = 0
+
+        class MultiOutputModule(ModuleBase):
+            NAME = "multi_output"
+
+            def __init__(self, world, **kwargs):
+                super().__init__(world, **kwargs)
+                self.a = self.resource("a", declare=True, buffer=np.array([4.0]))
+                self.b = self.resource("b")
+                self.c = self.resource("c")
+                self.bind_producers()
+
+            @producer(inputs=("a",), outputs=("b", "c"))
+            def build_outputs(self, ctx):
+                nonlocal run_count
+                run_count += 1
+                a = ctx.inputs.a.get()
+                ctx.commit(b=a + 1, c=a + 2)
+
+        module = world.require(MultiOutputModule)
+
+        world.reg.ensure_many([module.b.name, module.c.name])
+        assert run_count == 1
+        assert np.array_equal(module.b.peek(), np.array([5.0]))
+        assert np.array_equal(module.c.peek(), np.array([6.0]))
+
+        world.reg.ensure(module.b.name)
+        world.reg.ensure(module.c.name)
+        assert run_count == 1
+
+        world.reg.bump(module.a.name)
+        world.reg.ensure(module.c.name)
+        assert run_count == 2
 
 
 class TestWiredProducerIntegration:

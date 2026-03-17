@@ -2,20 +2,36 @@ from .registry import ProducerBase, Registry
 from .resource import Resource, ResourceKey, ResourceKind, ResourceRef, ResourceSpec
 from .resource_kinds import ResourceKindAdapter, register_resource_kind
 from .typing import FieldLike, ResourceName, Shape, ShapeFn
-from .wiring import WiredProducer, out_field
+from .wiring import (
+    ProducerContext,
+    ProducerResourceNamespace,
+    WiredProducer,
+    out_field,
+    producer,
+    producer_output,
+)
 from .world import ModuleBase, Namespace, World, module_resource_deps
 
-from typing import Any, Optional, Tuple
+from typing import Any, Callable, Optional, Tuple
 
 
-def shape_of(ref: ResourceRef[Any]) -> ShapeFn:
+def shape_map(
+    ref: ResourceRef[Any], mapper: Callable[[Shape], Shape]
+) -> ShapeFn:
     def fn(reg: Registry) -> Optional[Shape]:
         buf = reg.read(ref.name, ensure=False)
         if buf is None or not hasattr(buf, "shape"):
             return None
-        return tuple(buf.shape)
+        try:
+            return tuple(mapper(tuple(buf.shape)))
+        except Exception:
+            return None
 
     return fn
+
+
+def shape_of(ref: ResourceRef[Any]) -> ShapeFn:
+    return shape_map(ref, lambda shape: shape)
 
 
 def shape_from_scalar(ref: ResourceRef[Any], *, tail: Tuple[int, ...] = ()) -> ShapeFn:
@@ -25,7 +41,13 @@ def shape_from_scalar(ref: ResourceRef[Any], *, tail: Tuple[int, ...] = ()) -> S
             return None
         try:
             if hasattr(buf, "__getitem__"):
-                n = int(buf[None])
+                try:
+                    n = int(buf[None])
+                except Exception:
+                    try:
+                        n = int(buf[()])
+                    except Exception:
+                        n = int(buf[0])
             else:
                 n = int(buf)
         except Exception:
@@ -41,27 +63,11 @@ def shape_from_axis(
     *,
     tail: Tuple[int, ...] = (),
 ) -> ShapeFn:
-    def fn(reg: Registry) -> Optional[Shape]:
-        buf = reg.read(ref.name, ensure=False)
-        if buf is None or not hasattr(buf, "shape"):
-            return None
-        try:
-            n = int(tuple(buf.shape)[axis])
-        except Exception:
-            return None
-        return (n,) + tuple(tail)
-
-    return fn
+    return shape_map(ref, lambda shape: (int(shape[axis]),) + tuple(tail))
 
 
 def shape_with_tail(ref: ResourceRef[Any], *, tail: Tuple[int, ...] = ()) -> ShapeFn:
-    def fn(reg: Registry) -> Optional[Shape]:
-        buf = reg.read(ref.name, ensure=False)
-        if buf is None or not hasattr(buf, "shape"):
-            return None
-        return tuple(buf.shape) + tuple(tail)
-
-    return fn
+    return shape_map(ref, lambda shape: shape + tuple(tail))
 
 
 __all__ = [
@@ -70,6 +76,8 @@ __all__ = [
     "Namespace",
     "module_resource_deps",
     "ProducerBase",
+    "ProducerContext",
+    "ProducerResourceNamespace",
     "Registry",
     "Resource",
     "ResourceKey",
@@ -83,7 +91,10 @@ __all__ = [
     "WiredProducer",
     "World",
     "out_field",
+    "producer",
+    "producer_output",
     "register_resource_kind",
+    "shape_map",
     "shape_of",
     "shape_from_axis",
     "shape_from_scalar",

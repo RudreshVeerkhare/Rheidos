@@ -76,6 +76,7 @@ from .session import (
     get_sim_context,
     make_session_key,
     make_session_key_for_path,
+    session,
     set_sim_context,
 )
 
@@ -111,5 +112,6 @@ __all__ = [
     "reset_and_reload_with_ui",
     "run_cook",
     "run_solver",
+    "session",
     "set_sim_context",
 ]

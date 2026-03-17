@@ -2,7 +2,11 @@
 
 import hou
 
-from rheidos.houdini.runtime import build_cook_context, get_runtime, publish_geometry_minimal
+from rheidos.houdini.runtime import (
+    build_cook_context,
+    publish_geometry_minimal,
+    session,
+)
 from rheidos.houdini.runtime.resource_keys import SIM_DT, SIM_FRAME, SIM_SUBSTEP, SIM_TIME
 
 from rheidos.apps.point_vortex_p2.app import setup, step
@@ -40,7 +44,8 @@ def _publish_sim_keys(ctx) -> None:
     ctx.publish(SIM_SUBSTEP, ctx.substep)
 
 
-def run_solver() -> None:
+@session
+def run_solver(session) -> None:
     node = hou.pwd()
     geo_out = node.geometry()
 
@@ -56,7 +61,6 @@ def run_solver() -> None:
         raise RuntimeError("No source geometry available for solver output seeding")
     _seed_output(geo_out, source)
 
-    session = get_runtime().get_or_create_session(node)
     _ensure_state(session)
 
     substep = int(node.evalParm("substep")) if node.parm("substep") else 0
