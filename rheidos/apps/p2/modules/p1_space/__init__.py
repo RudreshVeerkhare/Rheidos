@@ -235,7 +235,7 @@ class P1StreamFunction(ModuleBase):
         ctx.commit(omega=omega)
 
     def interpolate(self, probes) -> np.ndarray:
-        """This functions assumes `psi` is already calculated.
+        """Interpolates the value of `psi` based on P1 lagrange basis
 
         Args:
             probes (np.ndarray): [[faceid, [b1, b2, b3]], ...]
@@ -248,6 +248,7 @@ class P1StreamFunction(ModuleBase):
 
         values = np.zeros((len(probes),))
 
+        # TODO: Vectorize the for loop
         for idx, (faceid, (b1, b2, b3)) in enumerate(probes):
             v1, v2, v3 = F_verts[faceid]
             values[idx] += b1 * psi[v1] + b2 * psi[v2] + b3 * psi[v3]

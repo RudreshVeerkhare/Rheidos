@@ -1,35 +1,21 @@
-from rheidos.apps.p2.modules.p1_space import P1StreamFunction
+from rheidos.apps.p2.modules.p2_space import P2Elements, P2StreamFunction
 from rheidos.houdini.runtime.cook_context import CookContext
 
 from .modules import SurfaceMeshModule, PointVortexModule
 import numpy as np
 
 
-class P1Module:
+class P2Module:
     def __init__(self, ctx: CookContext) -> None:
         world = ctx.world()
         self.mesh = world.require(SurfaceMeshModule)
         self.point_vortex = world.require(PointVortexModule)
-        self.p1_stream = world.require(P1StreamFunction)
+        self.p2_space = world.require(P2Elements)
+        self.p2_stream = world.require(P2StreamFunction)
 
 
-def cook2(ctx: CookContext) -> None:
-    mods = P1Module(ctx)
-
-    probe_io = ctx.input_io(1)
-    if probe_io is None:
-        raise RuntimeError("Input 1 is not set")
-
-    faceids = np.array(probe_io.read_point("faceid"), dtype=np.int32)
-    bary = np.array(probe_io.read_point("bary", components=3), dtype=np.float32)
-
-    stream_func = mods.p1_stream.interpolate(list(zip(faceids, bary)))
-
-    ctx.write_point("stream_func", stream_func)
-
-
-def cook(ctx: CookContext) -> None:
-    mods = P1Module(ctx)
+def p2_cook(ctx: CookContext) -> None:
+    mods = P2Module(ctx)
 
     # Read and load mesh from Houdini
     mesh_io = ctx.input_io(0)
@@ -52,17 +38,25 @@ def cook(ctx: CookContext) -> None:
     vortex_faceid = np.array(vort_io.read_point("faceid"), dtype=np.int32)
     mods.point_vortex.set_vortex(vortex_faceid, vortex_bary, vortex_gammma, vortex_pos)
 
-    # Splat vortices
-    omega = mods.p1_stream.omega.get()
-
     # Set Dirichlet Pin
-    mods.p1_stream.constrained_idx.set(np.array([0], dtype=np.int32))
-    mods.p1_stream.constrained_values.set(np.array([0], dtype=np.float32))
+    mods.p2_stream.constrained_idx.set(np.array([0], dtype=np.int32))
+    mods.p2_stream.constrained_values.set(np.array([0], dtype=np.float32))
 
-    # Solve for Stream function
-    psi = mods.p1_stream.psi.get()
+    # Solve for stream function
+    psi = mods.p2_stream.psi.get()
+    print("Hello")
 
-    # Export Stream function
-    ctx.write_point("stream_func", psi)
 
-    print("Herer")
+def p2_cook2(ctx: CookContext) -> None:
+    mods = P2Module(ctx)
+
+    probe_io = ctx.input_io(1)
+    if probe_io is None:
+        raise RuntimeError("Input 1 is not set")
+
+    faceids = np.array(probe_io.read_point("faceid"), dtype=np.int32)
+    bary = np.array(probe_io.read_point("bary", components=3), dtype=np.float32)
+
+    stream_func = mods.p2_stream.interpolate(list(zip(faceids, bary)))
+
+    ctx.write_point("stream_func", stream_func)
