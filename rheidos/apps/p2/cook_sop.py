@@ -1,133 +1,72 @@
-import hou
-from rheidos.houdini.runtime import build_cook_context, session
-from rheidos.houdini.debug import (
-    consume_break_next_button,
-    debug_config_from_node,
-    ensure_debug_server,
-    maybe_break_now,
-    request_break_next,
-)
+from rheidos.houdini.runtime import session
+from rheidos.houdini.runtime.cook_context import CookContext
 
 from .app import cook, cook2
 from .p2_app import p2_cook, p2_cook2
+from .p2_test_app import p1_cook2_test, p1_cook_test, p2_cook2_test, p2_cook_test
 
 P1_SESSION_KEY = "p1"
 P2_SESSION_KEY = "p2"
+P2_TEST_SESSION_KEY = "p2_test"
+P1_TEST_SESSION_KEY = "p1_test"
 
 
-def _get_input_geo(node: hou.Node, index: int) -> hou.Geometry:
-    inputs = node.inputs()
-    if index >= len(inputs) or inputs[index] is None:
-        raise RuntimeError(f"Connect required input {index} to the Python SOP")
-    geo = inputs[index].geometry()
-    if geo is None:
-        raise RuntimeError(f"Input geometry {index} is None")
-    return geo
+def _copy_input_to_output(ctx: CookContext, index: int) -> None:
+    src_io = ctx.input_io(index)
+    if src_io is None:
+        raise RuntimeError(f"Input geometry {index} is not connected.")
+
+    out_io = ctx.output_io()
+    if out_io.geo_out is None:
+        raise RuntimeError("CookContext output IO is missing output geometry.")
+
+    out_io.geo_out.clear()
+    out_io.geo_out.merge(src_io.geo_in)
 
 
-@session(P2_SESSION_KEY)
-def node3(session) -> None:
-    node = hou.pwd()
-    geo_out = node.geometry()
+@session(P1_TEST_SESSION_KEY, debugger=True)
+def node7(ctx: CookContext) -> None:
+    _copy_input_to_output(ctx, 0)
+    p1_cook_test(ctx)
 
-    cfg = debug_config_from_node(node)
-    ensure_debug_server(cfg, node=node)
-    if consume_break_next_button(node):
-        request_break_next(node=node)
-    maybe_break_now(node=node)
 
-    # Input 0: mesh, Input 1: Point-vortex state points
-    mesh_geo = _get_input_geo(node, 0)
-    vort_geo = _get_input_geo(node, 1)
+@session(P1_TEST_SESSION_KEY, debugger=True)
+def node8(ctx: CookContext) -> None:
+    _copy_input_to_output(ctx, 1)
+    p1_cook2_test(ctx)
 
-    geo_out.clear()
-    geo_out.merge(mesh_geo)
 
-    ctx = build_cook_context(
-        node, mesh_geo, geo_out, session, geo_inputs=[mesh_geo, vort_geo]
-    )
+@session(P2_TEST_SESSION_KEY, debugger=True)
+def node5(ctx: CookContext) -> None:
+    _copy_input_to_output(ctx, 0)
+    p2_cook_test(ctx)
 
+
+@session(P2_TEST_SESSION_KEY, debugger=True)
+def node6(ctx: CookContext) -> None:
+    _copy_input_to_output(ctx, 1)
+    p2_cook2_test(ctx)
+
+
+@session(P2_SESSION_KEY, debugger=True)
+def node3(ctx: CookContext) -> None:
+    _copy_input_to_output(ctx, 0)
     p2_cook(ctx)
 
-    print("Here from node 3!")
 
-
-@session(P2_SESSION_KEY)
-def node4(session) -> None:
-    node = hou.pwd()
-    geo_out = node.geometry()
-
-    cfg = debug_config_from_node(node)
-    ensure_debug_server(cfg, node=node)
-    if consume_break_next_button(node):
-        request_break_next(node=node)
-    maybe_break_now(node=node)
-
-    # Input 0: mesh, Input 1: Point-vortex state points
-    mesh_geo = _get_input_geo(node, 0)
-    probe_geo = _get_input_geo(node, 1)
-
-    geo_out.clear()
-    geo_out.merge(probe_geo)
-
-    ctx = build_cook_context(
-        node, mesh_geo, geo_out, session, geo_inputs=[mesh_geo, probe_geo]
-    )
-
+@session(P2_SESSION_KEY, debugger=True)
+def node4(ctx: CookContext) -> None:
+    _copy_input_to_output(ctx, 1)
     p2_cook2(ctx)
 
-    print("Here from node 4!")
 
-
-@session(P1_SESSION_KEY)
-def node1(session) -> None:
-    node = hou.pwd()
-    geo_out = node.geometry()
-
-    cfg = debug_config_from_node(node)
-    ensure_debug_server(cfg, node=node)
-    if consume_break_next_button(node):
-        request_break_next(node=node)
-    maybe_break_now(node=node)
-
-    # Input 0: mesh, Input 1: Point-vortex state points
-    mesh_geo = _get_input_geo(node, 0)
-    vort_geo = _get_input_geo(node, 1)
-
-    geo_out.clear()
-    geo_out.merge(mesh_geo)
-
-    ctx = build_cook_context(
-        node, mesh_geo, geo_out, session, geo_inputs=[mesh_geo, vort_geo]
-    )
-
+@session(P1_SESSION_KEY, debugger=True)
+def node1(ctx: CookContext) -> None:
+    _copy_input_to_output(ctx, 0)
     cook(ctx)
 
-    print("Here from node 1!")
 
-
-@session(P1_SESSION_KEY)
-def node2(session) -> None:
-    node = hou.pwd()
-    geo_out = node.geometry()
-
-    cfg = debug_config_from_node(node)
-    ensure_debug_server(cfg, node=node)
-    if consume_break_next_button(node):
-        request_break_next(node=node)
-    maybe_break_now(node=node)
-
-    # Input 0: mesh, Input 1: Point-vortex state points
-    mesh_geo = _get_input_geo(node, 0)
-    probe_geo = _get_input_geo(node, 1)
-
-    geo_out.clear()
-    geo_out.merge(probe_geo)
-
-    ctx = build_cook_context(
-        node, mesh_geo, geo_out, session, geo_inputs=[mesh_geo, probe_geo]
-    )
-
+@session(P1_SESSION_KEY, debugger=True)
+def node2(ctx: CookContext) -> None:
+    _copy_input_to_output(ctx, 1)
     cook2(ctx)
-
-    print("Here from node 2!")

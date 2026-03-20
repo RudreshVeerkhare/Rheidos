@@ -258,6 +258,25 @@ def test_write_wrapper_respects_read_only_io():
         io.write_point("P", np.array([[0.0, 0.0, 0.0]], dtype=np.float32), create=True)
 
 
+def test_cook_context_output_io_targets_output_geometry():
+    geo_in = _FakeGeometry(point_count=1)
+    geo_out = _FakeGeometry(point_count=2)
+    io = GeometryIO(geo_in, geo_out)
+    input_io = GeometryIO(geo_in)
+    input_io.geo_out = None
+    ctx = _make_ctx(io)
+    ctx.geo_in = geo_in
+    ctx.geo_out = geo_out
+    ctx.io_inputs = (input_io,)
+
+    output_io = ctx.output_io()
+
+    assert output_io.geo_in is geo_out
+    assert output_io.geo_out is geo_out
+    assert ctx.input_io(0).geo_in is geo_in
+    assert ctx.input_io(0).geo_out is None
+
+
 def test_cook_context_owner_specific_methods_delegate_to_io():
     calls = []
 

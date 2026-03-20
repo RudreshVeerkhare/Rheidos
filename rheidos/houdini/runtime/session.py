@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from functools import wraps
 import inspect
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 from typing import Any, Callable, Deque, Dict, Optional, Tuple, TYPE_CHECKING, Literal, overload
 import time
 import warnings
@@ -15,6 +15,7 @@ import numpy as np
 
 from rheidos.compute.world import World
 from rheidos.compute.profiler.core import Profiler, ProfilerConfig
+from rheidos.compute.profiler.runtime import reset_current_profiler, set_current_profiler
 from rheidos.compute.profiler.summary_store import SummaryStore
 from rheidos.compute.profiler.tb import TBLogger
 
@@ -192,31 +193,206 @@ def _register_named_session_owner(
     session_obj.stats[_SESSION_OWNER_WARNING_KEY] = True
 
 
+def _collect_input_geos(node: "hou.Node") -> tuple[Optional["hou.Geometry"], ...]:
+    inputs = node.inputs()
+    if not inputs:
+        return ()
+
+    geos: list[Optional["hou.Geometry"]] = []
+    for input_node in inputs:
+        if input_node is None:
+            geos.append(None)
+            continue
+        try:
+            geo = input_node.geometry()
+        except Exception:
+            geo = None
+        geos.append(geo)
+    return tuple(geos)
+
+
+def _eval_action_parm(node: "hou.Node", name: str) -> bool:
+    parm = getattr(node, "parm", None)
+    if not callable(parm):
+        return False
+    try:
+        value = parm(name)
+    except Exception:
+        return False
+    if value is None:
+        return False
+    try:
+        return bool(value.eval())
+    except Exception:
+        return False
+
+
+def _clear_action_parm(node: "hou.Node", name: str) -> None:
+    parm = getattr(node, "parm", None)
+    if not callable(parm):
+        return
+    try:
+        value = parm(name)
+    except Exception:
+        return
+    if value is None:
+        return
+    try:
+        if value.eval():
+            value.set(0)
+    except Exception:
+        return
+
+
+def _prepare_entrypoint_session(node: "hou.Node", *, key: Optional[str]) -> "WorldSession":
+    runtime = get_runtime()
+
+    if _eval_action_parm(node, "nuke_all"):
+        runtime.nuke_all(reason="nuke_all button")
+        _clear_action_parm(node, "nuke_all")
+
+    if _eval_action_parm(node, "reset_node"):
+        runtime.reset_session(node, reason="reset_node button", key=key)
+        _clear_action_parm(node, "reset_node")
+
+    return runtime.get_or_create_session(node, key=key)
+
+
+def _build_entrypoint_context(
+    node: "hou.Node",
+    *,
+    session_obj: "WorldSession",
+) -> Any:
+    from .cook_context import build_cook_context
+
+    try:
+        geo_out = node.geometry()
+    except Exception as exc:
+        raise RuntimeError(
+            f"@session could not resolve output geometry for '{node.path()}'"
+        ) from exc
+
+    input_geos = _collect_input_geos(node)
+    geo_in = geo_out
+    if input_geos and input_geos[0] is not None:
+        geo_in = input_geos[0]
+
+    return build_cook_context(
+        node,
+        geo_in,
+        geo_out,
+        session_obj,
+        geo_inputs=input_geos,
+    )
+
+
+def _run_entrypoint_debug(node: "hou.Node") -> None:
+    from rheidos.houdini.debug import (
+        consume_break_next_button,
+        debug_config_from_node,
+        ensure_debug_server,
+        maybe_break_now,
+        request_break_next,
+    )
+
+    cfg = replace(debug_config_from_node(node), enabled=True)
+    ensure_debug_server(cfg, node=node)
+    if consume_break_next_button(node):
+        request_break_next(node=node)
+    maybe_break_now(node=node)
+
+
+def _forced_profiler_config() -> SimpleNamespace:
+    return SimpleNamespace(
+        profile=True,
+        profile_logdir=None,
+        profile_export_hz=5.0,
+        profile_mode="coarse",
+        profile_trace_cooks=64,
+        profile_trace_edges=20000,
+        profile_overhead=False,
+        profile_taichi=True,
+        profile_taichi_every=30,
+        profile_taichi_sync=True,
+        profile_taichi_scoped_once=False,
+    )
+
+
+def _call_with_forced_profiler(
+    fn: Callable[..., Any],
+    ctx: Any,
+    *,
+    node: "hou.Node",
+    session_obj: "WorldSession",
+) -> Any:
+    from .driver import _configure_profiler
+
+    config = _forced_profiler_config()
+    _configure_profiler(session_obj, config, node)
+
+    token = set_current_profiler(session_obj.profiler)
+    cook_index = session_obj.profiler.next_cook_index()
+    sample_every = max(1, session_obj.profiler.cfg.taichi_sample_every_n_cooks)
+    is_sample = (
+        session_obj.profiler.cfg.enabled
+        and session_obj.profiler.cfg.taichi_enabled
+        and (cook_index % sample_every == 0)
+    )
+    session_obj.profiler.set_taichi_sample(is_sample)
+    probe = session_obj.taichi_probe if is_sample else None
+
+    try:
+        if probe is not None:
+            probe.clear()
+        result = fn(ctx)
+        if probe is not None:
+            probe.sync()
+            k_ms = probe.kernel_total_ms()
+            session_obj.profiler.record_value("taichi", "kernel_total", None, k_ms)
+        return result
+    finally:
+        reset_current_profiler(token)
+        session_obj.profiler.set_taichi_sample(False)
+
+
 def _decorate_session_entrypoint(
     fn: Callable[..., Any],
     *,
     key: Optional[str],
+    debugger: bool,
+    profiler: bool,
 ) -> Callable[..., Any]:
     sig = inspect.signature(fn)
-    if "session" not in sig.parameters:
+    params = list(sig.parameters.values())
+    if (
+        len(params) != 1
+        or params[0].name != "ctx"
+        or params[0].kind not in (
+            inspect.Parameter.POSITIONAL_ONLY,
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+        )
+    ):
         raise TypeError(
-            f"@session target '{fn.__qualname__}' must accept a 'session' parameter"
+            f"@session target '{fn.__qualname__}' must be defined as 'def {fn.__name__}(ctx)'"
         )
 
     @wraps(fn)
     def wrapped(*args: Any, **kwargs: Any) -> Any:
-        bound = sig.bind_partial(*args, **kwargs)
-        if "session" in bound.arguments:
+        if args or kwargs:
             raise TypeError(
-                f"@session target '{fn.__qualname__}' injects 'session'; do not pass it explicitly"
+                f"@session target '{fn.__qualname__}' injects 'ctx'; do not pass arguments explicitly"
             )
 
         node = _resolve_entrypoint_node(fn.__qualname__, key=key)
-        session_obj = get_runtime().get_or_create_session(node, key=key)
+        session_obj = _prepare_entrypoint_session(node, key=key)
         if key is not None:
             _register_named_session_owner(session_obj, key=key, fn=fn)
-        bound.arguments["session"] = session_obj
-        return fn(*bound.args, **bound.kwargs)
+        if debugger:
+            _run_entrypoint_debug(node)
+        ctx = _build_entrypoint_context(node, session_obj=session_obj)
+        if profiler:
+            return _call_with_forced_profiler(fn, ctx, node=node, session_obj=session_obj)
+        return fn(ctx)
 
     return wrapped
 
@@ -227,13 +403,22 @@ def session(fn: Callable[..., Any]) -> Callable[..., Any]:
 
 
 @overload
-def session(name: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+def session(
+    name: str,
+    *,
+    debugger: bool = False,
+    profiler: bool = False,
+) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     ...
 
 
 @overload
 def session(
-    fn: None = None, *, key: str
+    fn: None = None,
+    *,
+    key: str,
+    debugger: bool = False,
+    profiler: bool = False,
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     ...
 
@@ -242,8 +427,10 @@ def session(
     fn: Optional[Callable[..., Any]] = None,
     *,
     key: Optional[str] = None,
+    debugger: bool = False,
+    profiler: bool = False,
 ) -> Any:
-    """Inject a runtime session into a manual Houdini entrypoint.
+    """Inject a cook context into a manual Houdini entrypoint.
 
     Supported forms:
     - ``@session`` for node-local sessions
@@ -252,13 +439,23 @@ def session(
     """
 
     if callable(fn) and key is None:
-        return _decorate_session_entrypoint(fn, key=None)
+        return _decorate_session_entrypoint(
+            fn,
+            key=None,
+            debugger=debugger,
+            profiler=profiler,
+        )
 
     if fn is None:
         normalized_key = None if key is None else _normalize_session_name(key)
 
         def decorator(target: Callable[..., Any]) -> Callable[..., Any]:
-            return _decorate_session_entrypoint(target, key=normalized_key)
+            return _decorate_session_entrypoint(
+                target,
+                key=normalized_key,
+                debugger=debugger,
+                profiler=profiler,
+            )
 
         return decorator
 
@@ -266,12 +463,17 @@ def session(
         normalized_key = _normalize_session_name(fn)
 
         def decorator(target: Callable[..., Any]) -> Callable[..., Any]:
-            return _decorate_session_entrypoint(target, key=normalized_key)
+            return _decorate_session_entrypoint(
+                target,
+                key=normalized_key,
+                debugger=debugger,
+                profiler=profiler,
+            )
 
         return decorator
 
     raise TypeError(
-        "session() supports only @session, @session('name'), or @session(key='name')"
+        "session() supports only @session, @session('name'), or @session(key='name') with optional debugger/profiler flags"
     )
 
 

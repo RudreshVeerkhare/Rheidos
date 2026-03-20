@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Dict, Optional, Sequence, TYPE_CHECKING
 
 import numpy as np
@@ -72,6 +72,7 @@ class CookContext:
     geo_inputs: tuple[Optional["hou.Geometry"], ...] = ()
     io_inputs: tuple[Optional[GeometryIO], ...] = ()
     schema: Optional[GeometrySchema] = None
+    _output_io: Optional[GeometryIO] = field(default=None, init=False, repr=False)
 
     def world(self) -> World:
         if self.session.world is None:
@@ -80,6 +81,8 @@ class CookContext:
 
     def clear_cache(self) -> None:
         self.io.clear_cache()
+        if self._output_io is not None:
+            self._output_io.clear_cache()
         for io in self.io_inputs:
             if io is None or io is self.io:
                 continue
@@ -111,6 +114,15 @@ class CookContext:
         if io is None and required:
             raise RuntimeError(f"Input geometry {index} is not connected.")
         return io
+
+    @property
+    def output_geo(self) -> "hou.Geometry":
+        return self.geo_out
+
+    def output_io(self) -> GeometryIO:
+        if self._output_io is None:
+            self._output_io = GeometryIO(self.geo_out, self.geo_out)
+        return self._output_io
 
     def read(
         self,
