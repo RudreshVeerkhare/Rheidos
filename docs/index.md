@@ -1,19 +1,17 @@
-# Rheidos Docs (Compute + Houdini)
+# Rheidos Docs
 
-This documentation covers the compute module and the Houdini integration in this repo.
-Install instructions are intentionally omitted for now.
+This repo now has one supported app-level surface: `rheidos/apps/p2`.
 
-Choose your intent (Diataxis):
-- Tutorials: docs/tutorials.md
-- How-to guides: docs/how-to.md
-- Reference: docs/reference.md
-- Explanation: docs/explanation.md
- - Producer helpers: docs/producer_helpers.md
- - point_vortex_p2 internals: docs/point_vortex_p2.md
+The rest of the codebase is shared infrastructure for that app:
+- `rheidos/compute`: resource graph, decorator producers, module/world helpers
+- `rheidos/houdini`: CookContext, session runtime, debugger, profiler, reset helpers
 
-Quick map of the codebase:
-- Compute core: rheidos/compute/*
-- Houdini integration: rheidos/houdini/*
-- Houdini Python SOP templates: rheidos/apps/point_vortex/cook_sop.py and rheidos/apps/point_vortex/solver_sop.py
-
-Note: The example app under rheidos/apps/point_vortex is experimental and not documented as a tutorial.
+Choose your intent:
+- Tutorials: `docs/tutorials.md`
+- How-to guides: `docs/how-to.md`
+- Reference: `docs/reference.md`
+- Explanation: `docs/explanation.md`
+- Decorator producer helpers: `docs/producer_helpers.md`
+- TensorBoard logging: `docs/tensorboard_logging.md`
+- Profiling architecture: `docs/profiling_report.md`
+- VS Code debugger: `docs/vscode-debugger.md`

@@ -1,5 +1,3 @@
-from posixpath import sep
-
 from rheidos.apps.p2.modules.point_vortex import PointVortexModule
 from rheidos.apps.p2.modules.surface_mesh import SurfaceMeshModule
 from rheidos.compute import ModuleBase, ResourceSpec, shape_from_scalar, shape_map

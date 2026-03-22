@@ -1,175 +1,161 @@
 # How-to Guides
 
-How-to guides are goal oriented and assume you already know the basics.
+How-to guides are goal-oriented recipes for the preserved compute and Houdini runtime.
 
-## Compute: Validate buffers with ResourceSpec
+## Compute: Validate buffers with `ResourceSpec`
 
-Goal: Ensure buffers match expected type, dtype, and shape.
+Goal:
+- reject wrong dtype or shape early
 
-Steps:
-1) Declare the resource with a spec.
-   ```python
-   import numpy as np
-   from rheidos.compute import ModuleBase, ResourceSpec, World
+```python
+import numpy as np
+from rheidos.compute import ModuleBase, ResourceSpec, World
 
-   class MyModule(ModuleBase):
-       NAME = "demo"
-       def __init__(self, world: World, *, scope: str = "") -> None:
-           super().__init__(world, scope=scope)
-           self.positions = self.resource(
-               "positions",
-               declare=True,
-               spec=ResourceSpec(kind="numpy", dtype=np.float32, shape=(4, 3)),
-               doc="(4,3) float32 positions",
-           )
 
-   world = World()
-   mod = world.require(MyModule)
-   mod.positions.set(np.zeros((4, 3), dtype=np.float32))
-   ```
-2) Try an invalid buffer to see validation fail.
-   ```python
-   mod.positions.set(np.zeros((4, 2), dtype=np.float32))
-   ```
+class DemoModule(ModuleBase):
+    NAME = "demo"
 
-Result: A `TypeError` is raised when the buffer does not match the spec.
+    def __init__(self, world: World, *, scope: str = "") -> None:
+        super().__init__(world, scope=scope)
+        self.positions = self.resource(
+            "positions",
+            declare=True,
+            spec=ResourceSpec(kind="numpy", dtype=np.float32, shape=(4, 3)),
+        )
 
-## Compute: Allocate-before-fill for Taichi fields
 
-Goal: Allocate a Taichi field only when size changes, then commit after fill.
+world = World()
+mod = world.require(DemoModule)
+mod.positions.set(np.zeros((4, 3), dtype=np.float32))
+```
 
-Steps:
-1) Use `set_buffer(..., bump=False)` before filling.
-   ```python
-   import taichi as ti
+If you set a `(4, 2)` array or the wrong dtype, validation raises `TypeError`.
 
-   field = ref.peek()
-   if field is None or tuple(field.shape) != (n,):
-       field = ti.field(dtype=ti.f32, shape=(n,))
-       ref.set_buffer(field, bump=False)
+## Compute: Allocate outputs with `producer_output(..., alloc=...)`
 
-   # Fill the field here...
-   ref.commit()
-   ```
+Goal:
+- allocate dynamic outputs from inside a decorator producer
 
-Result: The resource becomes fresh only after the data is filled.
+```python
+import numpy as np
+from rheidos.compute import ModuleBase, World, producer, producer_output
 
-## Compute: Debug staleness with Registry.explain
 
-Goal: See why a resource is stale and which producer owns it.
+def alloc_out(_reg, ctx):
+    return np.zeros_like(ctx.inputs.a.peek())
 
-Steps:
-1) Call `explain` on the registry.
-   ```python
-   print(world.reg.explain(mod.output.name, depth=4))
-   ```
 
-Result: A tree shows each dependency, its version, and whether it is stale.
+class DemoModule(ModuleBase):
+    NAME = "demo"
 
-## Houdini: Use the Solver SOP template with setup/step
+    def __init__(self, world: World, *, scope: str = "") -> None:
+        super().__init__(world, scope=scope)
+        self.a = self.resource("a", declare=True, buffer=np.array([2.0]))
+        self.out = self.resource("out")
+        self.bind_producers()
 
-Goal: Run a stateful solver using the template from `rheidos/apps/point_vortex/solver_sop.py`.
+    @producer(inputs=("a",), outputs=(producer_output("out", alloc=alloc_out),))
+    def run(self, ctx) -> None:
+        out = ctx.ensure_outputs(require_shape=False)["out"].peek()
+        out[:] = ctx.inputs.a.get() + 3.0
+        ctx.outputs.out.commit()
+```
 
-Steps:
-1) Paste the template into a Solver SOP Python script.
-2) Update the import to your own solver module.
-   ```python
-   # from rheidos.apps.point_vortex.app import setup, step
-   from my_solver import setup, step
-   ```
-3) Create `my_solver.py` with optional `setup(ctx)` and required `step(ctx)`.
-   ```python
-   import numpy as np
+## Compute: Debug staleness with `Registry.explain`
 
-   def setup(ctx) -> None:
-       ctx.session.stats["solver_started"] = True
+Goal:
+- see why a resource is stale and which dependencies are involved
 
-   def step(ctx) -> None:
-       P = ctx.P().copy()
-       P[:, 1] += 0.1 * float(ctx.dt)
-       ctx.set_P(P)
-   ```
-4) (Optional) Add an integer parameter named `substep` to the Solver SOP.
+```python
+print(world.reg.explain(module.output.name, depth=4))
+```
 
-Result: The solver moves points upward by `0.1 * dt` each cook.
+Use this when a resource recomputes unexpectedly or fails to update when you expect it to.
 
-## Houdini: Read and write attributes with GeometryIO
+## Houdini: Mirror an input and call app logic
 
-Goal: Read existing attributes and write new ones in a Python SOP.
+Goal:
+- use the supported session-entrypoint pattern from `rheidos/apps/p2/cook_sop.py`
 
-Steps:
-1) Construct a `GeometryIO` and read an attribute.
-   ```python
-   import hou
-   from rheidos.houdini.geo import GeometryIO, OWNER_POINT
+```python
+from rheidos.houdini.runtime import session
 
-   node = hou.pwd()
-   geo_in = node.inputs()[0].geometry()
-   io = GeometryIO(geo_in, geo_in)
-   P = io.read(OWNER_POINT, "P", components=3)
-   ```
-2) Write a new attribute to the output geometry.
-   ```python
-   geo_out = node.geometry()
-   geo_out.clear()
-   geo_out.merge(geo_in)
 
-   io = GeometryIO(geo_in, geo_out)
-   io.write(OWNER_POINT, "u", P[:, :1], create=True)
-   ```
+@session("demo", debugger=True)
+def node1(ctx) -> None:
+    src_io = ctx.input_io(0)
+    out_io = ctx.output_io()
+    out_io.geo_out.clear()
+    out_io.geo_out.merge(src_io.geo_in)
 
-Result: The `u` attribute is created on points.
+    # Your cook logic here.
+```
 
-## Houdini: Record diagnostics from CookContext
+This is the pattern the active P2 app uses before dispatching into its module graph.
 
-Goal: Log events into the session for later inspection.
+## Houdini: Use `run_solver` with `setup(ctx)` / `step(ctx)`
 
-Steps:
-1) Call `ctx.log` in your cook or step function.
-   ```python
-   def cook(ctx) -> None:
-       ctx.log("my_event", value=123)
-   ```
-2) Inspect `session.log_entries` in a Houdini Python shell.
+Goal:
+- run a stateful solver without writing your own session/cache plumbing
 
-Result: The session contains structured log entries with timestamps.
+```python
+from rheidos.houdini.runtime import run_solver
 
-## Houdini: Attach a debugger with debugpy
 
-Goal: Attach VS Code (or any debugpy client) to a running Houdini cook without blocking.
+def setup(ctx) -> None:
+    ctx.session.stats["solver_started"] = True
 
-Steps:
-1) Install `debugpy` into Houdini's Python.
-   ```python
-   import sys
-   print(sys.executable)
-   ```
-   Then in a terminal:
-   ```bash
-   <hython> -m pip install --user debugpy
-   ```
-2) Add the debug parameters to your Python SOP/Solver SOP (or HDA):
-   - `debug_enable` (toggle)
-   - `debug_port` (int, default 5678)
-   - `debug_port_strategy` (menu: Fixed/Fallback/Auto)
-   - `debug_take_ownership` (toggle)
-   - `debug_break_next` (button)
-   - `debug_allow_remote` (toggle, optional)
-3) Enable debugging on a node and cook once.
-   Result: The Houdini console prints the attach host/port once per session.
-4) Attach from VS Code with:
-   ```json
-   {
-     "type": "python",
-     "request": "attach",
-     "host": "127.0.0.1",
-     "port": 5678
-   }
-   ```
-5) Press `debug_break_next` and recook to break at the next cook when attached.
 
-Notes:
-- Environment overrides are supported: `RHEIDOS_DEBUG=1`, `RHEIDOS_DEBUG_PORT=5678`,
-  `RHEIDOS_DEBUG_HOST=127.0.0.1`, `RHEIDOS_DEBUG_PORT_STRATEGY=fallback`,
-  `RHEIDOS_DEBUG_REMOTE=1` (aliases with `RHEDIOS_` also work).
-- Remote attach is blocked unless `debug_allow_remote` or `*_DEBUG_REMOTE=1` is set.
+def step(ctx) -> None:
+    P = ctx.P().copy()
+    P[:, 1] += 0.1 * float(ctx.dt)
+    ctx.set_P(P)
+```
+
+Point `run_solver(...)` at a module that exposes `setup(ctx)` and `step(ctx)`. The driver handles session reuse, profiling, publishing, and repeated-step suppression.
+
+## Houdini: Record diagnostics from `CookContext`
+
+Goal:
+- emit structured events into the current session
+
+```python
+def cook(ctx) -> None:
+    ctx.log("my_event", value=123)
+```
+
+Inspect the result from `ctx.session.log_entries`.
+
+## Houdini: Attach a debugger with `debugpy`
+
+Goal:
+- attach VS Code or another debugpy client to a running cook
+
+1. Install `debugpy` into Houdini's Python:
+
+```bash
+<hython> -m pip install --user debugpy
+```
+
+2. Add or expose node parameters such as:
+- `debug_enable`
+- `debug_port`
+- `debug_port_strategy`
+- `debug_take_ownership`
+- `debug_break_next`
+- `debug_allow_remote`
+
+3. Attach from VS Code:
+
+```json
+{
+  "type": "python",
+  "request": "attach",
+  "host": "127.0.0.1",
+  "port": 5678
+}
+```
+
+4. Press `debug_break_next` and recook.
+
+The full debugger behavior is documented in `docs/vscode-debugger.md`.

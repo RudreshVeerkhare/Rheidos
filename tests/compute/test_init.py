@@ -5,6 +5,7 @@ from rheidos.compute import (
     ProducerContext,
     ProducerResourceNamespace,
     Registry,
+    producer_output,
     shape_from_axis,
     shape_map,
     shape_of,
@@ -23,6 +24,19 @@ class TestProducerTypingExports:
     def test_producer_resource_namespace_exported(self):
         """ProducerResourceNamespace is publicly exported for ctx.inputs/outputs."""
         assert ProducerResourceNamespace.__name__ == "ProducerResourceNamespace"
+
+    def test_producer_output_exported(self):
+        """producer_output remains part of the public decorator API."""
+        output = producer_output("result")
+        assert output.name == "result"
+
+    def test_legacy_class_producer_apis_not_exported(self):
+        """Legacy class-producer authoring helpers are no longer public exports."""
+        import rheidos.compute as compute
+
+        assert not hasattr(compute, "ProducerBase")
+        assert not hasattr(compute, "WiredProducer")
+        assert not hasattr(compute, "out_field")
 
 
 class TestShapeOf:

@@ -1,79 +1,89 @@
 # Explanation
 
-This section provides background and rationale for the compute and Houdini layers.
+This section describes the surviving architecture after the repo cleanup.
 
-## Compute model: resources, producers, modules
+## Compute model: resources, decorator producers, modules
 
-The compute module is a small, explicit dataflow system. It is not a full reactive
-framework or an ECS. The goal is to keep data flow visible while still getting
-lazy, on-demand computation.
+The compute layer is a small lazy dataflow system.
 
-- Resource: a named piece of state stored in the registry.
-- Producer: code that fills one or more resources.
-- Module: a namespace that groups related resources and producers.
+Core ideas:
+- `ResourceRef`: named state stored in the registry
+- `@producer`: a decorated module method that fills one or more resources
+- `ModuleBase`: a namespace for related resources and producers
+- `World`: the container that owns module instances and the registry
 
-When you call `ResourceRef.get()`, the registry checks whether the resource is stale.
-If it is, it ensures the dependencies and runs the owning producer. This gives you a
-lazy compute graph without requiring a heavy scheduler.
+The intended authoring path is:
+1. declare resources in a `ModuleBase`
+2. mark compute methods with `@producer(...)`
+3. call `bind_producers()` in the module constructor
+
+When you call `ref.get()`, the registry checks freshness, ensures dependencies, and runs the bound producer if needed.
 
 ## Registry semantics and validation
 
-The registry tracks a version number and a dependency signature for each resource.
-A resource is stale if:
-- It has never been committed (`version == 0`), or
-- Any dependency has a different version than the signature stored at last commit.
+Each resource tracks:
+- a version
+- a dependency signature captured at last commit
+- an optional `ResourceSpec`
 
-The key mutation operations are:
-- `set_buffer`: replace the buffer, optionally bumping the version.
-- `commit`: mark fresh relative to current deps (and optionally replace the buffer).
-- `bump`: mark fresh without changing the buffer.
+A resource is stale when:
+- it has never been committed, or
+- any dependency version no longer matches its stored dependency signature
 
-`ResourceSpec` adds runtime validation for buffer type, dtype, lanes, and shape.
-Validation is a best-effort check, especially for Taichi fields. You can bypass
-checks with `unsafe=True` when prototyping.
+`ResourceSpec` adds runtime validation for:
+- kind
+- dtype
+- vector lanes
+- explicit or lazily-resolved shape
 
-## Modules and dynamic dependencies
+This keeps the system lightweight while still catching common mismatches early.
 
-Modules are instantiated via `World.require`. Dependencies are discovered dynamically
-as the module constructors run. The world detects module cycles to avoid hard-to-debug
-recursive initialization.
+## Modules and scopes
 
-Scopes allow you to create multiple independent copies of the same module graph.
-The scope becomes a prefix in the resource names.
+Modules are instantiated with `World.require(...)`.
+
+Important behavior:
+- dependencies between modules are discovered dynamically as constructors call `require(...)`
+- module cycles are detected during construction
+- scopes create independent copies of the same module graph by prefixing resource names
+
+This is the mechanism the active P2 app uses to assemble mesh, vortex, and scalar-space modules.
 
 ## Houdini runtime architecture
 
-The Houdini integration wraps cooking into a small runtime layer:
-- `ComputeRuntime` holds a cache of `WorldSession` objects keyed by HIP path and node path.
-- `WorldSession` stores the `World` plus cached geometry state and diagnostics.
-- `CookContext` is created per cook and exposes geometry I/O, publishing, and timing data.
+The Houdini runtime wraps node execution into three main pieces:
+- `ComputeRuntime`: session cache keyed by HIP path and node path
+- `WorldSession`: persistent per-node state such as `World`, stats, profiler, and logs
+- `CookContext`: per-cook access to geometry I/O, session state, time data, and publishing helpers
 
-The template scripts under `rheidos/apps/point_vortex` show the intended integration
-pattern: seed output geometry, build a `CookContext`, publish minimal geometry keys,
-then call user code.
+The supported hand-written entrypoint pattern is the session decorator used in `rheidos/apps/p2/cook_sop.py`.
 
-The `run_cook` and `run_solver` drivers add stricter behavior, including script/module
-loading rules and automatic handling of `out.P`. They are available but not the primary
-workflow in this repo.
+Generic drivers still exist:
+- `run_cook(...)`
+- `run_solver(...)`
 
-## GeometryIO design and constraints
+They remain useful for dynamic script loading and generic solver entrypoints, but the active app surface in this repo is the P2 entrypoint/module stack.
 
-`GeometryIO` provides a stable, NumPy-first interface to Houdini geometry.
-Key design points:
-- Attribute reads return NumPy arrays, cached per cook for reuse.
-- Writes normalize shapes (1D becomes `(N, 1)`; detail becomes `(1, tuple_size)`).
-- Group reads can return indices or boolean masks.
-- Primitive reads only support polygon prims of a fixed arity (triangles by default).
+## GeometryIO and CookContext
 
-These choices keep I/O explicit and predictable, which is important when you are
-bridging to compute graphs or Taichi fields.
+`GeometryIO` is intentionally NumPy-first:
+- reads return NumPy arrays
+- writes normalize shapes for Houdini owners
+- group reads can return masks or indices
+- primitive reads assume fixed arity, triangles by default
 
-## Taichi fields in the compute layer
+`CookContext` builds on that and adds:
+- `P()` / `set_P()`
+- input and output geometry helpers
+- `publish(...)` into the compute world
+- `session_access(...)` for other node sessions
+- structured logging through `ctx.log(...)`
 
-Taichi fields are supported as a ResourceSpec kind (`"taichi_field"`). Validation
-checks are best-effort (dtype, shape, and vector lanes when available). For dynamic
-allocation, the recommended pattern is allocate-before-fill using `set_buffer` and
-`commit` after you write the data.
+## Taichi and reset behavior
 
-The Houdini runtime includes `reset_taichi_hard()` for full Taichi resets when you
-need to clear global state between sessions.
+The compute layer still supports `taichi_field` resource kinds and the Houdini runtime still preserves:
+- Taichi init/reset helpers
+- hard reset hooks
+- profiler sampling hooks
+
+Those utilities remain as shared infrastructure even though the old Taichi-heavy app stacks have been removed.

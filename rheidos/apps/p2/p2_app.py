@@ -1,8 +1,9 @@
 from rheidos.apps.p2.modules.p2_space import P2Elements, P2StreamFunction
 from rheidos.houdini.runtime.cook_context import CookContext
 
-from .modules import SurfaceMeshModule, PointVortexModule
 import numpy as np
+
+from .modules import PointVortexModule, SurfaceMeshModule
 
 
 class P2Module:
@@ -34,17 +35,16 @@ def p2_cook(ctx: CookContext) -> None:
 
     vortex_pos = np.array(vort_io.read_point("P", components=3), dtype=np.float32)
     vortex_bary = np.array(vort_io.read_point("bary", components=3), dtype=np.float32)
-    vortex_gammma = np.array(vort_io.read_point("gamma"), dtype=np.float32)
+    vortex_gamma = np.array(vort_io.read_point("gamma"), dtype=np.float32)
     vortex_faceid = np.array(vort_io.read_point("faceid"), dtype=np.int32)
-    mods.point_vortex.set_vortex(vortex_faceid, vortex_bary, vortex_gammma, vortex_pos)
+    mods.point_vortex.set_vortex(vortex_faceid, vortex_bary, vortex_gamma, vortex_pos)
 
     # Set Dirichlet Pin
     mods.p2_stream.constrained_idx.set(np.array([0], dtype=np.int32))
     mods.p2_stream.constrained_values.set(np.array([0], dtype=np.float32))
 
     # Solve for stream function
-    psi = mods.p2_stream.psi.get()
-    print("Hello")
+    mods.p2_stream.psi.get()
 
 
 def p2_cook2(ctx: CookContext) -> None:

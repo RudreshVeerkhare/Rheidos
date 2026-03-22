@@ -1,12 +1,10 @@
-from .registry import ProducerBase, Registry
+from .registry import Registry
 from .resource import Resource, ResourceKey, ResourceKind, ResourceRef, ResourceSpec
 from .resource_kinds import ResourceKindAdapter, register_resource_kind
 from .typing import FieldLike, ResourceName, Shape, ShapeFn
 from .wiring import (
     ProducerContext,
     ProducerResourceNamespace,
-    WiredProducer,
-    out_field,
     producer,
     producer_output,
 )
@@ -75,7 +73,6 @@ __all__ = [
     "ModuleBase",
     "Namespace",
     "module_resource_deps",
-    "ProducerBase",
     "ProducerContext",
     "ProducerResourceNamespace",
     "Registry",
@@ -88,9 +85,7 @@ __all__ = [
     "ResourceKindAdapter",
     "Shape",
     "ShapeFn",
-    "WiredProducer",
     "World",
-    "out_field",
     "producer",
     "producer_output",
     "register_resource_kind",

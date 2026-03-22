@@ -1,138 +1,95 @@
 # Tutorials
 
-Tutorials are guided learning experiences. Follow each step in order.
+Tutorials are guided learning exercises. Follow them in order.
 
-## Tutorial: Build a tiny compute graph
+## Tutorial: Build a tiny decorator-based compute graph
 
-Audience: Python developers new to the compute module.
-
-Prerequisites:
-- The rheidos package is importable in your Python environment.
+Audience:
+- Python developers new to `rheidos.compute`
 
 Steps:
-1) Action: Create a file named demo_compute.py with the following contents.
-   Snippet:
-   ```python
-   from dataclasses import dataclass
+1. Create `demo_compute.py`:
 
-   from rheidos.compute import (
-       ModuleBase,
-       Registry,
-       ResourceRef,
-       WiredProducer,
-       World,
-       out_field,
-   )
+```python
+from rheidos.compute import ModuleBase, ResourceSpec, World, producer
 
 
-   @dataclass
-   class SquareIO:
-       x: ResourceRef[int]
-       y: ResourceRef[int] = out_field()
+class MathModule(ModuleBase):
+    NAME = "math"
+
+    def __init__(self, world: World, *, scope: str = "") -> None:
+        super().__init__(world, scope=scope)
+        self.x = self.resource(
+            "x",
+            declare=True,
+            spec=ResourceSpec(kind="python", dtype=int),
+            doc="Input scalar",
+        )
+        self.y = self.resource(
+            "y",
+            spec=ResourceSpec(kind="python", dtype=int),
+            doc="Squared output",
+        )
+        self.bind_producers()
+
+    @producer(inputs=("x",), outputs=("y",))
+    def square(self, ctx) -> None:
+        ctx.commit(y=int(ctx.inputs.x.get()) ** 2)
 
 
-   class SquareProducer(WiredProducer[SquareIO]):
-       def compute(self, reg: Registry) -> None:
-           x = self.io.x.get(ensure=False)
-           self.io.y.set(x * x)
+def main() -> None:
+    world = World()
+    mod = world.require(MathModule)
+    mod.x.set(6)
+    print("y =", mod.y.get())
+    print(world.reg.explain(mod.y.name, depth=2))
 
 
-   class MathModule(ModuleBase):
-       NAME = "math"
+if __name__ == "__main__":
+    main()
+```
 
-       def __init__(self, world: World, *, scope: str = "") -> None:
-           super().__init__(world, scope=scope)
-           self.x = self.resource("x", declare=True, doc="Input scalar")
-           self.y = self.resource("y", doc="Output scalar")
-           producer = SquareProducer(SquareIO(self.x, self.y))
-           self.declare_resource(self.y, deps=(self.x,), producer=producer)
+2. Run it:
 
+```bash
+python demo_compute.py
+```
 
-   def main() -> None:
-       world = World()
-       mod = world.require(MathModule)
-       mod.x.set(6)
-       print("y =", mod.y.get())
-       print(world.reg.explain(mod.y.name, depth=2))
+Result:
+- `y = 36`
+- a short dependency tree from `Registry.explain`
 
+## Tutorial: Cook geometry in a Houdini Python SOP with `@session`
 
-   if __name__ == "__main__":
-       main()
-   ```
-   Result: You have a minimal compute graph with one input (x) and one derived output (y).
-2) Action: Run the script.
-   Command:
-   ```bash
-   python demo_compute.py
-   ```
-   Result: You should see `y = 36` and a short dependency tree printed from `Registry.explain`.
-
-## Tutorial: Color geometry in a Python SOP with CookContext
-
-Audience: Houdini users who want a first CookContext workflow.
-
-Prerequisites:
-- Houdini is available with Python.
-- The rheidos package is importable in Houdini.
+Audience:
+- Houdini users who want the smallest supported entrypoint pattern
 
 Steps:
-1) Action: Create a Box SOP, then a Triangulate SOP, then a Python SOP.
-   Result: The Python SOP receives triangulated geometry.
-2) Action: Paste the template from `rheidos/apps/point_vortex/cook_sop.py` into the Python SOP.
-   Result: The SOP runs the template at cook time.
-3) Action: Update the import in the template to point at your cook script.
-   Snippet:
-   ```python
-   # from rheidos.apps.point_vortex.app import cook
-   from my_cook import cook
-   ```
-   Result: The SOP will call your own `cook(ctx)` implementation.
-4) Action: Create `my_cook.py` on a directory that Houdini can import.
-   Snippet:
-   ```python
-   import numpy as np
-   from rheidos.houdini.geo import OWNER_POINT
+1. Create a Box SOP, then a Triangulate SOP, then a Python SOP.
+2. Paste this into the Python SOP:
+
+```python
+from rheidos.houdini.runtime import session
 
 
-   def cook(ctx) -> None:
-       P = ctx.P()
-       z = P[:, 2]
-       z_min = float(z.min())
-       z_ptp = float(z.max() - z_min) or 1.0
-       t = (z - z_min) / z_ptp
-       Cd = np.stack([t, 1.0 - t, 0.2], axis=1).astype(np.float32)
-       ctx.write(OWNER_POINT, "Cd", Cd, create=True)
-   ```
-   Result: The script colors the mesh by height.
-5) Action: Cook the node (or press Enter in the viewport).
-   Result: The geometry displays a red-to-green gradient.
+@session("demo")
+def node1(ctx) -> None:
+    out_io = ctx.output_io()
+    src_io = ctx.input_io(0)
+    out_io.geo_out.clear()
+    out_io.geo_out.merge(src_io.geo_in)
 
-Optional: Multi-input geometry in the same SOP.
+    P = ctx.P().copy()
+    P[:, 1] += 0.1
+    ctx.set_P(P)
+```
 
-6) Action: Add a second input to the Python SOP (e.g., a Scatter SOP) and connect it to input 1.
-   Result: The Python SOP now has two connected inputs.
-7) Action: Update `my_cook.py` to read input 1 with `ctx.input_io(1)` and write a detail attribute.
-   Snippet:
-   ```python
-   import numpy as np
-   from rheidos.houdini.geo import OWNER_DETAIL, OWNER_POINT
+3. Cook the node.
 
+Result:
+- the output geometry mirrors input 0
+- points are offset by `0.1` in Y
 
-   def cook(ctx) -> None:
-       P = ctx.P()
-       z = P[:, 2]
-       z_min = float(z.min())
-       z_ptp = float(z.max() - z_min) or 1.0
-       t = (z - z_min) / z_ptp
-       Cd = np.stack([t, 1.0 - t, 0.2], axis=1).astype(np.float32)
-       ctx.write(OWNER_POINT, "Cd", Cd, create=True)
-
-       io1 = ctx.input_io(1)
-       P1 = io1.read(OWNER_POINT, "P", components=3)
-       if P1.size:
-           center = np.mean(P1, axis=0).astype(np.float32)
-       else:
-           center = np.zeros((3,), dtype=np.float32)
-       ctx.write(OWNER_DETAIL, "input1_center", center, create=True)
-   ```
-   Result: The output geometry stores the input-1 centroid as a detail attribute.
+Notes:
+- The active app in this repo uses the same session-entrypoint pattern in `rheidos/apps/p2/cook_sop.py`.
+- For multi-input workflows, read secondary geometry with `ctx.input_io(1)`, `ctx.input_io(2)`, and so on.

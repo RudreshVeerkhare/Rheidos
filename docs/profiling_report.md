@@ -38,7 +38,8 @@ consistent across cooks and sessions:
 
 Registry integration:
 
-- `ProducerBase.profiler_id()` caches a producer ID on the instance.
+- Each producer instance caches a stable profiler ID the first time the runtime
+  needs one.
 - `Registry.declare(...)` assigns:
   - `Resource.resource_id` for the resource name.
   - `Resource.producer_id` for its producing producer (if any).
@@ -74,7 +75,7 @@ Producer timing is measured at the actual execution boundary in
 `Registry._ensure()`:
 
 1. `Profiler.span("compute", cat="producer", producer=producer_name)` wraps
-   `ProducerBase.compute()`.
+   producer execution inside `Registry._ensure()`.
 2. `Profiler._span_enter()` pushes a `_ProducerRun` onto a thread-local stack.
 3. `Profiler._span_exit()` records inclusive duration and pops the stack.
 

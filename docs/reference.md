@@ -1,37 +1,47 @@
 # Reference
 
-This reference lists the public API surface in the compute and Houdini packages.
+This reference lists the supported public API surface in the compute and
+Houdini packages that back the active `rheidos/apps/p2` application.
 
-## Module: rheidos.compute
+## Module: `rheidos.compute`
 
 Exports from `rheidos.compute`:
 
 - `FieldLike`, `ResourceName`, `Shape`, `ShapeFn`
-- `ModuleBase`, `Namespace`, `World`
-- `ProducerBase`, `Registry`
+- `ModuleBase`, `Namespace`, `World`, `module_resource_deps`
+- `Registry`
 - `Resource`, `ResourceKey`, `ResourceKind`, `ResourceRef`, `ResourceSpec`
 - `ResourceKindAdapter`, `register_resource_kind`
-- `WiredProducer`, `out_field`, `shape_map`, `shape_of`, `shape_from_axis`, `shape_from_scalar`, `shape_with_tail`
+- `ProducerContext`, `ProducerResourceNamespace`, `producer`, `producer_output`
+- `shape_map`, `shape_of`, `shape_from_axis`, `shape_from_scalar`, `shape_with_tail`
+
+The supported producer authoring path is the decorator-based API. Internal
+class-based producer abstractions still exist inside the runtime, but they are
+not part of the public authoring surface.
 
 ### ResourceSpec (dataclass, frozen)
 
-- `kind: ResourceKind` (`"taichi_field"`, `"numpy"`, `"python"`, or custom via register)
+- `kind: ResourceKind`
 - `dtype: Optional[Any]`
 - `lanes: Optional[int]`
 - `shape: Optional[Shape]`
 - `shape_fn: Optional[ShapeFn]`
 - `allow_none: bool`
 
+Use `ResourceSpec` to validate buffers and drive automatic allocation.
+
 ### Resource (dataclass)
 
 - `name: ResourceName`
 - `buffer: Any`
 - `deps: Tuple[ResourceName, ...]`
-- `producer: Optional[ProducerBase]`
+- `producer: Optional[Any]`
 - `version: int`
 - `dep_sig: Tuple[Tuple[ResourceName, int], ...]`
 - `description: str`
 - `spec: Optional[ResourceSpec]`
+
+`Resource` is the registry's stored record for a declared value.
 
 ### ResourceKey[T] (dataclass, frozen)
 
@@ -52,10 +62,8 @@ Exports from `rheidos.compute`:
 - `touch(*, unsafe: bool = False) -> None`
 - `bump(*, unsafe: bool = False) -> None`
 
-### ProducerBase
-
-- `outputs: Tuple[ResourceName, ...]`
-- `compute(reg: Registry) -> None`
+Use `ResourceRef` inside modules and producers instead of hard-coding fully
+qualified resource names.
 
 ### Registry
 
@@ -69,7 +77,12 @@ Exports from `rheidos.compute`:
 - `ensure(name) -> None`
 - `ensure_many(names) -> None`
 - `matches_spec(name, buf) -> bool`
+- `declared_names() -> Set[ResourceName]`
+- `undeclare_many(names) -> None`
 - `explain(name, depth=4) -> str`
+
+`Registry.ensure(...)` is the entry point that resolves dependencies and runs
+bound producers when resources are stale.
 
 ### ResourceKindAdapter
 
@@ -82,66 +95,85 @@ Exports from `rheidos.compute`:
 
 - `register_resource_kind(kind: str, adapter: ResourceKindAdapter) -> None`
 
-### WiredProducer[IO]
+Register a custom buffer kind when NumPy, Python, or Taichi fields are not
+enough for a module.
 
-- Requires IO to be a dataclass.
-- Outputs are inferred from fields marked with `out_field()`.
-- `IO_TYPE: Optional[type]` for kwargs wiring (auto-inferred for direct generic subclasses).
-- `inputs: Tuple[ResourceName, ...]`
-- `outputs: Tuple[ResourceName, ...]`
-- `setup() -> None` (post-wiring hook called at end of init)
-- `input_refs() -> Dict[str, ResourceRef[Any]]`
-- `output_refs() -> Dict[str, ResourceRef[Any]]`
-- `require_inputs(*, allow_none=(), ensure=True, ignore=()) -> Dict[str, Any]`
-- `ensure_outputs(reg, *, strict=True, realloc=True, require_shape=True) -> Dict[str, Any]`
+### ProducerResourceNamespace
 
-### out_field
+- attribute access for bound refs such as `ctx.inputs.velocity`
+- item access for nested names such as `ctx.inputs["mesh.V_pos"]`
+- `items() -> Iterable[Tuple[str, ResourceRef[Any]]]`
+- `as_dict() -> Dict[str, ResourceRef[Any]]`
 
-- `out_field(*, alloc: Optional[Callable[[Registry, IO], Any]] = None)`
-- Marks an IO dataclass field as an output.
-- If `alloc` is provided, `ensure_outputs` uses it to allocate the buffer.
+### ProducerContext
 
-### shape_map
+- `reg`
+- `inputs: ProducerResourceNamespace`
+- `outputs: ProducerResourceNamespace`
+- `require_inputs(*, allow_none=(), ignore=()) -> Dict[str, ResourceRef[Any]]`
+- `ensure_outputs(*, strict=True, realloc=True, require_shape=True) -> Dict[str, ResourceRef[Any]]`
+- `commit(**buffers) -> None`
+
+Each decorated producer method receives a `ProducerContext`.
+
+### producer
+
+- `producer(*, inputs, outputs, allow_none=(), ignore=())`
+
+Use `@producer(...)` on `ModuleBase` methods that accept a single
+`ProducerContext`. Input and output names are resolved against module
+attributes when `bind_producers()` runs.
+
+### producer_output
+
+- `producer_output(name: str, *, alloc=None)`
+
+Wrap an output name when that output requires a custom allocator.
+
+### Shape helpers
 
 - `shape_map(ref, mapper) -> ShapeFn`
-- Lazily resolves a resource shape and applies `mapper` to produce the final shape tuple.
-- Returns `None` if the resource is unset, has no `.shape`, or the mapper raises.
-
-### shape_of
-
 - `shape_of(ref) -> ShapeFn`
-- Convenience wrapper for `shape_map(ref, lambda shape: shape)`.
-
-### shape_from_axis
-
 - `shape_from_axis(ref, axis=0, *, tail=()) -> ShapeFn`
-- Convenience wrapper that projects one axis from a resource shape and appends an optional tail.
-
-### shape_from_scalar
-
 - `shape_from_scalar(ref, *, tail=()) -> ShapeFn`
-- Builds a shape function from a scalar resource (Python, NumPy, or Taichi scalar).
-
-### shape_with_tail
-
 - `shape_with_tail(ref, *, tail=()) -> ShapeFn`
-- Extends the shape of a field/array resource with a static tail.
+
+These helpers are intended for `ResourceSpec.shape_fn`.
+
+### Namespace
+
+- `parts: Tuple[str, ...]`
+- `child(name: str) -> Namespace`
+- `prefix: str`
+- `qualify(attr: str) -> str`
 
 ### ModuleBase
 
 - `NAME: str`
+- `prefix: str`
+- `qualify(attr: str) -> str`
 - `resource(attr, *, spec=None, doc="", declare=False, buffer=None, deps=(), producer=None, description="") -> ResourceRef`
 - `declare_resource(ref, *, buffer=None, deps=(), producer=None, description="") -> None`
 - `require(module_cls, *args, **kwargs) -> module instance`
-- `prefix: str`
-- `qualify(attr: str) -> str`
+- `bind_producers() -> None`
+
+Modules declare scoped resources and bind decorated producer methods.
+
+### module_resource_deps
+
+- `module_resource_deps(module, *, include=r".*", exclude=r"^$") -> Tuple[ResourceRef[Any], ...]`
+
+Collect resource refs from a module by attribute name pattern.
 
 ### World
 
 - `reg: Registry`
 - `require(module_cls, *args, scope="", **kwargs) -> module instance`
+- `module_dependencies() -> Dict[...]`
 
-## Module: rheidos.houdini
+`World.require(...)` is the supported path for wiring reusable modules together.
+
+## Module: `rheidos.houdini`
 
 Exports:
 
@@ -164,7 +196,7 @@ Exports:
 - `point_group_mask(name, index=0) -> str`
 - `point_group_indices(name, index=0) -> str`
 
-## Module: rheidos.houdini.debug
+## Module: `rheidos.houdini.debug`
 
 ### DebugConfig (dataclass, frozen)
 
@@ -201,7 +233,7 @@ Functions:
 - `maybe_break_now(node=None) -> None`
 - `consume_break_next_button(node) -> bool`
 
-## Module: rheidos.houdini.geo
+## Module: `rheidos.houdini.geo`
 
 Exports:
 
@@ -233,7 +265,7 @@ Exports:
 - `storage_type: str`
 - `tuple_size: int`
 
-## Module: rheidos.houdini.runtime.cook_context
+## Module: `rheidos.houdini.runtime.cook_context`
 
 ### CookContext
 

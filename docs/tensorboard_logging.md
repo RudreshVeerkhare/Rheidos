@@ -1,187 +1,123 @@
-# TensorBoard Logging (Metrics)
+# TensorBoard Logging
 
-This project uses a lightweight TensorBoard logger (`TBLogger`) that wraps
-`tensorboardX.SummaryWriter`. It is **not** tied to profiling and does **not**
-spawn subprocesses. It writes event files in-process; you view them with the
-TensorBoard CLI.
+Rheidos includes a lightweight TensorBoard logger, `TBLogger`, backed by `tensorboardX`. It is independent from the profiler UI and writes event files in-process.
 
----
+## Quick start
 
-## Quick Start (Houdini)
-
-In Houdini cook/solver code you already receive a `CookContext`:
+Inside a cook or solver entrypoint:
 
 ```python
-def step(ctx: CookContext) -> None:
+def cook(ctx) -> None:
     tb = getattr(ctx.session, "tb", None)
     if tb is None:
         return
 
     value = 1.23
-    tb.add_scalar("my_metric", value, tb.next_step())
+    tb.add_scalar("demo/value", value, tb.next_step())
 ```
 
-This logs a scalar series named `my_metric`.
+## Default log path
 
----
+If the node does not override `profile_logdir`, logs are written to:
 
-## Where Logs Go (Default)
-
-If you do not set `profile_logdir` on the node, logs go to:
-
-```
-<hip_dir or cwd>/_tb_logs/<hip_name>/<node_path_with_slashes_replaced>/<session_id>
+```text
+<hip_dir or cwd>/_tb_logs/<hip_name>/<node_path>/<session_id>
 ```
 
-Notes:
-- If the HIP file is unsaved, `<hip_name>` is `untitled`.
-- If Houdini is not available, it falls back to `os.getcwd()`.
-- `<session_id>` is unique per Houdini session (PID + timestamp).
-
-To override, set the node parameter `profile_logdir`.
-
----
+Where:
+- `<hip_name>` is `untitled` for unsaved HIP files
+- `<session_id>` is unique per Houdini session
 
 ## Dependencies
 
-The logger uses `tensorboardX`. Install it for Houdini's Python:
+Install `tensorboardX` into Houdini's Python:
 
 ```bash
 hython -m pip install --user tensorboardX
 ```
 
-To view results:
+Then view logs with:
 
 ```bash
 tensorboard --logdir <your logdir>
 ```
 
-Open `http://localhost:6006`.
-
----
-
-## Step Management
+## Step management
 
 `TBLogger` keeps its own step counter:
 
 ```python
-tb.next_step()      # increments and returns step
-tb.step = 100       # set explicitly
-step = tb.step      # read current step
+tb.next_step()
+tb.step = 100
+current = tb.step
 ```
 
-If you want deterministic steps per frame:
+For deterministic frame-based logging:
 
 ```python
-tb.step = int(ctx.frame)  # or int(ctx.frame * 1000 + ctx.substep)
+tb.step = int(ctx.frame)
 tb.add_scalar("energy", value, tb.step)
 ```
 
----
+## Common patterns
 
-## Common Patterns
-
-### Scalar (Time Series)
+Scalar:
 
 ```python
-tb.add_scalar("hamiltonian", h_value, tb.next_step())
+tb.add_scalar("solver/residual", residual, tb.next_step())
 ```
 
-### Histogram
+Histogram:
 
 ```python
 tb.add_histogram("gamma", gammas, tb.next_step())
 ```
 
-### Image
+Image:
 
 ```python
 tb.add_image("debug/field", image_np, tb.next_step(), dataformats="HWC")
 ```
 
-### Text
+Text:
 
 ```python
 tb.add_text("notes", "solver converged", tb.next_step())
 ```
 
-### Multiple Scalars (Single Step)
+Grouped scalars:
 
 ```python
-tb.add_scalars(
-    "losses",
-    {"data": data_loss, "prior": prior_loss},
-    tb.next_step(),
-)
+tb.add_scalars("losses", {"data": data_loss, "prior": prior_loss}, tb.next_step())
 ```
 
----
+## Custom helpers
 
-## Houdini Example: Hamiltonian Plot
-
-From `rheidos/apps/point_vortex/solver_sop.py`:
-
-```python
-hamiltonian = world.require(HamiltonianModule)
-h_field = hamiltonian.H.get()
-h_value = None if h_field is None else float(h_field[None])
-
-tb = getattr(ctx.session, "tb", None)
-if tb is not None and h_value is not None:
-    tb.add_scalar("hamiltonian", h_value, tb.next_step())
-```
-
----
-
-## Custom Logging Helpers
-
-`TBLogger` supports custom functions that are exposed like built-ins.
+You can register custom logging helpers:
 
 ```python
 @tb.register()
 def add_vector_norm(tb_logger, writer, tag, vec, step):
-    norm = float(np.linalg.norm(vec))
-    return writer.add_scalar(tag, norm, step)
-
-tb.add_vector_norm("vel/norm", v, tb.next_step())
+    return writer.add_scalar(tag, float(np.linalg.norm(vec)), step)
 ```
 
-Rules:
-- `@tb.register()` uses the function name.
-- `tb.register("custom_name")(fn)` sets a specific name.
-- Custom functions receive `(tb_logger, writer, *args, **kwargs)`.
-
----
-
-## Non-Houdini Usage
-
-If you need a standalone logger:
+## Standalone usage
 
 ```python
-from rheidos.compute.profiler.tb import TBLogger, TBConfig
+from rheidos.compute.profiler.tb import TBConfig, TBLogger
 
 tb = TBLogger(TBConfig(logdir="/tmp/rheidos_tb"))
 tb.add_scalar("demo", 1.0, tb.next_step())
 tb.flush()
 ```
 
----
-
-## Performance Tips
-
-- Log every N frames if the values are high-frequency.
-- Avoid large images/histograms every frame.
-- Prefer `float(...)` values for scalars to avoid extra conversions.
-
----
-
 ## Troubleshooting
 
-**No events found**
-- Ensure `tensorboardX` is installed for Houdini's Python.
-- Make sure the node cooks at least once.
-- Confirm the logdir path is correct (see "Where Logs Go").
+No events found:
+- confirm the node cooked
+- confirm `tensorboardX` is installed for Houdini's Python
+- confirm the log directory exists
 
-**TensorBoard errors on launch**
-- Check that the logdir exists and is readable.
-- Delete stale event files if needed and recook.
+TensorBoard launch errors:
+- check the log path
+- delete stale event files if necessary and recook

@@ -2,7 +2,8 @@
 
 import pytest
 import numpy as np
-from rheidos.compute import Registry, ProducerBase, ResourceSpec
+from rheidos.compute import Registry, ResourceSpec
+from rheidos.compute.registry import ProducerBase
 
 
 class TestRegistryDeclare:

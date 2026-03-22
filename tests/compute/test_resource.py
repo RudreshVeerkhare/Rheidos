@@ -140,7 +140,7 @@ class TestResourceRef:
 
     def test_resource_ref_ensure(self):
         """ResourceRef.ensure() calls registry.ensure()."""
-        from rheidos.compute import ProducerBase
+        from rheidos.compute.registry import ProducerBase
 
         registry = Registry()
         registry.declare("a", buffer=np.array([1.0]))

@@ -1,11 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Dict, List, Set, Tuple
 
 import numpy as np
-
-from rheidos.compute import ResourceRef, WiredProducer, out_field
 
 
 def _empty_i32(shape: tuple[int, ...]) -> np.ndarray:
@@ -163,57 +160,3 @@ def build_mesh_topology(
         v_incident,
         boundary_edge_count,
     )
-
-
-def _alloc_v_incident(_reg, _io) -> Dict[int, List[int]]:
-    return {}
-
-
-@dataclass
-class TopologyProducerIO:
-    V_pos: ResourceRef[np.ndarray]
-    F_verts: ResourceRef[np.ndarray]
-
-    n_edges: ResourceRef[int] = out_field()
-    E_verts: ResourceRef[np.ndarray] = out_field()
-    E_faces: ResourceRef[np.ndarray] = out_field()
-    E_opp: ResourceRef[np.ndarray] = out_field()
-    F_edges: ResourceRef[np.ndarray] = out_field()
-    F_edge_sign: ResourceRef[np.ndarray] = out_field()
-    F_adj: ResourceRef[np.ndarray] = out_field()
-    V_incident_count: ResourceRef[np.ndarray] = out_field()
-    V_incident: ResourceRef[Dict[int, List[int]]] = out_field(alloc=_alloc_v_incident)
-    boundary_edge_count: ResourceRef[int] = out_field()
-
-
-class TopologyProducer(WiredProducer[TopologyProducerIO]):
-    def compute(self, reg) -> None:
-        inputs = self.require_inputs()
-        outputs = build_mesh_topology(
-            inputs["V_pos"].get(),
-            inputs["F_verts"].get(),
-        )
-
-        (
-            n_edges,
-            e_verts,
-            e_faces,
-            e_opp,
-            f_edges,
-            f_edge_sign,
-            f_adj,
-            v_incident_count,
-            v_incident,
-            boundary_edge_count,
-        ) = outputs
-
-        reg.commit(self.io.n_edges.name, buffer=int(n_edges))
-        reg.commit(self.io.E_verts.name, buffer=e_verts)
-        reg.commit(self.io.E_faces.name, buffer=e_faces)
-        reg.commit(self.io.E_opp.name, buffer=e_opp)
-        reg.commit(self.io.F_edges.name, buffer=f_edges)
-        reg.commit(self.io.F_edge_sign.name, buffer=f_edge_sign)
-        reg.commit(self.io.F_adj.name, buffer=f_adj)
-        reg.commit(self.io.V_incident_count.name, buffer=v_incident_count)
-        reg.commit(self.io.V_incident.name, buffer=v_incident)
-        reg.commit(self.io.boundary_edge_count.name, buffer=int(boundary_edge_count))

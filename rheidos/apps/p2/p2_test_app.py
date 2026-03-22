@@ -1,13 +1,13 @@
 from rheidos.apps.p2.modules.p1_space import DEC, P1PoissonSolver
 from rheidos.apps.p2.modules.p2_space import (
     P2Elements,
-    P2StreamFunction,
     P2PoissonSolver,
 )
 from rheidos.houdini.runtime.cook_context import CookContext
 
-from .modules import SurfaceMeshModule, PointVortexModule
 import numpy as np
+
+from .modules import SurfaceMeshModule
 
 
 class P2Module:
@@ -53,8 +53,7 @@ def p1_cook_test(ctx: CookContext) -> None:
     mods.p1_poisson.rhs.set(np.zeros(boundary_mask.shape, dtype=np.float64))
 
     # Solve for stream function
-    psi = mods.p1_poisson.psi.get()
-    print("Hello")
+    mods.p1_poisson.psi.get()
 
 
 def p1_cook2_test(ctx: CookContext) -> None:
@@ -99,8 +98,7 @@ def p2_cook_test(ctx: CookContext) -> None:
     mods.p2_poisson.rhs.set(np.zeros(boundary_mask.shape, dtype=np.float64))
 
     # Solve for stream function
-    psi = mods.p2_poisson.psi.get()
-    print("Hello")
+    mods.p2_poisson.psi.get()
 
 
 def p2_cook2_test(ctx: CookContext) -> None:
