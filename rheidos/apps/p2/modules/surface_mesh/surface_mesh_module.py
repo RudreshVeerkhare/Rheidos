@@ -8,8 +8,8 @@ from rheidos.compute import (
     ResourceSpec,
     World,
     producer,
-    shape_map,
     shape_from_scalar,
+    shape_map,
 )
 
 from .mesh_geometry import build_face_geometry

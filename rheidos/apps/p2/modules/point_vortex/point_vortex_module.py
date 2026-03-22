@@ -1,8 +1,7 @@
-from rheidos.compute import ModuleBase, ResourceSpec, World
-
-from ..surface_mesh import SurfaceMeshModule
-
 import numpy as np
+
+from rheidos.apps.p2.modules.surface_mesh.surface_mesh_module import SurfaceMeshModule
+from rheidos.compute import ModuleBase, ResourceSpec, World
 
 
 class PointVortexModule(ModuleBase):

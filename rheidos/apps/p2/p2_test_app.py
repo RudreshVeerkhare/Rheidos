@@ -1,13 +1,11 @@
-from rheidos.apps.p2.modules.p1_space import DEC, P1PoissonSolver
-from rheidos.apps.p2.modules.p2_space import (
-    P2Elements,
-    P2PoissonSolver,
-)
+from rheidos.apps.p2.modules.p1_space.dec import DEC
+from rheidos.apps.p2.modules.p1_space.p1_poisson_solver import P1PoissonSolver
+from rheidos.apps.p2.modules.p2_space.p2_elements import P2Elements
+from rheidos.apps.p2.modules.p2_space.p2_poisson_solver import P2PoissonSolver
+from rheidos.apps.p2.modules.surface_mesh.surface_mesh_module import SurfaceMeshModule
 from rheidos.houdini.runtime.cook_context import CookContext
 
 import numpy as np
-
-from .modules import SurfaceMeshModule
 
 
 class P2Module:

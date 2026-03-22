@@ -1,9 +1,9 @@
-from rheidos.apps.p2.modules.p1_space import P1StreamFunction
+from rheidos.apps.p2.modules.p1_space.p1_stream_function import P1StreamFunction
+from rheidos.apps.p2.modules.point_vortex.point_vortex_module import PointVortexModule
+from rheidos.apps.p2.modules.surface_mesh.surface_mesh_module import SurfaceMeshModule
 from rheidos.houdini.runtime.cook_context import CookContext
 
 import numpy as np
-
-from .modules import PointVortexModule, SurfaceMeshModule
 
 
 class P1Module:
