@@ -1,5 +1,6 @@
 from rheidos.apps.p2.modules.p2_space.p2_elements import P2Elements
 from rheidos.apps.p2.modules.p2_space.p2_stream_function import P2StreamFunction
+from rheidos.apps.p2.modules.p2_space.p2_velocity import P2VelocityField
 from rheidos.apps.p2.modules.point_vortex.point_vortex_module import PointVortexModule
 from rheidos.apps.p2.modules.surface_mesh.surface_mesh_module import SurfaceMeshModule
 from rheidos.houdini.runtime.cook_context import CookContext
@@ -14,6 +15,7 @@ class P2Module:
         self.point_vortex = world.require(PointVortexModule)
         self.p2_space = world.require(P2Elements)
         self.p2_stream = world.require(P2StreamFunction)
+        self.p2_vel = world.require(P2VelocityField)
 
 
 def p2_cook(ctx: CookContext) -> None:
@@ -61,3 +63,18 @@ def p2_cook2(ctx: CookContext) -> None:
     stream_func = mods.p2_stream.interpolate(list(zip(faceids, bary)))
 
     ctx.write_point("stream_func", stream_func)
+
+
+def p2_interpolate_velocity(ctx: CookContext):
+    mods = P2Module(ctx)
+
+    probe_io = ctx.input_io(1)
+    if probe_io is None:
+        raise RuntimeError("Input 1 is not set")
+
+    faceids = np.array(probe_io.read_point("faceid"), dtype=np.int32)
+    bary = np.array(probe_io.read_point("bary", components=3), dtype=np.float32)
+
+    vel = mods.p2_vel.interpolate(list(zip(faceids, bary)))
+
+    ctx.write_point("vel", vel)

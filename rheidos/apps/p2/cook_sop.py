@@ -2,7 +2,7 @@ from rheidos.houdini.runtime import session
 from rheidos.houdini.runtime.cook_context import CookContext
 
 from .app import cook, cook2
-from .p2_app import p2_cook, p2_cook2
+from .p2_app import p2_cook, p2_cook2, p2_interpolate_velocity
 from .p2_test_app import p1_cook2_test, p1_cook_test, p2_cook2_test, p2_cook_test
 
 P1_SESSION_KEY = "p1"
@@ -70,3 +70,20 @@ def node1(ctx: CookContext) -> None:
 def node2(ctx: CookContext) -> None:
     _copy_input_to_output(ctx, 1)
     cook2(ctx)
+
+
+@session(P2_SESSION_KEY, debugger=True)
+def interpolate_vel(ctx: CookContext) -> None:
+    index = 1
+    src_io = ctx.input_io(index)
+    if src_io is None:
+        raise RuntimeError(f"Input geometry {index} is not connected.")
+
+    out_io = ctx.output_io()
+    if out_io.geo_out is None:
+        raise RuntimeError("CookContext output IO is missing output geometry.")
+
+    out_io.geo_out.clear()
+    out_io.geo_out.merge(src_io.geo_in)
+
+    p2_interpolate_velocity(ctx)

@@ -4,7 +4,7 @@ from typing import Dict, Iterable, List, Sequence
 
 from .registry import ProducerBase, Registry
 from .resource import Resource
-from .world import ModuleKey, World
+from .world import ModuleKey, World, format_module_key
 
 
 def _fmt_list(items: Sequence[str]) -> str:
@@ -30,16 +30,7 @@ def _producer_label(producer: ProducerBase) -> str:
 
 
 def _module_label(key: ModuleKey) -> str:
-    scope, module_cls, args_key = key
-    module_name = getattr(module_cls, "NAME", module_cls.__name__)
-    prefix = f"{scope}.{module_name}" if scope else module_name
-    args, kwargs = args_key
-    parts = [repr(a) for a in args]
-    parts.extend(f"{k}={repr(v)}" for k, v in kwargs)
-    suffix = f"({', '.join(parts)})" if parts else ""
-    if module_name != module_cls.__name__:
-        return f"{prefix}{suffix} ({module_cls.__name__})"
-    return f"{prefix}{suffix}"
+    return format_module_key(key)
 
 
 def _resource_list(reg: Registry, *, sort: bool) -> List[Resource]:

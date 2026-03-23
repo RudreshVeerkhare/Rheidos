@@ -10,9 +10,20 @@ from rheidos.compute.world import World
 class P2PoissonSolver(ModuleBase):
     NAME = "P2PoissonSolver"
 
-    def __init__(self, world: World, *, scope: str = "") -> None:
+    def __init__(
+        self,
+        world: World,
+        *,
+        scope: str = "",
+        declare_rhs: bool = True,
+    ) -> None:
         super().__init__(world, scope=scope)
 
+        # These plain requires intentionally use the module's lookup scope.
+        # That lets the solver work both as:
+        # - a standalone module, and
+        # - a child module nested under another module while still sharing
+        #   the parent's P2 element space.
         self.p2_space = self.require(P2Elements)
 
         self.constrained_idx = self.resource(
@@ -37,7 +48,10 @@ class P2PoissonSolver(ModuleBase):
                 dtype=np.float64,
                 shape_fn=shape_from_scalar(self.p2_space.n_dof),
             ),
-            declare=True,
+            # Parents that embed this solver as a child can set
+            # `declare_rhs=False` and produce directly into the same RHS
+            # resource under an alias such as `omega`.
+            declare=declare_rhs,
             doc="RHS coefficient to be paired with basis function. Shape: (nDof, )",
         )
 

@@ -77,6 +77,19 @@ class TestModuleBase:
         module = SimpleModule(world)
         assert module.prefix == "test"
 
+    def test_module_lookup_scope_defaults_to_scope(self):
+        """lookup_scope defaults to the module scope."""
+        world = World()
+
+        class SimpleModule(ModuleBase):
+            NAME = "test"
+
+        root_module = SimpleModule(world)
+        scoped_module = SimpleModule(world, scope="outer")
+
+        assert root_module.lookup_scope == ""
+        assert scoped_module.lookup_scope == "outer"
+
     def test_module_qualify(self):
         """Module qualify method."""
         world = World()
@@ -262,6 +275,126 @@ class TestModuleRequire:
 
         with pytest.raises(TypeError):
             world.require(DepModule, [1, 2, 3])
+
+    def test_require_child_nests_identity_scope_and_shares_lookup_scope(self):
+        """Child modules get nested resources but reuse the parent's lookup scope."""
+        world = World()
+
+        class DepModule(ModuleBase):
+            NAME = "dep"
+
+        class ChildModule(ModuleBase):
+            NAME = "child"
+
+            def __init__(self, world, **kwargs):
+                super().__init__(world, **kwargs)
+                self.dep = self.require(DepModule)
+
+        class ParentModule(ModuleBase):
+            NAME = "parent"
+
+            def __init__(self, world, **kwargs):
+                super().__init__(world, **kwargs)
+                self.dep = self.require(DepModule)
+                self.child = self.require(
+                    ChildModule,
+                    child=True,
+                    child_name="worker",
+                )
+
+        parent = world.require(ParentModule)
+
+        assert parent.child.prefix == "parent.worker.child"
+        assert parent.child.lookup_scope == parent.lookup_scope
+        assert parent.child.dep is parent.dep
+
+    def test_require_child_returns_same_instance_for_same_name(self):
+        """Requiring the same child role twice returns the same instance."""
+        world = World()
+
+        class ChildModule(ModuleBase):
+            NAME = "child"
+
+        class ParentModule(ModuleBase):
+            NAME = "parent"
+
+            def __init__(self, world, **kwargs):
+                super().__init__(world, **kwargs)
+                self.left = self.require(
+                    ChildModule,
+                    child=True,
+                    child_name="worker",
+                )
+                self.right = self.require(
+                    ChildModule,
+                    child=True,
+                    child_name="worker",
+                )
+
+        parent = world.require(ParentModule)
+        assert parent.left is parent.right
+
+    def test_require_child_distinguishes_child_names(self):
+        """Different child role names create different child module instances."""
+        world = World()
+
+        class ChildModule(ModuleBase):
+            NAME = "child"
+
+        class ParentModule(ModuleBase):
+            NAME = "parent"
+
+            def __init__(self, world, **kwargs):
+                super().__init__(world, **kwargs)
+                self.left = self.require(
+                    ChildModule,
+                    child=True,
+                    child_name="left",
+                )
+                self.right = self.require(
+                    ChildModule,
+                    child=True,
+                    child_name="right",
+                )
+
+        parent = world.require(ParentModule)
+
+        assert parent.left is not parent.right
+        assert parent.left.prefix == "parent.left.child"
+        assert parent.right.prefix == "parent.right.child"
+
+    def test_world_require_child_outside_module(self):
+        """World.require() can build a child when the parent is explicit."""
+        world = World()
+
+        class DepModule(ModuleBase):
+            NAME = "dep"
+
+        class ChildModule(ModuleBase):
+            NAME = "child"
+
+            def __init__(self, world, **kwargs):
+                super().__init__(world, **kwargs)
+                self.dep = self.require(DepModule)
+
+        class ParentModule(ModuleBase):
+            NAME = "parent"
+
+            def __init__(self, world, **kwargs):
+                super().__init__(world, **kwargs)
+                self.dep = self.require(DepModule)
+
+        parent = world.require(ParentModule)
+        child = world.require(
+            ChildModule,
+            child=True,
+            child_name="worker",
+            parent=parent,
+        )
+
+        assert child.prefix == "parent.worker.child"
+        assert child.lookup_scope == parent.lookup_scope
+        assert child.dep is parent.dep
 
 
 class TestModuleProducerBinding:
@@ -531,6 +664,47 @@ class TestWorld:
         assert a1 is a2
         assert a1 is not b1
 
+    def test_world_require_rejects_invalid_child_arguments(self):
+        """Child-mode require validates the public API consistently."""
+        world = World()
+
+        class TestModule(ModuleBase):
+            NAME = "test"
+
+        parent = world.require(TestModule)
+
+        with pytest.raises(ValueError, match="child=True requires child_name"):
+            world.require(TestModule, child=True, parent=parent)
+
+        with pytest.raises(
+            ValueError,
+            match="child=True on World.require\\(\\) requires parent",
+        ):
+            world.require(TestModule, child=True, child_name="worker")
+
+        with pytest.raises(
+            ValueError,
+            match="single non-empty namespace segment",
+        ):
+            world.require(
+                TestModule,
+                child=True,
+                child_name="bad.name",
+                parent=parent,
+            )
+
+        with pytest.raises(
+            ValueError,
+            match="single non-empty namespace segment",
+        ):
+            world.require(TestModule, child=True, child_name="", parent=parent)
+
+        with pytest.raises(ValueError, match="child_name requires child=True"):
+            world.require(TestModule, child_name="worker")
+
+        with pytest.raises(ValueError, match="parent requires child=True"):
+            world.require(TestModule, parent=parent)
+
     def test_world_require_rolls_back_failed_module_init(self):
         """Failed module init should not poison later require() retries."""
         world = World()
@@ -577,6 +751,48 @@ class TestWorld:
         dep = world.require(DepModule)
         assert np.array_equal(dep.value.peek(), np.array([1.0]))
 
+    def test_child_module_build_failure_rolls_back(self):
+        """Broken child modules should not poison the cache or registry."""
+        world = World()
+
+        class BrokenChild(ModuleBase):
+            NAME = "child"
+
+            def __init__(self, world, **kwargs):
+                super().__init__(world, **kwargs)
+                self.count = self.resource(
+                    "count",
+                    declare=True,
+                    buffer=np.array([1.0]),
+                )
+                self.out = self.resource("out")
+                self.bind_producers()
+
+            @producer(inputs=("coutn",), outputs=("out",))
+            def build(self, ctx):
+                pass
+
+        class ParentModule(ModuleBase):
+            NAME = "parent"
+
+            def __init__(self, world, **kwargs):
+                super().__init__(world, **kwargs)
+                self.child = self.require(
+                    BrokenChild,
+                    child=True,
+                    child_name="solver",
+                )
+
+        for _ in range(2):
+            with pytest.raises(AttributeError, match="Did you mean 'count'\\?"):
+                world.require(ParentModule)
+
+        assert world._modules == {}
+        assert not any(
+            name.startswith("parent.solver.child.")
+            for name in world.reg.declared_names()
+        )
+
     def test_world_module_dependencies(self):
         """World tracks module dependencies."""
         world = World()
@@ -617,6 +833,33 @@ class TestWorld:
         b = world.require(ModuleB)
         assert isinstance(a, ModuleA)
         assert isinstance(b, ModuleB)
+
+    def test_world_detects_child_module_cycles(self):
+        """Child modules still participate in cycle detection."""
+        world = World()
+
+        class ModuleA(ModuleBase):
+            NAME = "ModuleA"
+
+            def __init__(self, world, **kwargs):
+                super().__init__(world, **kwargs)
+                self.child = self.require(
+                    ModuleB,
+                    child=True,
+                    child_name="solver",
+                )
+
+        class ModuleB(ModuleBase):
+            NAME = "ModuleB"
+
+            def __init__(self, world, **kwargs):
+                super().__init__(world, **kwargs)
+                self.parent_again = self.require(ModuleA)
+
+        with pytest.raises(RuntimeError, match="Module dependency cycle detected"):
+            world.require(ModuleA)
+
+        assert world._modules == {}
 
 
 class TestModuleResourceDeps:

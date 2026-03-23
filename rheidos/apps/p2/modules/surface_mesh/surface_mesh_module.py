@@ -16,6 +16,22 @@ from .mesh_geometry import build_face_geometry
 from .mesh_topology import build_mesh_topology
 
 
+def barycentric_gradients(x0, x1, x2):
+    e01 = x1 - x0
+    e02 = x2 - x0
+    N = np.cross(e01, e02)  # unnormalized normal
+    NN = np.dot(N, N)
+
+    if NN <= 1e-30:
+        raise ValueError("Degenerate triangle")
+
+    grad_l0 = np.cross(N, x2 - x1) / NN
+    grad_l1 = np.cross(N, x0 - x2) / NN
+    grad_l2 = np.cross(N, x1 - x0) / NN
+
+    return grad_l0, grad_l1, grad_l2
+
+
 class SurfaceMeshModule(ModuleBase):
     NAME = "P2SurfaceMesh"
 
@@ -142,7 +158,38 @@ class SurfaceMeshModule(ModuleBase):
             ),
             doc="Unit normal per triangle face. Shape: (nF,3)",
         )
+
+        self.grad_bary = self.resource(
+            "grad_bary",
+            spec=ResourceSpec(
+                kind="numpy",
+                dtype=np.float64,
+                shape_fn=shape_map(self.F_verts, lambda s: (s[0], 3, 3)),
+            ),
+            doc="A per face 3x3 matrix of [∇l1 ∇l2 ∇l3], where ∇li is a 3x1 gradient vector associated with lambda_i of vertex F_verts[i]. Shape: (nF, 3, 3)",
+        )
+
         self.bind_producers()
+
+    @producer(inputs=("V_pos", "F_verts"), outputs=("grad_bary",))
+    def build_grad_bary(self, ctx: ProducerContext):
+        ctx.require_inputs()
+        ctx.ensure_outputs()
+
+        V = self.V_pos.get()
+        F = self.F_verts.get()
+
+        grad = self.grad_bary.peek()
+
+        for faceid, (v1, v2, v3) in enumerate(F):
+            x1, x2, x3 = V[v1], V[v2], V[v3]
+            grad_l1, grad_l2, grad_l3 = barycentric_gradients(x1, x2, x3)
+
+            grad[faceid][0] = grad_l1
+            grad[faceid][1] = grad_l2
+            grad[faceid][2] = grad_l3
+
+        ctx.commit(grad_bary=grad)
 
     def set_mesh(self, vertices: np.ndarray, faces: np.ndarray) -> None:
         self.V_pos.set(np.ascontiguousarray(vertices, dtype=np.float64))

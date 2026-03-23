@@ -10,9 +10,20 @@ from rheidos.compute import shape_map
 class P1PoissonSolver(ModuleBase):
     NAME = "P1PoissonSolver"
 
-    def __init__(self, world: World, *, scope: str = "") -> None:
+    def __init__(
+        self,
+        world: World,
+        *,
+        scope: str = "",
+        declare_rhs: bool = True,
+    ) -> None:
         super().__init__(world, scope=scope)
 
+        # These plain requires intentionally use the module's lookup scope.
+        # That lets the solver work both as:
+        # - a standalone module, and
+        # - a child module nested under another module while still sharing
+        #   the parent's mesh/DEC dependencies.
         self.mesh = self.require(SurfaceMeshModule)
         self.dec = self.require(DEC)
 
@@ -41,7 +52,10 @@ class P1PoissonSolver(ModuleBase):
                 allow_none=True,
                 shape_fn=shape_map(self.mesh.V_pos, lambda shape: (shape[0],)),
             ),
-            declare=True,
+            # Parents that embed this solver as a child can set
+            # `declare_rhs=False` and produce directly into the same RHS
+            # resource under an alias such as `omega`.
+            declare=declare_rhs,
             doc="Vorticity field coefficient to be paired with basis function. Shape: (nV, )",
         )
 
