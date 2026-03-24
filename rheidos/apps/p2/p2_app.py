@@ -60,7 +60,7 @@ def p2_cook2(ctx: CookContext) -> None:
     faceids = np.array(probe_io.read_point("faceid"), dtype=np.int32)
     bary = np.array(probe_io.read_point("bary", components=3), dtype=np.float32)
 
-    stream_func = mods.p2_stream.interpolate(list(zip(faceids, bary)))
+    stream_func = mods.p2_stream.interpolate((faceids, bary))
 
     ctx.write_point("stream_func", stream_func)
 
@@ -75,6 +75,6 @@ def p2_interpolate_velocity(ctx: CookContext):
     faceids = np.array(probe_io.read_point("faceid"), dtype=np.int32)
     bary = np.array(probe_io.read_point("bary", components=3), dtype=np.float32)
 
-    vel = mods.p2_vel.interpolate(list(zip(faceids, bary)))
+    vel = mods.p2_vel.interpolate((faceids, bary))
 
     ctx.write_point("vel", vel)

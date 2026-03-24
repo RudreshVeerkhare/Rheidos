@@ -3,13 +3,17 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 
 from rheidos.apps.p2.modules.p2_space.p2_velocity import P2VelocityField
 from rheidos.apps.p2.modules.surface_mesh.surface_mesh_module import SurfaceMeshModule
 from rheidos.compute import World
 
 
-def test_p2_velocity_interpolate_uses_row_stored_barycentric_gradients() -> None:
+@pytest.mark.parametrize("use_batched_arrays", [False, True])
+def test_p2_velocity_interpolate_uses_row_stored_barycentric_gradients(
+    use_batched_arrays: bool,
+) -> None:
     world = World()
 
     mesh = world.require(SurfaceMeshModule)
@@ -31,7 +35,11 @@ def test_p2_velocity_interpolate_uses_row_stored_barycentric_gradients() -> None
     velocity.stream.psi = SimpleNamespace(get=lambda: coeffs)
 
     bary = np.array([0.2, 0.3, 0.5], dtype=np.float64)
-    result = velocity.interpolate([(0, bary)])[0]
+    if use_batched_arrays:
+        probes = (np.array([0], dtype=np.int32), bary[None, :])
+    else:
+        probes = [(0, bary)]
+    result = velocity.interpolate(probes)[0]
 
     b1, b2, b3 = bary
     c1, c2, c3, c4, c5, c6 = coeffs
