@@ -48,10 +48,23 @@ def node6(ctx: CookContext) -> None:
     p2_cook2_test(ctx)
 
 
+def _eval_parm_float(node, name: str, default: float) -> float:
+    parm = node.parm(name)
+    if parm is None:
+        return default
+    try:
+        return float(parm.eval())
+    except Exception:
+        return default
+
+
 @session(P2_SESSION_KEY, debugger=True)
 def node3(ctx: CookContext) -> None:
     _copy_input_to_output(ctx, 0)
-    p2_cook(ctx)
+
+    eps = _eval_parm_float(ctx.node, "eps", 0.01)
+
+    p2_cook(ctx, eps)
 
 
 @session(P2_SESSION_KEY, debugger=True)

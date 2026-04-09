@@ -1,11 +1,15 @@
 import numpy as np
 
 from rheidos.apps.p2.modules.p2_space.p2_poisson_solver import P2PoissonSolver
+from rheidos.apps.p2.modules.p2_space.probe_utils import probe_arrays
 from rheidos.apps.p2.modules.point_vortex.point_vortex_module import PointVortexModule
 from rheidos.apps.p2.modules.surface_mesh.surface_mesh_module import SurfaceMeshModule
-from rheidos.compute import ModuleBase
 from rheidos.compute.wiring import ProducerContext, producer
 from rheidos.compute.world import World
+from rheidos.compute import ModuleBase, ResourceSpec, shape_from_scalar
+
+
+import scipy.sparse.linalg as spla
 
 
 class P2StreamFunction(ModuleBase):
@@ -16,6 +20,15 @@ class P2StreamFunction(ModuleBase):
 
         self.mesh = self.require(SurfaceMeshModule)
         self.point_vortex = self.require(PointVortexModule)
+
+        self.eps = self.resource(
+            "eps",
+            spec=ResourceSpec(kind="python"),
+            doc="eps for the heat based diffusion of the stream function",
+            declare=True,
+            buffer=1e-2,
+        )
+
         # Usage guide:
         # - `child=True, child_name="poisson"` gives the solver its own nested
         #   resource namespace under this module
@@ -32,15 +45,42 @@ class P2StreamFunction(ModuleBase):
         )
 
         # Re-export the child solver's public resources so existing callers can
-        # keep using the stream-function wrapper as the façade module.
+        # keep using the stream-function wrapper as the facade module.
         self.p2_elements = self.poisson.p2_space
         self.constrained_idx = self.poisson.constrained_idx
         self.constrained_values = self.poisson.constrained_values
         self.omega = self.poisson.rhs
-        self.psi = self.poisson.psi
+        self.psi_non_reg = self.poisson.psi
         self.solve_cg = self.poisson.solve_cg
 
+        self.psi = self.resource(
+            "psi",
+            spec=ResourceSpec(
+                kind="numpy",
+                dtype=np.float64,
+                shape_fn=shape_from_scalar(self.p2_elements.n_dof),
+            ),
+            doc="Regularized stream function coefficients for chosen p2 basis.",
+        )
         self.bind_producers()
+
+    @producer(
+        inputs=("psi_non_reg", "p2_elements.M_mass", "p2_elements.L_stiffness", "eps"),
+        outputs=("psi",),
+    )
+    def regularize_psi(self, ctx: ProducerContext):
+        ctx.require_inputs()
+        K = self.p2_elements.L_stiffness.get()
+        M = self.p2_elements.M_mass.get()
+        psi_non_reg = self.psi_non_reg.get()
+        eps = self.eps.get()
+
+        A = (M + 0.5 * eps * K).tocsc()
+        rhs = (M - 0.5 * eps * K) @ psi_non_reg
+
+        psi = spla.spsolve(A, rhs)
+
+        ctx.commit(psi=psi)
 
     @producer(
         inputs=(
@@ -76,5 +116,12 @@ class P2StreamFunction(ModuleBase):
 
         ctx.commit(omega=omega)
 
-    def interpolate(self, probles):
-        return self.poisson.interpolate(probles)
+    def interpolate(self, probes):
+        """Interpolates the regularized stream function using the P2 basis."""
+        psi = self.psi.get()
+        face_dof = self.p2_elements.face_dof.get()
+        faceids, bary = probe_arrays(probes)
+        basis = np.stack(
+            self.p2_elements.basis_from_bary(bary[:, 0], bary[:, 1], bary[:, 2]), axis=1
+        )
+        return np.einsum("ij,ij->i", psi[face_dof[faceids]], basis)

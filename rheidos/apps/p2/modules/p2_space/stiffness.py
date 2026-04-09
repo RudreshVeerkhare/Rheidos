@@ -1,6 +1,20 @@
 import numpy as np
 
 
+def p2_local_lumped_mass_matrix(At):
+    return (At / 180.0) * np.array(
+        [
+            [6, -1, -1, 0, -4, 0],
+            [-1, 6, -1, 0, 0, -4],
+            [-1, -1, 6, -4, 0, 0],
+            [0, 0, -4, 32, 16, 16],
+            [-4, 0, 0, 16, 32, 16],
+            [0, -4, 0, 16, 16, 32],
+        ],
+        dtype=float,
+    )
+
+
 def p2_local_stiffness_from_cotan(cot1, cot2, cot3):
     return np.array(
         [

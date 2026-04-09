@@ -18,7 +18,7 @@ class P2Module:
         self.p2_vel = world.require(P2VelocityField)
 
 
-def p2_cook(ctx: CookContext) -> None:
+def p2_cook(ctx: CookContext, eps=0.01) -> None:
     mods = P2Module(ctx)
 
     # Read and load mesh from Houdini
@@ -45,6 +45,7 @@ def p2_cook(ctx: CookContext) -> None:
     # Set Dirichlet Pin
     mods.p2_stream.constrained_idx.set(np.array([0], dtype=np.int32))
     mods.p2_stream.constrained_values.set(np.array([0], dtype=np.float32))
+    mods.p2_stream.eps.set(eps)
 
     # Solve for stream function
     mods.p2_stream.psi.get()

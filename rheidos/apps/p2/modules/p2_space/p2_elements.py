@@ -3,6 +3,7 @@ import numpy as np
 from rheidos.apps.p2.modules.p2_space.stiffness import (
     cotan_triangle_weights,
     p2_local_stiffness_from_cotan,
+    p2_local_lumped_mass_matrix,
 )
 from rheidos.apps.p2.modules.surface_mesh.surface_mesh_module import SurfaceMeshModule
 from rheidos.compute import ModuleBase, ResourceSpec, shape_from_scalar, shape_map
@@ -54,6 +55,12 @@ class P2Elements(ModuleBase):
             "L_stiffness",
             spec=ResourceSpec(kind="python"),
             doc="SciPy sparse linear matrix representing P2 scalar laplacian",
+        )
+
+        self.M_mass = self.resource(
+            "M_mass",
+            spec=ResourceSpec(kind="python"),
+            doc="SciPy sparse array representing the P2 lumped mass matrix.",
         )
 
         self.bind_producers()
@@ -151,6 +158,33 @@ class P2Elements(ModuleBase):
         K_global = coo_matrix((vals, (rows, cols)), shape=(n_dof, n_dof)).tocsr()
 
         ctx.commit(L_stiffness=K_global)
+
+    @producer(inputs=("face_dof", "n_dof", "mesh.F_area"), outputs=("M_mass",))
+    def build_M_mass(self, ctx: ProducerContext):
+        ctx.require_inputs()
+
+        face_dof = self.face_dof.get()
+        n_dof = self.n_dof.get()
+        F_areas = self.mesh.F_area.get()
+
+        from scipy.sparse import coo_matrix
+
+        rows = []
+        cols = []
+        vals = []
+        for faceid in range(len(face_dof)):
+            lg = face_dof[faceid]
+            Ml = p2_local_lumped_mass_matrix(F_areas[faceid])
+
+            for a in range(6):
+                for b in range(6):
+                    rows.append(lg[a])
+                    cols.append(lg[b])
+                    vals.append(Ml[a, b])
+
+        M_global = coo_matrix((vals, (rows, cols)), shape=(n_dof, n_dof)).tocsr()
+        M_global.sum_duplicates()
+        ctx.commit(M_mass=M_global)
 
     def basis_from_bary(self, b1: float, b2: float, b3: float):
         return (
