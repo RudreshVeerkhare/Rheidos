@@ -1,6 +1,5 @@
 import numpy as np
 
-from rheidos.apps.p2.modules.surface_mesh.surface_mesh_module import SurfaceMeshModule
 from rheidos.compute import ModuleBase, ResourceSpec, World
 
 
@@ -9,8 +8,6 @@ class PointVortexModule(ModuleBase):
 
     def __init__(self, world: World, *, scope: str = "") -> None:
         super().__init__(world, scope=scope)
-
-        self.mesh = world.require(SurfaceMeshModule)
 
         self.face_ids = self.resource(
             "face_ids",

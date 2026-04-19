@@ -14,10 +14,16 @@ def _cot_at(x1, x2, o) -> float:
 class DEC(ModuleBase):
     NAME = "DEC"
 
-    def __init__(self, world: World, *, scope: str = "") -> None:
+    def __init__(
+        self,
+        world: World,
+        *,
+        mesh: SurfaceMeshModule,
+        scope: str = "",
+    ) -> None:
         super().__init__(world, scope=scope)
 
-        self.mesh = self.require(SurfaceMeshModule)
+        self.mesh = mesh
 
         self.star1 = self.resource(
             "star1",

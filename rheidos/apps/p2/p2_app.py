@@ -1,81 +1,48 @@
-from rheidos.apps.p2.modules.p2_space.p2_elements import P2Elements
-from rheidos.apps.p2.modules.p2_space.p2_stream_function import P2StreamFunction
-from rheidos.apps.p2.modules.p2_space.p2_velocity import P2VelocityField
-from rheidos.apps.p2.modules.point_vortex.point_vortex_module import PointVortexModule
-from rheidos.apps.p2.modules.surface_mesh.surface_mesh_module import SurfaceMeshModule
 from rheidos.houdini.runtime.cook_context import CookContext
 
 import numpy as np
 
+from ._graphs import P2StreamGraph
+from ._io import load_mesh_input, load_point_vortex_input, read_probe_input
+
 
 class P2Module:
     def __init__(self, ctx: CookContext) -> None:
-        world = ctx.world()
-        self.mesh = world.require(SurfaceMeshModule)
-        self.point_vortex = world.require(PointVortexModule)
-        self.p2_space = world.require(P2Elements)
-        self.p2_stream = world.require(P2StreamFunction)
-        self.p2_vel = world.require(P2VelocityField)
+        graph = ctx.world().require(P2StreamGraph)
+        self._graph = graph
+        self.mesh = graph.mesh
+        self.point_vortex = graph.point_vortex
+        self.p2_space = graph.p2_space
+        self.p2_poisson = graph.p2_poisson
+        self.p2_stream = graph.p2_stream
+        self.p2_vel = graph.p2_vel
 
 
-def p2_cook(ctx: CookContext, eps=0.01) -> None:
+def solve_p2_stream_function(ctx: CookContext, eps: float = 0.01) -> None:
     mods = P2Module(ctx)
-
-    # Read and load mesh from Houdini
-    mesh_io = ctx.input_io(0)
-    if not mesh_io:
-        raise RuntimeError(f"Input 0 is not set")
-
-    points = np.array(mesh_io.read_point("P", components=3), dtype=np.float32)
-    triangles = np.array(mesh_io.read_prims(arity=3), dtype=np.int32)
-
-    mods.mesh.set_mesh(points, triangles)
-
-    # Read and load point vortices data
-    vort_io = ctx.input_io(1)
-    if not vort_io:
-        raise RuntimeError("Input 1 is not set")
-
-    vortex_pos = np.array(vort_io.read_point("P", components=3), dtype=np.float32)
-    vortex_bary = np.array(vort_io.read_point("bary", components=3), dtype=np.float32)
-    vortex_gamma = np.array(vort_io.read_point("gamma"), dtype=np.float32)
-    vortex_faceid = np.array(vort_io.read_point("faceid"), dtype=np.int32)
-    mods.point_vortex.set_vortex(vortex_faceid, vortex_bary, vortex_gamma, vortex_pos)
-
-    # Set Dirichlet Pin
+    load_mesh_input(ctx, mods.mesh)
+    load_point_vortex_input(ctx, mods.point_vortex, index=1)
     mods.p2_stream.constrained_idx.set(np.array([0], dtype=np.int32))
     mods.p2_stream.constrained_values.set(np.array([0], dtype=np.float32))
     mods.p2_stream.eps.set(eps)
-
-    # Solve for stream function
     mods.p2_stream.psi.get()
 
 
-def p2_cook2(ctx: CookContext) -> None:
+def sample_p2_stream_function(ctx: CookContext) -> None:
     mods = P2Module(ctx)
-
-    probe_io = ctx.input_io(1)
-    if probe_io is None:
-        raise RuntimeError("Input 1 is not set")
-
-    faceids = np.array(probe_io.read_point("faceid"), dtype=np.int32)
-    bary = np.array(probe_io.read_point("bary", components=3), dtype=np.float32)
-
+    faceids, bary = read_probe_input(ctx, index=1)
     stream_func = mods.p2_stream.interpolate((faceids, bary))
-
     ctx.write_point("stream_func", stream_func)
 
 
-def p2_interpolate_velocity(ctx: CookContext):
+def sample_p2_velocity(ctx: CookContext) -> None:
     mods = P2Module(ctx)
-
-    probe_io = ctx.input_io(1)
-    if probe_io is None:
-        raise RuntimeError("Input 1 is not set")
-
-    faceids = np.array(probe_io.read_point("faceid"), dtype=np.int32)
-    bary = np.array(probe_io.read_point("bary", components=3), dtype=np.float32)
-
+    faceids, bary = read_probe_input(ctx, index=1)
     vel = mods.p2_vel.interpolate((faceids, bary))
-
     ctx.write_point("vel", vel)
+
+
+# Backward-compatible aliases for existing import sites.
+p2_cook = solve_p2_stream_function
+p2_cook2 = sample_p2_stream_function
+p2_interpolate_velocity = sample_p2_velocity

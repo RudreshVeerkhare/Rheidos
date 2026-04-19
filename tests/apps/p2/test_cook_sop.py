@@ -105,17 +105,18 @@ def cook_sop_module(monkeypatch):
     captured = {}
 
     def _capture(name):
-        def _fn(ctx):
-            captured[name] = ctx
+        def _fn(ctx, *args, **kwargs):
+            captured[name] = {"ctx": ctx, "args": args, "kwargs": kwargs}
 
         return _fn
 
     app_mod = ModuleType("rheidos.apps.p2.app")
-    app_mod.cook = _capture("cook")
-    app_mod.cook2 = _capture("cook2")
+    app_mod.solve_p1_stream_function = _capture("solve_p1_stream_function")
+    app_mod.sample_p1_stream_function = _capture("sample_p1_stream_function")
     p2_app_mod = ModuleType("rheidos.apps.p2.p2_app")
-    p2_app_mod.p2_cook = _capture("p2_cook")
-    p2_app_mod.p2_cook2 = _capture("p2_cook2")
+    p2_app_mod.solve_p2_stream_function = _capture("solve_p2_stream_function")
+    p2_app_mod.sample_p2_stream_function = _capture("sample_p2_stream_function")
+    p2_app_mod.sample_p2_velocity = _capture("sample_p2_velocity")
     p2_test_app_mod = ModuleType("rheidos.apps.p2.p2_test_app")
     p2_test_app_mod.p1_cook_test = _capture("p1_cook_test")
     p2_test_app_mod.p1_cook2_test = _capture("p1_cook2_test")
@@ -154,8 +155,8 @@ def test_node1_copies_mesh_input_to_output(fake_hou, cook_sop_module) -> None:
 
     assert geo_out.clear_calls == 1
     assert geo_out.merged == [mesh_geo]
-    assert captured["cook"].input_io(0).geo_in is mesh_geo
-    assert captured["cook"].output_io().geo_out is geo_out
+    assert captured["solve_p1_stream_function"]["ctx"].input_io(0).geo_in is mesh_geo
+    assert captured["solve_p1_stream_function"]["ctx"].output_io().geo_out is geo_out
 
 
 def test_node2_copies_probe_input_to_output(fake_hou, cook_sop_module) -> None:
@@ -173,5 +174,75 @@ def test_node2_copies_probe_input_to_output(fake_hou, cook_sop_module) -> None:
 
     assert geo_out.clear_calls == 1
     assert geo_out.merged == [probe_geo]
-    assert captured["cook2"].input_io(1).geo_in is probe_geo
-    assert captured["cook2"].output_io().geo_out is geo_out
+    assert captured["sample_p1_stream_function"]["ctx"].input_io(1).geo_in is probe_geo
+    assert captured["sample_p1_stream_function"]["ctx"].output_io().geo_out is geo_out
+
+
+def test_node3_copies_mesh_input_to_output_and_passes_eps(fake_hou, cook_sop_module) -> None:
+    cook_sop, captured = cook_sop_module
+    mesh_geo = _FakeGeometry("mesh")
+    vort_geo = _FakeGeometry("vort")
+    geo_out = _FakeGeometry("out")
+    fake_hou._pwd_node = _FakeNode(
+        "/obj/geo1/python3",
+        inputs=[_FakeInputNode(mesh_geo), _FakeInputNode(vort_geo)],
+        geo_out=geo_out,
+    )
+    fake_hou._pwd_node._parms["eps"] = _FakeParm(0.25)
+
+    cook_sop.node3()
+
+    assert geo_out.clear_calls == 1
+    assert geo_out.merged == [mesh_geo]
+    assert captured["solve_p2_stream_function"]["ctx"].input_io(0).geo_in is mesh_geo
+    assert captured["solve_p2_stream_function"]["ctx"].output_io().geo_out is geo_out
+    assert captured["solve_p2_stream_function"]["args"] == (0.25,)
+
+
+def test_node4_copies_probe_input_to_output(fake_hou, cook_sop_module) -> None:
+    cook_sop, captured = cook_sop_module
+    mesh_geo = _FakeGeometry("mesh")
+    probe_geo = _FakeGeometry("probe")
+    geo_out = _FakeGeometry("out")
+    fake_hou._pwd_node = _FakeNode(
+        "/obj/geo1/python4",
+        inputs=[_FakeInputNode(mesh_geo), _FakeInputNode(probe_geo)],
+        geo_out=geo_out,
+    )
+
+    cook_sop.node4()
+
+    assert geo_out.clear_calls == 1
+    assert geo_out.merged == [probe_geo]
+    assert captured["sample_p2_stream_function"]["ctx"].input_io(1).geo_in is probe_geo
+    assert captured["sample_p2_stream_function"]["ctx"].output_io().geo_out is geo_out
+
+
+def test_interpolate_vel_copies_probe_input_to_output(fake_hou, cook_sop_module) -> None:
+    cook_sop, captured = cook_sop_module
+    mesh_geo = _FakeGeometry("mesh")
+    probe_geo = _FakeGeometry("probe")
+    geo_out = _FakeGeometry("out")
+    fake_hou._pwd_node = _FakeNode(
+        "/obj/geo1/python5",
+        inputs=[_FakeInputNode(mesh_geo), _FakeInputNode(probe_geo)],
+        geo_out=geo_out,
+    )
+
+    cook_sop.interpolate_vel()
+
+    assert geo_out.clear_calls == 1
+    assert geo_out.merged == [probe_geo]
+    assert captured["sample_p2_velocity"]["ctx"].input_io(1).geo_in is probe_geo
+    assert captured["sample_p2_velocity"]["ctx"].output_io().geo_out is geo_out
+
+
+def test_legacy_aliases_point_to_descriptive_helpers() -> None:
+    app_mod = importlib.import_module("rheidos.apps.p2.app")
+    p2_app_mod = importlib.import_module("rheidos.apps.p2.p2_app")
+
+    assert app_mod.cook is app_mod.solve_p1_stream_function
+    assert app_mod.cook2 is app_mod.sample_p1_stream_function
+    assert p2_app_mod.p2_cook is p2_app_mod.solve_p2_stream_function
+    assert p2_app_mod.p2_cook2 is p2_app_mod.sample_p2_stream_function
+    assert p2_app_mod.p2_interpolate_velocity is p2_app_mod.sample_p2_velocity

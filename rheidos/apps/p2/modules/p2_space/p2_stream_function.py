@@ -1,5 +1,6 @@
 import numpy as np
 
+from rheidos.apps.p2.modules.p2_space.p2_elements import P2Elements
 from rheidos.apps.p2.modules.p2_space.p2_poisson_solver import P2PoissonSolver
 from rheidos.apps.p2.modules.p2_space.probe_utils import probe_arrays
 from rheidos.apps.p2.modules.point_vortex.point_vortex_module import PointVortexModule
@@ -15,11 +16,24 @@ import scipy.sparse.linalg as spla
 class P2StreamFunction(ModuleBase):
     NAME = "P2StreamFunction"
 
-    def __init__(self, world: World, *, scope: str = "") -> None:
+    def __init__(
+        self,
+        world: World,
+        *,
+        mesh: SurfaceMeshModule,
+        point_vortex: PointVortexModule,
+        p2_elements: P2Elements,
+        poisson: P2PoissonSolver,
+        scope: str = "",
+        regularize: bool = True,
+    ) -> None:
         super().__init__(world, scope=scope)
 
-        self.mesh = self.require(SurfaceMeshModule)
-        self.point_vortex = self.require(PointVortexModule)
+        self.regularize = regularize
+
+        self.mesh = mesh
+        self.point_vortex = point_vortex
+        self.p2_elements = p2_elements
 
         self.eps = self.resource(
             "eps",
@@ -29,28 +43,15 @@ class P2StreamFunction(ModuleBase):
             buffer=1e-2,
         )
 
-        # Usage guide:
-        # - `child=True, child_name="poisson"` gives the solver its own nested
-        #   resource namespace under this module
-        # - plain requires inside the child solver still resolve through this
-        #   module's lookup scope, so the P2 element space is shared
-        #   automatically
-        # - `declare_rhs=False` lets this wrapper own the vorticity production
-        #   while the child solver still owns the CG solve path
-        self.poisson = self.require(
-            P2PoissonSolver,
-            child=True,
-            child_name="poisson",
-            declare_rhs=False,
-        )
+        self.poisson = poisson
 
-        # Re-export the child solver's public resources so existing callers can
-        # keep using the stream-function wrapper as the facade module.
+        # Re-export the solver's public resources so the wrapper stays the
+        # composition-facing facade.
         self.p2_elements = self.poisson.p2_space
         self.constrained_idx = self.poisson.constrained_idx
         self.constrained_values = self.poisson.constrained_values
         self.omega = self.poisson.rhs
-        self.psi_non_reg = self.poisson.psi
+        self.psi_raw = self.poisson.psi
         self.solve_cg = self.poisson.solve_cg
 
         self.psi = self.resource(
@@ -60,27 +61,57 @@ class P2StreamFunction(ModuleBase):
                 dtype=np.float64,
                 shape_fn=shape_from_scalar(self.p2_elements.n_dof),
             ),
-            doc="Regularized stream function coefficients for chosen p2 basis.",
+            doc="Stream function coefficients for chosen P2 basis.",
         )
         self.bind_producers()
 
     @producer(
-        inputs=("psi_non_reg", "p2_elements.M_mass", "p2_elements.L_stiffness", "eps"),
+        inputs=(
+            "psi_raw",
+            "p2_elements.M_mass",
+            "p2_elements.L_stiffness",
+            "constrained_idx",
+            "constrained_values",
+            "eps",
+        ),
         outputs=("psi",),
     )
     def regularize_psi(self, ctx: ProducerContext):
         ctx.require_inputs()
+
+        if not self.regularize:
+            psi = self.psi_raw.get()
+            ctx.commit(psi=psi)
+            return
+
+        # Regularize
         K = self.p2_elements.L_stiffness.get()
         M = self.p2_elements.M_mass.get()
-        psi_non_reg = self.psi_non_reg.get()
+        psi_non_reg = self.psi_raw.get()
+        constrained_idx = self.constrained_idx.get()
+        constrained_values = np.asarray(self.constrained_values.get(), dtype=np.float64)
         eps = self.eps.get()
 
         A = (M + 0.5 * eps * K).tocsc()
-        rhs = (M - 0.5 * eps * K) @ psi_non_reg
+        rhs = M @ psi_non_reg
 
-        psi = spla.spsolve(A, rhs)
+        n_dof = self.p2_elements.n_dof.get()
+        is_constrained_mask = np.zeros(n_dof, dtype=bool)
+        is_constrained_mask[constrained_idx] = True
+        free_idx = np.nonzero(~is_constrained_mask)[0]
 
-        ctx.commit(psi=psi)
+        psi_reg = np.zeros(n_dof, dtype=np.float64)
+        psi_reg[constrained_idx] = constrained_values
+
+        if free_idx.size > 0:
+            A_II = A[free_idx][:, free_idx]
+            rhs_free = rhs[free_idx]
+            if constrained_idx.size > 0:
+                A_IB = A[free_idx][:, constrained_idx]
+                rhs_free = rhs_free - A_IB @ constrained_values
+            psi_reg[free_idx] = spla.spsolve(A_II, rhs_free)
+
+        ctx.commit(psi=psi_reg)
 
     @producer(
         inputs=(
@@ -116,7 +147,7 @@ class P2StreamFunction(ModuleBase):
 
         ctx.commit(omega=omega)
 
-    def interpolate(self, probes):
+    def interpolate_reg(self, probes):
         """Interpolates the regularized stream function using the P2 basis."""
         psi = self.psi.get()
         face_dof = self.p2_elements.face_dof.get()
@@ -125,3 +156,18 @@ class P2StreamFunction(ModuleBase):
             self.p2_elements.basis_from_bary(bary[:, 0], bary[:, 1], bary[:, 2]), axis=1
         )
         return np.einsum("ij,ij->i", psi[face_dof[faceids]], basis)
+
+    def interpolate(self, probes):
+        """
+        Interpolates the stream function using P2 basis
+        """
+        if not self.regularize:
+            return self.poisson.interpolate(probes)
+
+        return self.interpolate_reg(probes)
+
+    def set_homo_dirichlet_boundary(self):
+        boundary_mask = self.p2_elements.boundary_mask.get()
+        boundary_dofs = np.where(boundary_mask == True)[0]
+        self.constrained_idx.set(boundary_dofs.astype(np.int32))
+        self.constrained_values.set(np.zeros_like(boundary_dofs, dtype=np.float32))

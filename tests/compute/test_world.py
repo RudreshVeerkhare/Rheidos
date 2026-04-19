@@ -3,7 +3,14 @@
 import numpy as np
 import pytest
 
-from rheidos.compute import ModuleBase, ResourceRef, ResourceKey, World, producer
+from rheidos.compute import (
+    ModuleBase,
+    ModuleInputContractError,
+    ResourceRef,
+    ResourceKey,
+    World,
+    producer,
+)
 
 
 class TestNamespace:
@@ -612,8 +619,12 @@ class TestModuleProducerBinding:
             def build(self, ctx):
                 pass
 
-        with pytest.raises(AttributeError, match="Did you mean 'mesh.V_pos'\\?"):
+        with pytest.raises(ModuleInputContractError) as excinfo:
             world.require(ConsumerModule)
+
+        message = str(excinfo.value)
+        assert "ConsumerModule input contract validation failed" in message
+        assert "Did you mean 'mesh.V_pos'?" in message
 
 
 class TestWorld:

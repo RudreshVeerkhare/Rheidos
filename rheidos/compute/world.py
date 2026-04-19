@@ -13,6 +13,7 @@ from typing import (
     Tuple,
     Type,
     TypeVar,
+    Mapping,
     cast,
 )
 
@@ -32,6 +33,74 @@ ArgsKey = Tuple[Tuple[Any, ...], Tuple[Tuple[str, Any], ...]]
 ModuleKey = Tuple[str, str, Type["ModuleBase"], ArgsKey]
 DepLike = str | ResourceRef[Any] | ResourceKey[Any]
 ModuleDepPattern = str
+
+
+def _binding_candidates_for(value: Any) -> List[str]:
+    custom = getattr(value, "__rheidos_binding_candidates__", None)
+    if callable(custom):
+        try:
+            return sorted(set(custom()))
+        except Exception:
+            return []
+
+    try:
+        items = vars(value).items()
+    except TypeError:
+        return []
+
+    names = []
+    for name, child in items:
+        if name.startswith("_"):
+            continue
+        if isinstance(child, (ResourceRef, ModuleBase)) or callable(
+            getattr(child, "__rheidos_binding_candidates__", None)
+        ):
+            names.append(name)
+    return sorted(set(names))
+
+
+def _binding_help_for(
+    *,
+    missing: str,
+    container: Any,
+    path_prefix: str = "",
+) -> str:
+    candidates = _binding_candidates_for(container)
+    parts: List[str] = []
+    suggestion = get_close_matches(missing, candidates, n=1, cutoff=0.6)
+    if not suggestion and len(candidates) == 1:
+        suggestion = candidates
+    if suggestion:
+        guess = suggestion[0]
+        if path_prefix:
+            guess = f"{path_prefix}{guess}"
+        parts.append(f"Did you mean '{guess}'?")
+    if candidates:
+        visible = [
+            f"{path_prefix}{name}" if path_prefix else name for name in candidates
+        ]
+        parts.append(f"Available names: {', '.join(visible)}.")
+    return (" " + " ".join(parts)) if parts else ""
+
+
+def _resolve_object_path(value: Any, path: str, *, owner: str) -> Any:
+    current = value
+    resolved_parts: List[str] = []
+    for part in path.split("."):
+        resolved_parts.append(part)
+        if not hasattr(current, part):
+            prefix = ".".join(resolved_parts[:-1])
+            help_text = _binding_help_for(
+                missing=part,
+                container=current,
+                path_prefix=f"{prefix}." if prefix else "",
+            )
+            missing_attr = ".".join(resolved_parts)
+            raise AttributeError(
+                f"{owner} references unknown resource '{missing_attr}'.{help_text}"
+            )
+        current = getattr(current, part)
+    return current
 
 
 def _make_args_key(args: Iterable[Any], kwargs: Dict[str, Any]) -> ArgsKey:
@@ -268,17 +337,7 @@ class ModuleBase:
         )
 
     def _binding_candidates(self, value: Any) -> List[str]:
-        try:
-            items = vars(value).items()
-        except TypeError:
-            return []
-        names = []
-        for name, child in items:
-            if name.startswith("_"):
-                continue
-            if isinstance(child, (ResourceRef, ModuleBase)):
-                names.append(name)
-        return sorted(names)
+        return _binding_candidates_for(value)
 
     def _binding_help(
         self,
@@ -287,18 +346,121 @@ class ModuleBase:
         container: Any,
         path_prefix: str = "",
     ) -> str:
-        candidates = self._binding_candidates(container)
-        parts: List[str] = []
-        suggestion = get_close_matches(missing, candidates, n=1, cutoff=0.6)
-        if suggestion:
-            guess = suggestion[0]
-            if path_prefix:
-                guess = f"{path_prefix}{guess}"
-            parts.append(f"Did you mean '{guess}'?")
-        if candidates:
-            visible = [f"{path_prefix}{name}" if path_prefix else name for name in candidates]
-            parts.append(f"Available names: {', '.join(visible)}.")
-        return (" " + " ".join(parts)) if parts else ""
+        return _binding_help_for(
+            missing=missing,
+            container=container,
+            path_prefix=path_prefix,
+        )
+
+    def _validate_provider_input_path(
+        self,
+        *,
+        provider_name: str,
+        provider: Any,
+        required_path: str,
+        producer_name: str,
+        input_name: str,
+    ) -> Optional["_ModuleInputContractFailure"]:
+        current = provider
+        resolved_parts: List[str] = []
+        for part in required_path.split("."):
+            resolved_parts.append(part)
+            if not hasattr(current, part):
+                prefix = ".".join((provider_name, *resolved_parts[:-1]))
+                help_text = self._binding_help(
+                    missing=part,
+                    container=current,
+                    path_prefix=f"{prefix}." if prefix else "",
+                )
+                missing_path = ".".join((provider_name, *resolved_parts))
+                return _ModuleInputContractFailure(
+                    provider_name=provider_name,
+                    provider_type=type(provider).__name__,
+                    required_path=required_path,
+                    producer_name=producer_name,
+                    input_name=input_name,
+                    problem=f"missing '{missing_path}'.{help_text}",
+                )
+            current = getattr(current, part)
+
+        if isinstance(current, ResourceRef):
+            return None
+
+        full_path = ".".join((provider_name, *resolved_parts))
+        help_text = self._binding_help(
+            missing="",
+            container=current,
+            path_prefix=f"{full_path}." if full_path else "",
+        )
+        return _ModuleInputContractFailure(
+            provider_name=provider_name,
+            provider_type=type(provider).__name__,
+            required_path=required_path,
+            producer_name=producer_name,
+            input_name=input_name,
+            problem=(
+                f"'{full_path}' resolved to {type(current).__name__}, "
+                f"expected ResourceRef.{help_text}"
+            ),
+        )
+
+    def validate_input_contracts(self) -> None:
+        failures: List[_ModuleInputContractFailure] = []
+        for method_name, _method, spec in self._iter_decorated_methods():
+            for input_name in spec.inputs:
+                root_name, dot, required_path = input_name.partition(".")
+                if not dot:
+                    continue
+
+                if not hasattr(self, root_name):
+                    help_text = self._binding_help(
+                        missing=root_name,
+                        container=self,
+                    )
+                    failures.append(
+                        _ModuleInputContractFailure(
+                            provider_name=root_name,
+                            provider_type="<missing>",
+                            required_path=required_path or root_name,
+                            producer_name=method_name,
+                            input_name=input_name,
+                            problem=(
+                                f"missing provider binding '{root_name}' for "
+                                f"'{input_name}'.{help_text}"
+                            ),
+                        )
+                    )
+                    continue
+
+                provider = getattr(self, root_name)
+                if isinstance(provider, ResourceRef):
+                    failures.append(
+                        _ModuleInputContractFailure(
+                            provider_name=root_name,
+                            provider_type="ResourceRef",
+                            required_path=required_path,
+                            producer_name=method_name,
+                            input_name=input_name,
+                            problem=(
+                                f"'{root_name}' is a ResourceRef and cannot "
+                                f"provide nested path '{input_name}'."
+                            ),
+                        )
+                    )
+                    continue
+
+                failure = self._validate_provider_input_path(
+                    provider_name=root_name,
+                    provider=provider,
+                    required_path=required_path,
+                    producer_name=method_name,
+                    input_name=input_name,
+                )
+                if failure is not None:
+                    failures.append(failure)
+
+        if failures:
+            raise ModuleInputContractError(self.__class__.__name__, failures)
 
     def _resolve_bound_resource(
         self,
@@ -351,6 +513,7 @@ class ModuleBase:
                 yield name, getattr(self, name), spec
 
     def bind_producers(self) -> None:
+        self.validate_input_contracts()
         for method_name, method, spec in self._iter_decorated_methods():
             if method_name in self._bound_producer_methods:
                 raise RuntimeError(
@@ -401,6 +564,110 @@ class ModuleBase:
             self._bound_producer_methods.add(method_name)
 
 
+@dataclass(frozen=True)
+class _ModuleInputContractFailure:
+    provider_name: str
+    provider_type: str
+    required_path: str
+    producer_name: str
+    input_name: str
+    problem: str
+
+
+class ModuleInputContractError(RuntimeError):
+    def __init__(
+        self,
+        module_name: str,
+        failures: Sequence[_ModuleInputContractFailure],
+    ) -> None:
+        self.module_name = module_name
+        self.failures = tuple(failures)
+        super().__init__(self._format_message())
+
+    def _format_message(self) -> str:
+        grouped: Dict[Tuple[str, str], List[_ModuleInputContractFailure]] = {}
+        for failure in self.failures:
+            grouped.setdefault(
+                (failure.provider_name, failure.provider_type), []
+            ).append(failure)
+
+        lines = [f"{self.module_name} input contract validation failed:"]
+        for (provider_name, provider_type), failures in sorted(grouped.items()):
+            required = ", ".join(sorted({f.required_path for f in failures}))
+            lines.append(f"- provider '{provider_name}' ({provider_type})")
+            lines.append(f"  required paths: {required}")
+            for failure in sorted(
+                failures,
+                key=lambda item: (item.producer_name, item.input_name),
+            ):
+                lines.append(
+                    f"  {failure.producer_name} -> {failure.input_name}: "
+                    f"{failure.problem}"
+                )
+        return "\n".join(lines)
+
+
+class ResourceView:
+    def __init__(self, source: Any, aliases: Mapping[str, str]) -> None:
+        if not aliases:
+            raise ValueError("resource_view() requires at least one alias")
+
+        normalized_aliases: List[Tuple[str, str]] = []
+        object.__setattr__(self, "_source", source)
+        for alias, target_path in sorted(aliases.items()):
+            if alias == "" or "." in alias:
+                raise ValueError(
+                    "resource_view alias names must be single non-empty attributes"
+                )
+            if not isinstance(target_path, str) or target_path == "":
+                raise TypeError(
+                    "resource_view alias targets must be non-empty strings"
+                )
+            target = _resolve_object_path(
+                source,
+                target_path,
+                owner=f"resource_view alias '{alias}'",
+            )
+            object.__setattr__(self, alias, target)
+            normalized_aliases.append((alias, target_path))
+        object.__setattr__(self, "_alias_items", tuple(normalized_aliases))
+
+    @property
+    def source(self) -> Any:
+        return self._source
+
+    @property
+    def alias_items(self) -> Tuple[Tuple[str, str], ...]:
+        return self._alias_items
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        raise AttributeError("ResourceView is read-only")
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._source, name)
+
+    def __rheidos_binding_candidates__(self) -> List[str]:
+        names = {alias for alias, _ in self._alias_items}
+        names.update(_binding_candidates_for(self._source))
+        return sorted(names)
+
+    def __hash__(self) -> int:
+        return hash((id(self._source), self._alias_items))
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, ResourceView):
+            return False
+        return self._source is other._source and self._alias_items == other._alias_items
+
+    def __repr__(self) -> str:
+        alias_str = ", ".join(f"{alias}={target!r}" for alias, target in self._alias_items)
+        return f"ResourceView(source={type(self._source).__name__}, {alias_str})"
+
+
+def resource_view(source: Any, **aliases: str) -> ResourceView:
+    return ResourceView(source, aliases)
+
+
 def module_resource_deps(
     module: ModuleBase,
     *,
@@ -445,6 +712,39 @@ class World:
         if parent is None or parent == child:
             return
         self._module_deps.setdefault(parent, set()).add(child)
+
+    def _iter_explicit_module_dep_keys(self, value: Any) -> Iterable[ModuleKey]:
+        if isinstance(value, ModuleBase):
+            if value._module_key is not None:
+                yield value._module_key
+            return
+
+        if isinstance(value, ResourceView):
+            yield from self._iter_explicit_module_dep_keys(value.source)
+            return
+
+        if isinstance(value, Mapping):
+            for child in value.values():
+                yield from self._iter_explicit_module_dep_keys(child)
+            return
+
+        if isinstance(value, tuple):
+            for child in value:
+                yield from self._iter_explicit_module_dep_keys(child)
+
+    def _record_explicit_module_deps(
+        self,
+        module_key: ModuleKey,
+        args: Tuple[Any, ...],
+        kwargs: Dict[str, Any],
+    ) -> None:
+        seen: Set[ModuleKey] = set()
+        for value in (*args, *kwargs.values()):
+            for dep_key in self._iter_explicit_module_dep_keys(value):
+                if dep_key in seen:
+                    continue
+                seen.add(dep_key)
+                self._record_module_dep(module_key, dep_key)
 
     def _build_context_for_require(
         self,
@@ -536,6 +836,7 @@ class World:
         existing = self._modules.get(key)
         if existing is not None:
             self._record_module_dep(dep_parent, key)
+            self._record_explicit_module_deps(key, args, kwargs)
             return cast(M, existing)
 
         # Cycle detection (dynamic deps are discovered by execution; cycles are fatal)
@@ -555,6 +856,7 @@ class World:
         }
         resource_names_before = self.reg.declared_names()
         self._record_module_dep(dep_parent, key)
+        self._record_explicit_module_deps(key, args, kwargs)
 
         # Build
         self._building_stack.append(key)

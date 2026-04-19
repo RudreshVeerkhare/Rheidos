@@ -14,17 +14,13 @@ class P2PoissonSolver(ModuleBase):
         self,
         world: World,
         *,
+        p2_space: P2Elements,
         scope: str = "",
         declare_rhs: bool = True,
     ) -> None:
         super().__init__(world, scope=scope)
 
-        # These plain requires intentionally use the module's lookup scope.
-        # That lets the solver work both as:
-        # - a standalone module, and
-        # - a child module nested under another module while still sharing
-        #   the parent's P2 element space.
-        self.p2_space = self.require(P2Elements)
+        self.p2_space = p2_space
 
         self.constrained_idx = self.resource(
             "constrained_idx",
@@ -138,7 +134,7 @@ class P2PoissonSolver(ModuleBase):
 
         ctx.commit(solve_cg=solve)
 
-    def interpolate(self, probles):
+    def interpolate(self, probes):
         """Interpolates the value of `psi` using P2 lagrange basis
 
         Args:
@@ -146,7 +142,7 @@ class P2PoissonSolver(ModuleBase):
         """
         psi = self.psi.get()
         face_dof = self.p2_space.face_dof.get()
-        faceids, bary = probe_arrays(probles)
+        faceids, bary = probe_arrays(probes)
         basis = np.stack(
             self.p2_space.basis_from_bary(bary[:, 0], bary[:, 1], bary[:, 2]), axis=1
         )

@@ -8,7 +8,15 @@ from .wiring import (
     producer,
     producer_output,
 )
-from .world import ModuleBase, Namespace, World, module_resource_deps
+from .world import (
+    ModuleBase,
+    ModuleInputContractError,
+    Namespace,
+    ResourceView,
+    World,
+    module_resource_deps,
+    resource_view,
+)
 
 from typing import Any, Callable, Optional, Tuple
 
@@ -71,6 +79,7 @@ def shape_with_tail(ref: ResourceRef[Any], *, tail: Tuple[int, ...] = ()) -> Sha
 __all__ = [
     "FieldLike",
     "ModuleBase",
+    "ModuleInputContractError",
     "Namespace",
     "module_resource_deps",
     "ProducerContext",
@@ -82,12 +91,14 @@ __all__ = [
     "ResourceName",
     "ResourceRef",
     "ResourceSpec",
+    "ResourceView",
     "ResourceKindAdapter",
     "Shape",
     "ShapeFn",
     "World",
     "producer",
     "producer_output",
+    "resource_view",
     "register_resource_kind",
     "shape_map",
     "shape_of",

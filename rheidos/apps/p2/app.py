@@ -1,67 +1,40 @@
-from rheidos.apps.p2.modules.p1_space.p1_stream_function import P1StreamFunction
-from rheidos.apps.p2.modules.point_vortex.point_vortex_module import PointVortexModule
-from rheidos.apps.p2.modules.surface_mesh.surface_mesh_module import SurfaceMeshModule
 from rheidos.houdini.runtime.cook_context import CookContext
 
 import numpy as np
 
+from ._graphs import P1StreamGraph
+from ._io import load_mesh_input, load_point_vortex_input, read_probe_input
+
 
 class P1Module:
     def __init__(self, ctx: CookContext) -> None:
-        world = ctx.world()
-        self.mesh = world.require(SurfaceMeshModule)
-        self.point_vortex = world.require(PointVortexModule)
-        self.p1_stream = world.require(P1StreamFunction)
+        graph = ctx.world().require(P1StreamGraph)
+        self._graph = graph
+        self.mesh = graph.mesh
+        self.point_vortex = graph.point_vortex
+        self.dec = graph.dec
+        self.p1_poisson = graph.p1_poisson
+        self.p1_stream = graph.p1_stream
 
 
-def cook2(ctx: CookContext) -> None:
+def sample_p1_stream_function(ctx: CookContext) -> None:
     mods = P1Module(ctx)
-
-    probe_io = ctx.input_io(1)
-    if probe_io is None:
-        raise RuntimeError("Input 1 is not set")
-
-    faceids = np.array(probe_io.read_point("faceid"), dtype=np.int32)
-    bary = np.array(probe_io.read_point("bary", components=3), dtype=np.float32)
-
-    stream_func = mods.p1_stream.interpolate(list(zip(faceids, bary)))
-
+    faceids, bary = read_probe_input(ctx, index=1)
+    stream_func = mods.p1_stream.interpolate((faceids, bary))
     ctx.write_point("stream_func", stream_func)
 
 
-def cook(ctx: CookContext) -> None:
+def solve_p1_stream_function(ctx: CookContext) -> None:
     mods = P1Module(ctx)
-
-    # Read and load mesh from Houdini
-    mesh_io = ctx.input_io(0)
-    if not mesh_io:
-        raise RuntimeError(f"Input 0 is not set")
-
-    points = np.array(mesh_io.read_point("P", components=3), dtype=np.float32)
-    triangles = np.array(mesh_io.read_prims(arity=3), dtype=np.int32)
-
-    mods.mesh.set_mesh(points, triangles)
-
-    # Read and load point vortices data
-    vort_io = ctx.input_io(1)
-    if not vort_io:
-        raise RuntimeError("Input 1 is not set")
-
-    vortex_pos = np.array(vort_io.read_point("P", components=3), dtype=np.float32)
-    vortex_bary = np.array(vort_io.read_point("bary", components=3), dtype=np.float32)
-    vortex_gamma = np.array(vort_io.read_point("gamma"), dtype=np.float32)
-    vortex_faceid = np.array(vort_io.read_point("faceid"), dtype=np.int32)
-    mods.point_vortex.set_vortex(vortex_faceid, vortex_bary, vortex_gamma, vortex_pos)
-
-    # Splat vortices
+    load_mesh_input(ctx, mods.mesh)
+    load_point_vortex_input(ctx, mods.point_vortex, index=1)
     mods.p1_stream.omega.get()
-
-    # Set Dirichlet Pin
     mods.p1_stream.constrained_idx.set(np.array([0], dtype=np.int32))
     mods.p1_stream.constrained_values.set(np.array([0], dtype=np.float32))
-
-    # Solve for Stream function
     psi = mods.p1_stream.psi.get()
-
-    # Export Stream function
     ctx.write_point("stream_func", psi)
+
+
+# Backward-compatible aliases for existing import sites.
+cook = solve_p1_stream_function
+cook2 = sample_p1_stream_function

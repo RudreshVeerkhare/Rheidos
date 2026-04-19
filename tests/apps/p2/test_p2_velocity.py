@@ -5,9 +5,38 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+from rheidos.apps.p2.modules.p2_space.p2_elements import P2Elements
+from rheidos.apps.p2.modules.p2_space.p2_poisson_solver import P2PoissonSolver
+from rheidos.apps.p2.modules.p2_space.p2_stream_function import P2StreamFunction
 from rheidos.apps.p2.modules.p2_space.p2_velocity import P2VelocityField
+from rheidos.apps.p2.modules.point_vortex.point_vortex_module import PointVortexModule
 from rheidos.apps.p2.modules.surface_mesh.surface_mesh_module import SurfaceMeshModule
 from rheidos.compute import World
+
+
+def _build_velocity(world: World) -> tuple[SurfaceMeshModule, P2VelocityField]:
+    mesh = world.require(SurfaceMeshModule)
+    vortex = world.require(PointVortexModule)
+    p2_space = world.require(P2Elements, mesh=mesh)
+    poisson = world.require(
+        P2PoissonSolver,
+        p2_space=p2_space,
+        declare_rhs=False,
+    )
+    stream = world.require(
+        P2StreamFunction,
+        mesh=mesh,
+        point_vortex=vortex,
+        p2_elements=p2_space,
+        poisson=poisson,
+    )
+    velocity = world.require(
+        P2VelocityField,
+        mesh=mesh,
+        p2_space=p2_space,
+        stream=stream,
+    )
+    return mesh, velocity
 
 
 @pytest.mark.parametrize("use_batched_arrays", [False, True])
@@ -16,8 +45,7 @@ def test_p2_velocity_interpolate_uses_row_stored_barycentric_gradients(
 ) -> None:
     world = World()
 
-    mesh = world.require(SurfaceMeshModule)
-    velocity = world.require(P2VelocityField)
+    mesh, velocity = _build_velocity(world)
 
     mesh.set_mesh(
         np.array(

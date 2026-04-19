@@ -14,9 +14,15 @@ from rheidos.compute.world import World
 class P2Elements(ModuleBase):
     NAME = "P2Elements"
 
-    def __init__(self, world: World, *, scope: str = "") -> None:
+    def __init__(
+        self,
+        world: World,
+        *,
+        mesh: SurfaceMeshModule,
+        scope: str = "",
+    ) -> None:
         super().__init__(world, scope=scope)
-        self.mesh = self.require(SurfaceMeshModule)
+        self.mesh = mesh
 
         self.n_dof = self.resource(
             "n_dof",

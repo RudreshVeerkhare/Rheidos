@@ -12,12 +12,20 @@ from .probe_utils import probe_arrays
 class P2VelocityField(ModuleBase):
     NAME = "P2VelocityField"
 
-    def __init__(self, world: World, *, scope: str = "") -> None:
+    def __init__(
+        self,
+        world: World,
+        *,
+        mesh: SurfaceMeshModule,
+        p2_space: P2Elements,
+        stream: P2StreamFunction,
+        scope: str = "",
+    ) -> None:
         super().__init__(world, scope=scope)
 
-        self.mesh = self.require(SurfaceMeshModule)
-        self.p2_space = self.require(P2Elements)
-        self.stream = self.require(P2StreamFunction)
+        self.mesh = mesh
+        self.p2_space = p2_space
+        self.stream = stream
 
     def interpolate(self, probes):
         """Interpolates the P2 velocity field at the probe locations.

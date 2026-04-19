@@ -14,18 +14,15 @@ class P1PoissonSolver(ModuleBase):
         self,
         world: World,
         *,
+        mesh: SurfaceMeshModule,
+        dec: DEC,
         scope: str = "",
         declare_rhs: bool = True,
     ) -> None:
         super().__init__(world, scope=scope)
 
-        # These plain requires intentionally use the module's lookup scope.
-        # That lets the solver work both as:
-        # - a standalone module, and
-        # - a child module nested under another module while still sharing
-        #   the parent's mesh/DEC dependencies.
-        self.mesh = self.require(SurfaceMeshModule)
-        self.dec = self.require(DEC)
+        self.mesh = mesh
+        self.dec = dec
 
         self.constrained_idx = self.resource(
             "constrained_idx",
@@ -166,15 +163,32 @@ class P1PoissonSolver(ModuleBase):
         ctx.commit(L_cached=L, solve_cg=solve)
 
     def interpolate(self, probes) -> np.ndarray:
-        """Interpolates the value of `psi` based on P1 lagrange basis
+        """Interpolates the value of `psi` based on the P1 basis.
 
         Args:
-            probes (np.ndarray): [[faceid, [b1, b2, b3]], ...]
+            probes:
+                Either an iterable of ``(faceid, bary)`` pairs or a
+                ``(faceids, bary)`` tuple of arrays.
 
         Returns:
             np.ndarray: Values at the probe locations
         """
         psi = self.psi.get()
         F_verts = self.mesh.F_verts.get()
-        faceids, bary = probe_arrays(probes)
+
+        if isinstance(probes, tuple) and len(probes) == 2:
+            faceids = np.asarray(probes[0], dtype=np.int64)
+            bary = np.asarray(probes[1], dtype=np.float64)
+        else:
+            faceids, bary = probe_arrays(probes)
+
         return np.einsum("ij,ij->i", psi[F_verts[faceids]], bary)
+
+    def set_homo_dirichlet_boundary(self) -> None:
+        boundary_mask = self.dec.boundary_mask.get()
+        boundary_dofs = np.where(boundary_mask)[0]
+        if boundary_dofs.size == 0:
+            boundary_dofs = np.array([0], dtype=np.int32)
+
+        self.constrained_idx.set(boundary_dofs.astype(np.int32))
+        self.constrained_values.set(np.zeros(boundary_dofs.shape, dtype=np.float32))
