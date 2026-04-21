@@ -32,7 +32,7 @@ def p1_cook_test(ctx: CookContext) -> None:
     dof_pos = mods.mesh.V_pos.get()
     boundary_val = np.array(list(map(lambda x: x[0] * x[2], dof_pos[boundary_idx])))
     mods.p1_poisson.constrained_idx.set(boundary_idx.astype(np.int32))
-    mods.p1_poisson.constrained_values.set(boundary_val.astype(np.float32))
+    mods.p1_poisson.constrained_values.set(boundary_val.astype(np.float64))
     mods.p1_poisson.rhs.set(np.zeros(boundary_mask.shape, dtype=np.float64))
     mods.p1_poisson.psi.get()
 
@@ -52,7 +52,7 @@ def p2_cook_test(ctx: CookContext) -> None:
     dof_pos = mods.p2_space.dof_pos.get()
     boundary_val = np.array(list(map(lambda x: x[0] * x[2], dof_pos[boundary_idx])))
     mods.p2_poisson.constrained_idx.set(boundary_idx.astype(np.int32))
-    mods.p2_poisson.constrained_values.set(boundary_val.astype(np.float32))
+    mods.p2_poisson.constrained_values.set(boundary_val.astype(np.float64))
     mods.p2_poisson.rhs.set(np.zeros(boundary_mask.shape, dtype=np.float64))
     mods.p2_poisson.psi.get()
 

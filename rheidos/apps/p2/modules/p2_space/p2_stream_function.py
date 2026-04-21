@@ -170,4 +170,4 @@ class P2StreamFunction(ModuleBase):
         boundary_mask = self.p2_elements.boundary_mask.get()
         boundary_dofs = np.where(boundary_mask == True)[0]
         self.constrained_idx.set(boundary_dofs.astype(np.int32))
-        self.constrained_values.set(np.zeros_like(boundary_dofs, dtype=np.float32))
+        self.constrained_values.set(np.zeros_like(boundary_dofs, dtype=np.float64))

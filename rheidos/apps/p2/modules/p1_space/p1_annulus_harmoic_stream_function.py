@@ -14,12 +14,17 @@ class P1AnnulusHarmonicStreamFunction(ModuleBase):
         world: World,
         *,
         mesh: SurfaceMeshModule,
-        dec: DEC,
+        dec: DEC | None = None,
+        poisson: P1PoissonSolver | None = None,
         scope: str = "",
     ) -> None:
         super().__init__(world, scope=scope)
 
         self.mesh = mesh
+        if poisson is None and dec is None:
+            raise ValueError(
+                "P1AnnulusHarmonicStreamFunction requires either dec or poisson"
+            )
         # Usage guide:
         # - `child=True, child_name="poisson"` gives the solver its own nested
         #   resource namespace under this module
@@ -27,14 +32,17 @@ class P1AnnulusHarmonicStreamFunction(ModuleBase):
         #   module's lookup scope, so mesh/DEC are shared automatically
         # - `declare_rhs=False` lets this wrapper own the vorticity production
         #   while the child solver still owns the CG/Laplacian machinery
-        self.poisson = self.require(
-            P1PoissonSolver,
-            child=True,
-            child_name="poisson",
-            mesh=mesh,
-            dec=dec,
-            declare_rhs=False,
-        )
+        if poisson is None:
+            self.poisson = self.require(
+                P1PoissonSolver,
+                child=True,
+                child_name="poisson",
+                mesh=mesh,
+                dec=dec,
+                declare_rhs=False,
+            )
+        else:
+            self.poisson = poisson
 
         # Re-export the solver's public resources so the wrapper stays the
         # composition-facing facade.
@@ -72,6 +80,6 @@ class P1AnnulusHarmonicStreamFunction(ModuleBase):
         self.constrained_idx.set(np.concatenate([vb1, vb2]))
         self.constrained_values.set(
             np.concatenate(
-                [np.full(vb1.shape, 1.0), np.zeros_like(vb2)], dtype=np.float32
+                [np.full(vb1.shape, 1.0), np.zeros_like(vb2)], dtype=np.float64
             )
         )

@@ -30,7 +30,7 @@ def solve_p1_stream_function(ctx: CookContext) -> None:
     load_point_vortex_input(ctx, mods.point_vortex, index=1)
     mods.p1_stream.omega.get()
     mods.p1_stream.constrained_idx.set(np.array([0], dtype=np.int32))
-    mods.p1_stream.constrained_values.set(np.array([0], dtype=np.float32))
+    mods.p1_stream.constrained_values.set(np.array([0], dtype=np.float64))
     psi = mods.p1_stream.psi.get()
     ctx.write_point("stream_func", psi)
 

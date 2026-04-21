@@ -114,6 +114,7 @@ def annulus_cook_module(monkeypatch):
     app_mod.interpolate_p1_harmonic_velocity = _capture(
         "interpolate_p1_harmonic_velocity"
     )
+    app_mod.rk4_advect = _capture("rk4_advect")
 
     monkeypatch.setitem(sys.modules, "rheidos.apps.p2.p1_annulus_app", app_mod)
     monkeypatch.delitem(sys.modules, "rheidos.apps.p2.p1_annulus_cook", raising=False)
@@ -196,3 +197,33 @@ def test_interpolate_p1_harmonic_velocity_node_copies_probe_input(
     assert geo_out.clear_calls == 1
     assert geo_out.merged == [probe_geo]
     assert captured["interpolate_p1_harmonic_velocity"]["ctx"].input_io(0).geo_in is probe_geo
+
+
+def test_p1_velocity_rk4_advection_avoids_forced_profiler_path(
+    fake_hou,
+    annulus_cook_module,
+    monkeypatch,
+):
+    annulus_cook, captured = annulus_cook_module
+    mesh_geo = _FakeGeometry("mesh")
+    geo_out = _FakeGeometry("out")
+    fake_hou._pwd_node = _FakeNode(
+        "/obj/geo1/python4",
+        inputs=[_FakeInputNode(mesh_geo)],
+        geo_out=geo_out,
+    )
+
+    monkeypatch.setattr(
+        session_mod,
+        "_call_with_forced_profiler",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("forced profiler path should not run")
+        ),
+    )
+
+    annulus_cook.p1_velocity_rk4_advection()
+
+    assert geo_out.clear_calls == 1
+    assert geo_out.merged == [mesh_geo]
+    assert captured["rk4_advect"]["ctx"].input_io(0).geo_in is mesh_geo
+    assert captured["rk4_advect"]["ctx"].session is not None

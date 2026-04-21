@@ -17,20 +17,20 @@ class PointVortexModule(ModuleBase):
         )
         self.bary = self.resource(
             "bary",
-            spec=ResourceSpec(kind="numpy", dtype=np.float32, allow_none=True),
+            spec=ResourceSpec(kind="numpy", dtype=np.float64, allow_none=True),
             doc="Barycentric co-ordinates of the point inside the triangle",
             declare=True,
         )
         self.gamma = self.resource(
             "gamma",
-            spec=ResourceSpec(kind="numpy", dtype=np.float32, allow_none=True),
+            spec=ResourceSpec(kind="numpy", dtype=np.float64, allow_none=True),
             doc="Circulation strength of a point vortex",
             declare=True,
         )
 
         self.pos_world = self.resource(
             "pos_world",
-            spec=ResourceSpec(kind="numpy", dtype=np.float32, allow_none=True),
+            spec=ResourceSpec(kind="numpy", dtype=np.float64, allow_none=True),
             doc="Position of a point vortex in 3D free space.",
             declare=True,
         )

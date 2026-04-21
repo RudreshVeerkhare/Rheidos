@@ -36,7 +36,7 @@ class P1PoissonSolver(ModuleBase):
 
         self.constrained_values = self.resource(
             "constrained_values",
-            spec=ResourceSpec(kind="numpy", dtype=np.float32),
+            spec=ResourceSpec(kind="numpy", dtype=np.float64),
             declare=True,
             doc="Values for the constrained vertices 1-1 mapped to the index in constrained_idx.",
         )
@@ -60,7 +60,7 @@ class P1PoissonSolver(ModuleBase):
             "psi",
             spec=ResourceSpec(
                 kind="numpy",
-                dtype=np.float32,
+                dtype=np.float64,
                 allow_none=True,
                 shape_fn=shape_map(self.mesh.V_pos, lambda shape: (shape[0],)),
             ),
@@ -88,7 +88,7 @@ class P1PoissonSolver(ModuleBase):
         solve_cg = self.solve_cg.get()
         rhs = self.rhs.get()
 
-        ctx.commit(psi=solve_cg(rhs).astype(np.float32))
+        ctx.commit(psi=np.asarray(solve_cg(rhs), dtype=np.float64))
 
     @producer(
         inputs=(
@@ -112,7 +112,7 @@ class P1PoissonSolver(ModuleBase):
 
         i = E[:, 0].astype(np.int64, copy=False)
         j = E[:, 1].astype(np.int64, copy=False)
-        ww = np.asarray(star1, dtype=np.float32).reshape(-1)
+        ww = np.asarray(star1, dtype=np.float64).reshape(-1)
 
         rows = np.concatenate([i, j, i, j])
         cols = np.concatenate([i, j, j, i])
@@ -191,4 +191,4 @@ class P1PoissonSolver(ModuleBase):
             boundary_dofs = np.array([0], dtype=np.int32)
 
         self.constrained_idx.set(boundary_dofs.astype(np.int32))
-        self.constrained_values.set(np.zeros(boundary_dofs.shape, dtype=np.float32))
+        self.constrained_values.set(np.zeros(boundary_dofs.shape, dtype=np.float64))

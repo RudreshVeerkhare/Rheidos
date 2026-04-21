@@ -31,7 +31,7 @@ def load_mesh_input(
     if mesh_io is None:
         raise RuntimeError(missing_message or f"Input {index} is not set")
 
-    points = np.array(mesh_io.read_point("P", components=3), dtype=np.float32)
+    points = np.array(mesh_io.read_point("P", components=3), dtype=np.float64)
     triangles = np.array(mesh_io.read_prims(arity=3), dtype=np.int32)
     mesh.set_mesh(points, triangles)
 
@@ -47,9 +47,9 @@ def load_point_vortex_input(
     if vort_io is None:
         raise RuntimeError(missing_message or f"Input {index} is not set")
 
-    vortex_pos = np.array(vort_io.read_point("P", components=3), dtype=np.float32)
-    vortex_bary = np.array(vort_io.read_point("bary", components=3), dtype=np.float32)
-    vortex_gamma = np.array(vort_io.read_point("gamma"), dtype=np.float32)
+    vortex_pos = np.array(vort_io.read_point("P", components=3), dtype=np.float64)
+    vortex_bary = np.array(vort_io.read_point("bary", components=3), dtype=np.float64)
+    vortex_gamma = np.array(vort_io.read_point("gamma"), dtype=np.float64)
     vortex_faceid = np.array(vort_io.read_point("faceid"), dtype=np.int32)
     point_vortex.set_vortex(vortex_faceid, vortex_bary, vortex_gamma, vortex_pos)
 
@@ -65,5 +65,5 @@ def read_probe_input(
         raise RuntimeError(missing_message or f"Input {index} is not set")
 
     faceids = np.array(probe_io.read_point("faceid"), dtype=np.int32)
-    bary = np.array(probe_io.read_point("bary", components=3), dtype=np.float32)
+    bary = np.array(probe_io.read_point("bary", components=3), dtype=np.float64)
     return faceids, bary

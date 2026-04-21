@@ -16,7 +16,8 @@ class P1StreamFunction(ModuleBase):
         *,
         mesh: SurfaceMeshModule,
         point_vortex: PointVortexModule,
-        dec: DEC,
+        dec: DEC | None = None,
+        poisson: P1PoissonSolver | None = None,
         scope: str = "",
         distribute_excess_vorticity: bool = False,
     ) -> None:
@@ -24,7 +25,9 @@ class P1StreamFunction(ModuleBase):
 
         self.mesh = mesh
         self.point_vortex = point_vortex
-        self.dec = dec
+        if poisson is None and dec is None:
+            raise ValueError("P1StreamFunction requires either dec or poisson")
+
         # Usage guide:
         # - `child=True, child_name="poisson"` gives the solver its own nested
         #   resource namespace under this module
@@ -32,14 +35,19 @@ class P1StreamFunction(ModuleBase):
         #   module's lookup scope, so mesh/DEC are shared automatically
         # - `declare_rhs=False` lets this wrapper own the vorticity production
         #   while the child solver still owns the CG/Laplacian machinery
-        self.poisson = self.require(
-            P1PoissonSolver,
-            child=True,
-            child_name="poisson",
-            mesh=mesh,
-            dec=dec,
-            declare_rhs=False,
-        )
+        if poisson is None:
+            self.dec = dec
+            self.poisson = self.require(
+                P1PoissonSolver,
+                child=True,
+                child_name="poisson",
+                mesh=mesh,
+                dec=dec,
+                declare_rhs=False,
+            )
+        else:
+            self.poisson = poisson
+            self.dec = poisson.dec
 
         # Re-export the solver's public resources so the wrapper stays the
         # composition-facing facade.
@@ -106,4 +114,4 @@ class P1StreamFunction(ModuleBase):
             boundary_dofs = np.array([0])
 
         self.constrained_idx.set(boundary_dofs.astype(np.int32))
-        self.constrained_values.set(np.zeros_like(boundary_dofs, dtype=np.float32))
+        self.constrained_values.set(np.zeros_like(boundary_dofs, dtype=np.float64))

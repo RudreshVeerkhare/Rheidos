@@ -29,10 +29,10 @@ def test_p1_poisson_interpolate_accepts_faceid_and_bary_arrays() -> None:
     solver = world.require(P1PoissonSolver, mesh=mesh, dec=dec)
 
     _set_single_triangle_mesh(mesh)
-    solver.psi = SimpleNamespace(get=lambda: np.array([1.0, -0.5, 2.0], dtype=np.float32))
+    solver.psi = SimpleNamespace(get=lambda: np.array([1.0, -0.5, 2.0], dtype=np.float64))
 
     faceids = np.array([0], dtype=np.int32)
-    bary = np.array([[0.2, 0.3, 0.5]], dtype=np.float32)
+    bary = np.array([[0.2, 0.3, 0.5]], dtype=np.float64)
 
     result = solver.interpolate((faceids, bary))
 
@@ -56,5 +56,5 @@ def test_p1_poisson_sets_zero_dirichlet_boundary_from_dec_boundary_mask() -> Non
     )
     np.testing.assert_array_equal(
         solver.constrained_values.get(),
-        np.zeros(3, dtype=np.float32),
+        np.zeros(3, dtype=np.float64),
     )

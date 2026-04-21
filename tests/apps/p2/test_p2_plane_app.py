@@ -33,7 +33,7 @@ class _FakeMesh:
 
 class _FakePointVortex:
     def __init__(self) -> None:
-        self.gamma = _FakeResource(np.array([1.0], dtype=np.float32))
+        self.gamma = _FakeResource(np.array([1.0], dtype=np.float64))
         self.pos_world = _FakeResource(np.array([[0.0, 0.0, 0.0]], dtype=np.float64))
 
     def set_vortex(self, faceids, bary, gamma, pos) -> None:
@@ -55,7 +55,7 @@ class _FakeInputIO:
         if name == "P":
             return self._point_vortex.pos_world.get()
         if name == "bary":
-            return np.array([[1.0, 0.0, 0.0]], dtype=np.float32)
+            return np.array([[1.0, 0.0, 0.0]], dtype=np.float64)
         if name == "gamma":
             return self._point_vortex.gamma.get()
         if name == "faceid":

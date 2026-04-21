@@ -124,7 +124,7 @@ class P1VelocityFieldModule(ModuleBase):
             )
         )
 
-    def interpolate(self, probes, smooth=True):
+    def interpolate(self, probes, smooth=False):
         """Calculates and return facewise constant velocity from P1 basis
 
         Args:

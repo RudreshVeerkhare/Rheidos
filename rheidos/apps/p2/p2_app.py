@@ -23,7 +23,7 @@ def solve_p2_stream_function(ctx: CookContext, eps: float = 0.01) -> None:
     load_mesh_input(ctx, mods.mesh)
     load_point_vortex_input(ctx, mods.point_vortex, index=1)
     mods.p2_stream.constrained_idx.set(np.array([0], dtype=np.int32))
-    mods.p2_stream.constrained_values.set(np.array([0], dtype=np.float32))
+    mods.p2_stream.constrained_values.set(np.array([0], dtype=np.float64))
     mods.p2_stream.eps.set(eps)
     mods.p2_stream.psi.get()
 

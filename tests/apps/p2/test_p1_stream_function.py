@@ -44,9 +44,9 @@ def test_p1_stream_function_owns_rhs_from_point_vortices() -> None:
     _set_single_triangle_mesh(mesh)
     vortex.set_vortex(
         np.array([0], dtype=np.int32),
-        np.array([[0.2, 0.3, 0.5]], dtype=np.float32),
-        np.array([2.0], dtype=np.float32),
-        np.array([[0.0, 0.0, 0.0]], dtype=np.float32),
+        np.array([[0.2, 0.3, 0.5]], dtype=np.float64),
+        np.array([2.0], dtype=np.float64),
+        np.array([[0.0, 0.0, 0.0]], dtype=np.float64),
     )
 
     np.testing.assert_allclose(
@@ -84,5 +84,5 @@ def test_p1_stream_function_exposes_homogeneous_dirichlet_boundary_helper() -> N
     )
     np.testing.assert_array_equal(
         stream.constrained_values.get(),
-        np.zeros(3, dtype=np.float32),
+        np.zeros(3, dtype=np.float64),
     )

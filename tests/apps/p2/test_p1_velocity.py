@@ -66,7 +66,7 @@ def test_p1_velocity_per_face_producer_builds_facewise_velocity() -> None:
 
     _set_single_triangle_mesh(mesh)
     _prime_stream_resources(velocity)
-    velocity.stream.psi.set(np.array([1.2, -0.7, 0.9], dtype=np.float32))
+    velocity.stream.psi.set(np.array([1.2, -0.7, 0.9], dtype=np.float64))
 
     result = velocity.vel_per_face.get()[0]
 
@@ -92,7 +92,7 @@ def test_p1_velocity_interpolate_reuses_cached_facewise_velocity(
 
     _set_single_triangle_mesh(mesh)
     _prime_stream_resources(velocity)
-    velocity.stream.psi.set(np.zeros(3, dtype=np.float32))
+    velocity.stream.psi.set(np.zeros(3, dtype=np.float64))
     velocity.mesh.F_normal.get()
     velocity.mesh.grad_bary.get()
     velocity.vel_per_face.set(np.array([[2.5, -1.5, 0.0]], dtype=np.float64))

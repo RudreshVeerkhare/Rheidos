@@ -33,7 +33,7 @@ class P2PoissonSolver(ModuleBase):
         )
         self.constrained_values = self.resource(
             "constrained_values",
-            spec=ResourceSpec(kind="numpy", dtype=np.float32),
+            spec=ResourceSpec(kind="numpy", dtype=np.float64),
             declare=True,
             doc="Values for the constrained vertices 1-1 mapped to the index in constrained_idx.",
         )

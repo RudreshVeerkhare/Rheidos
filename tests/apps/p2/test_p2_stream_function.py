@@ -93,13 +93,13 @@ def test_p2_stream_regularization_recomputes_when_eps_changes() -> None:
     _set_single_triangle_mesh(mesh)
     vortex.set_vortex(
         np.array([0], dtype=np.int32),
-        np.array([[0.2, 0.3, 0.5]], dtype=np.float32),
-        np.array([1.0], dtype=np.float32),
-        np.array([[0.3, 0.5, 0.0]], dtype=np.float32),
+        np.array([[0.2, 0.3, 0.5]], dtype=np.float64),
+        np.array([1.0], dtype=np.float64),
+        np.array([[0.3, 0.5, 0.0]], dtype=np.float64),
     )
 
     stream.constrained_idx.set(np.array([0], dtype=np.int32))
-    stream.constrained_values.set(np.array([0], dtype=np.float32))
+    stream.constrained_values.set(np.array([0], dtype=np.float64))
 
     stream.eps.set(1e-4)
     psi_small_eps = stream.psi.get().copy()
@@ -118,9 +118,9 @@ def test_p2_stream_regularization_preserves_zero_boundary_values() -> None:
     _set_two_triangle_square_mesh(mesh)
     vortex.set_vortex(
         np.array([0, 1], dtype=np.int32),
-        np.array([[0.2, 0.3, 0.5], [0.3, 0.4, 0.3]], dtype=np.float32),
-        np.array([1.0, -0.7], dtype=np.float32),
-        np.array([[0.5, 0.2, 0.0], [0.3, 0.7, 0.0]], dtype=np.float32),
+        np.array([[0.2, 0.3, 0.5], [0.3, 0.4, 0.3]], dtype=np.float64),
+        np.array([1.0, -0.7], dtype=np.float64),
+        np.array([[0.5, 0.2, 0.0], [0.3, 0.7, 0.0]], dtype=np.float64),
     )
 
     stream.set_homo_dirichlet_boundary()

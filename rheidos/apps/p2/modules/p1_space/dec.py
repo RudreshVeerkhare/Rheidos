@@ -29,7 +29,7 @@ class DEC(ModuleBase):
             "star1",
             spec=ResourceSpec(
                 kind="numpy",
-                dtype=np.float32,
+                dtype=np.float64,
                 shape_fn=shape_map(self.mesh.E_verts, lambda s: (s[0],)),
             ),
             doc="Hodge star on 1-forms (cotan weights per edge). Shape: (nE, )",

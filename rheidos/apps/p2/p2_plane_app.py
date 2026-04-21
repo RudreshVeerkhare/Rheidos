@@ -28,9 +28,9 @@ def rk4_step(ctx: CookContext) -> Callable[[np.ndarray, float], np.ndarray]:
         gammas = mods.point_vortex.gamma.get()
         mods.point_vortex.set_vortex(
             faceids.astype(np.int32),
-            barys.astype(np.float32),
-            gammas.astype(np.float32),
-            pos.astype(np.float32),
+            barys,
+            gammas,
+            pos,
         )
         return mods.p2_vel.interpolate((faceids, barys))
 
@@ -48,9 +48,9 @@ def rk4_advect(ctx: CookContext) -> None:
     gammas = mods.point_vortex.gamma.get()
     mods.point_vortex.set_vortex(
         faceids.astype(np.int32),
-        barys.astype(np.float32),
-        gammas.astype(np.float32),
-        pos.astype(np.float32),
+        barys,
+        gammas,
+        pos,
     )
     ctx.write_point("P", pos)
     ctx.write_point("bary", barys)
