@@ -38,7 +38,7 @@ from rheidos.compute.profiler.summary_server import (
     SummaryWriterConfig,
 )
 from rheidos.compute.profiler.taichi_probe import TaichiProbe
-from rheidos.compute.profiler.tb import TBConfig, TBLogger
+from rheidos.logger import _activate_scope, _make_scope
 
 if TYPE_CHECKING:
     import hou
@@ -301,7 +301,7 @@ def _get_log_session_id() -> str:
     return _LOG_SESSION_ID
 
 
-def _resolve_profile_logdir(node: "hou.Node", config: Any) -> str:
+def _resolve_profile_root_logdir(config: Any) -> str:
     base = getattr(config, "profile_logdir", None) or ""
     if base:
         base = os.path.expanduser(os.path.expandvars(base))
@@ -325,25 +325,71 @@ def _resolve_profile_logdir(node: "hou.Node", config: Any) -> str:
     except Exception:
         pass
 
+    safe_hip = _sanitize_tb_component(hip_name)
+    return os.path.join(base, safe_hip)
+
+
+def _resolve_profile_logdir(node: "hou.Node", config: Any) -> str:
+    base = _resolve_profile_root_logdir(config)
     node_name = "node"
     try:
         node_name = node.path().strip("/") or node_name
     except Exception:
         pass
 
-    safe_hip = _sanitize_tb_component(hip_name)
     safe_node = _sanitize_tb_component(node_name.replace("/", "_"))
     safe_session = _sanitize_tb_component(_get_log_session_id())
-    return os.path.join(base, safe_hip, safe_node, safe_session)
+    return os.path.join(base, safe_node, safe_session)
 
 
-def _configure_tb_logger(session: WorldSession, logdir: str) -> None:
-    tb_cfg = TBConfig(logdir=logdir)
-    tb = getattr(session, "tb", None)
-    if tb is None:
-        session.tb = TBLogger(tb_cfg)
-        return
-    tb.configure(tb_cfg, enabled=True)
+def _resolve_logger_logdir(node: "hou.Node", config: Any) -> str:
+    del node
+    return _resolve_profile_root_logdir(config)
+
+
+def _logger_metadata(node: "hou.Node") -> dict[str, Any]:
+    hip_path = ""
+    try:
+        import hou  # type: ignore
+
+        hip_path = hou.hipFile.path()
+    except Exception:
+        hip_path = ""
+    try:
+        node_path = node.path()
+    except Exception:
+        node_path = ""
+    return {
+        "hip_path": hip_path or None,
+        "node_path": node_path or None,
+    }
+
+
+def _logger_step_hint(ctx: CookContext) -> Optional[int]:
+    if ctx.substep != 0:
+        return None
+    return int(ctx.frame)
+
+
+@contextmanager
+def _activate_session_logger_scope(
+    session: WorldSession,
+    *,
+    node: "hou.Node",
+    config: Any,
+    ctx: CookContext,
+):
+    scope = session.logger_scope
+    if scope is None:
+        scope = _make_scope()
+        session.logger_scope = scope
+    with _activate_scope(
+        scope,
+        default_logdir=_resolve_logger_logdir(node, config),
+        step_hint=_logger_step_hint(ctx),
+        metadata=_logger_metadata(node),
+    ):
+        yield scope
 
 
 def _configure_profiler(session: WorldSession, config: Any, node: "hou.Node") -> None:
@@ -378,7 +424,6 @@ def _configure_profiler(session: WorldSession, config: Any, node: "hou.Node") ->
         session.profiler.taichi_probe = None
 
     logdir = _resolve_profile_logdir(node, config)
-    _configure_tb_logger(session, logdir)
     ui_enabled = _env_flag("RHEIDOS_UI", True)
     if not session.profiler.cfg.enabled:
         if session.summary_writer is not None:
@@ -621,20 +666,21 @@ def run_cook(
         )
 
         _debug(config.debug_log, f"[cook] node={node.path()} module={module.__name__}")
-        with session.profiler.span("run_cook", cat="houdini"):
-            with session.profiler.span("cook_total", cat="cook"):
-                if probe is not None:
-                    probe.clear()
-                with _time_span(session, timings, "publish_geometry"):
-                    publish_geometry_minimal(ctx)
-                with _time_span(session, timings, "user_cook"):
-                    cook_fn(ctx)
-                with _time_span(session, timings, "apply_output"):
-                    _apply_out_P(ctx, session)
-                if probe is not None:
-                    probe.sync()
-                    k_ms = probe.kernel_total_ms()
-                    session.profiler.record_value("taichi", "kernel_total", None, k_ms)
+        with _activate_session_logger_scope(session, node=node, config=config, ctx=ctx):
+            with session.profiler.span("run_cook", cat="houdini"):
+                with session.profiler.span("cook_total", cat="cook"):
+                    if probe is not None:
+                        probe.clear()
+                    with _time_span(session, timings, "publish_geometry"):
+                        publish_geometry_minimal(ctx)
+                    with _time_span(session, timings, "user_cook"):
+                        cook_fn(ctx)
+                    with _time_span(session, timings, "apply_output"):
+                        _apply_out_P(ctx, session)
+                    if probe is not None:
+                        probe.sync()
+                        k_ms = probe.kernel_total_ms()
+                        session.profiler.record_value("taichi", "kernel_total", None, k_ms)
 
         session.last_cook_at = time.time()
         _maybe_log_taichi_scoped(session, config)
@@ -721,46 +767,47 @@ def run_solver(
         _debug(
             config.debug_log, f"[solver] node={node.path()} module={module.__name__}"
         )
-        with session.profiler.span("run_solver", cat="houdini"):
-            with session.profiler.span("solver_total", cat="cook"):
-                if probe is not None:
-                    probe.clear()
-                with _time_span(session, timings, "publish_geometry"):
-                    publish_geometry_minimal(ctx)
-                _publish_sim_keys(ctx)
+        with _activate_session_logger_scope(session, node=node, config=config, ctx=ctx):
+            with session.profiler.span("run_solver", cat="houdini"):
+                with session.profiler.span("solver_total", cat="cook"):
+                    if probe is not None:
+                        probe.clear()
+                    with _time_span(session, timings, "publish_geometry"):
+                        publish_geometry_minimal(ctx)
+                    _publish_sim_keys(ctx)
 
-                if not session.did_setup:
-                    if setup_fn is not None:
-                        with _time_span(session, timings, "user_setup"):
-                            setup_fn(ctx)
-                    session.did_setup = True
+                    if not session.did_setup:
+                        if setup_fn is not None:
+                            with _time_span(session, timings, "user_setup"):
+                                setup_fn(ctx)
+                        session.did_setup = True
 
-                step_key = (ctx.frame, ctx.substep)
-                if step_key == session.last_step_key:
-                    if session.last_geo_snapshot is not None:
-                        with _time_span(session, timings, "apply_snapshot"):
-                            _apply_snapshot(geo_out, session.last_geo_snapshot)
-                    elif OUT_P in session.last_output_cache:
-                        with _time_span(session, timings, "apply_cached_out"):
-                            ctx.set_P(session.last_output_cache[OUT_P])
+                    step_key = (ctx.frame, ctx.substep)
+                    if step_key == session.last_step_key:
+                        if session.last_geo_snapshot is not None:
+                            with _time_span(session, timings, "apply_snapshot"):
+                                _apply_snapshot(geo_out, session.last_geo_snapshot)
+                        elif OUT_P in session.last_output_cache:
+                            with _time_span(session, timings, "apply_cached_out"):
+                                ctx.set_P(session.last_output_cache[OUT_P])
+                        session.last_cook_at = time.time()
+                        _maybe_log_taichi_scoped(session, config)
+                        _set_last_error(node, "")
+                        return
+
+                    with _time_span(session, timings, "user_step"):
+                        step_fn(ctx)
+                    session.last_step_key = step_key
+                    with _time_span(session, timings, "apply_output"):
+                        _apply_out_P(ctx, session)
+                    session.last_geo_snapshot = _copy_geometry(geo_out)
                     session.last_cook_at = time.time()
+                    if probe is not None:
+                        probe.sync()
+                        k_ms = probe.kernel_total_ms()
+                        session.profiler.record_value("taichi", "kernel_total", None, k_ms)
                     _maybe_log_taichi_scoped(session, config)
                     _set_last_error(node, "")
-                    return
-
-                with _time_span(session, timings, "user_step"):
-                    step_fn(ctx)
-                session.last_step_key = step_key
-                with _time_span(session, timings, "apply_output"):
-                    _apply_out_P(ctx, session)
-                session.last_geo_snapshot = _copy_geometry(geo_out)
-                session.last_cook_at = time.time()
-                if probe is not None:
-                    probe.sync()
-                    k_ms = probe.kernel_total_ms()
-                    session.profiler.record_value("taichi", "kernel_total", None, k_ms)
-                _maybe_log_taichi_scoped(session, config)
-                _set_last_error(node, "")
     except Exception as exc:
         tb_str = traceback.format_exc()
         if session is not None:

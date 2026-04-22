@@ -77,7 +77,7 @@ They remain useful for dynamic script loading and generic solver entrypoints, bu
 - input and output geometry helpers
 - `publish(...)` into the compute world
 - `session_access(...)` for other node sessions
-- structured logging through `ctx.log(...)`
+- access to runtime state used by the shared `rheidos.logger`
 
 ## Taichi and reset behavior
 

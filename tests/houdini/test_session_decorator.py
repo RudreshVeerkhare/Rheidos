@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import importlib
+import json
+from pathlib import Path
 from types import ModuleType, SimpleNamespace
 import sys
 import warnings
@@ -9,6 +11,7 @@ import pytest
 
 debug_mod = importlib.import_module("rheidos.houdini.debug")
 driver_mod = importlib.import_module("rheidos.houdini.runtime.driver")
+logger_mod = importlib.import_module("rheidos.logger")
 session_mod = importlib.import_module("rheidos.houdini.runtime.session")
 
 
@@ -82,6 +85,26 @@ class _FakeNode:
         return self._parms.get(name)
 
 
+class _FakeTBLogger:
+    instances: list["_FakeTBLogger"] = []
+
+    def __init__(self, cfg=None, *, enabled: bool = True) -> None:
+        self.cfg = cfg
+        self.enabled = enabled
+        self.scalar_calls: list[tuple[str, float, int]] = []
+        self.flush_calls = 0
+        _FakeTBLogger.instances.append(self)
+
+    def add_scalar(self, tag: str, value: float, step: int) -> None:
+        self.scalar_calls.append((tag, value, step))
+
+    def flush(self) -> None:
+        self.flush_calls += 1
+
+    def close(self) -> None:
+        return None
+
+
 class _FakeHipFile:
     def __init__(self, hip_path: str) -> None:
         self._hip_path = hip_path
@@ -112,6 +135,15 @@ def fake_hou(monkeypatch):
     yield hou
     session_mod.set_sim_context(None)
     monkeypatch.delitem(sys.modules, "hou", raising=False)
+
+
+@pytest.fixture
+def fake_tb_logger(monkeypatch):
+    logger_mod._reset_for_tests()
+    _FakeTBLogger.instances.clear()
+    monkeypatch.setattr(logger_mod, "TBLogger", _FakeTBLogger)
+    yield _FakeTBLogger
+    logger_mod._reset_for_tests()
 
 
 def test_session_decorator_injects_ctx_with_explicit_input_and_output_io(fake_hou) -> None:
@@ -239,12 +271,64 @@ def test_named_session_warns_once_for_mixed_owners(fake_hou) -> None:
         second = owner_two()
 
     assert first is second
-    assert first.log_entries[-1]["message"] == "session.named_owner_mismatch"
+    mismatch = first.stats["decorator_session_owner_mismatch"]
+    assert mismatch["session_key"] == "p1"
+    assert mismatch["current_owner_module"] == "app.owner_two"
 
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         owner_two()
     assert caught == []
+
+
+def test_session_decorator_logger_scopes_are_session_specific(
+    fake_hou, tmp_path: Path, fake_tb_logger
+) -> None:
+    from rheidos import logger
+
+    fake_hou.hipFile._hip_path = str(tmp_path / "scene.hip")
+
+    @session_mod.session
+    def entry(ctx):
+        logger.log("value", 1.0)
+
+    fake_hou._pwd_node = _FakeNode("/obj/geo1/python1")
+    entry()
+    fake_hou._pwd_node = _FakeNode("/obj/geo1/python2")
+    entry()
+
+    assert len(fake_tb_logger.instances) == 2
+    first_run = Path(fake_tb_logger.instances[0].cfg.logdir)
+    second_run = Path(fake_tb_logger.instances[1].cfg.logdir)
+    assert first_run.parent == tmp_path / "_tb_logs" / "scene"
+    assert second_run.parent == tmp_path / "_tb_logs" / "scene"
+    assert first_run != second_run
+
+    latest = json.loads(
+        (tmp_path / "_tb_logs" / "scene" / "latest-run.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert latest["node_path"] == "/obj/geo1/python2"
+
+
+def test_session_decorator_logger_global_logdir_overrides_runtime_default(
+    fake_hou, tmp_path: Path, fake_tb_logger
+) -> None:
+    from rheidos import logger
+
+    fake_hou.hipFile._hip_path = str(tmp_path / "scene.hip")
+    logger.configure(logdir=str(tmp_path / "manual"), run_name="Manual Run")
+
+    @session_mod.session
+    def entry(ctx):
+        logger.log("value", 1.0)
+
+    entry()
+
+    run_dir = Path(fake_tb_logger.instances[-1].cfg.logdir)
+    assert run_dir.parent == tmp_path / "manual"
+    assert run_dir.name.startswith("run-manual-run-0001__")
 
 
 def test_named_session_reset_button_targets_shared_key(fake_hou) -> None:

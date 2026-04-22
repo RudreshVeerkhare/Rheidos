@@ -1,39 +1,69 @@
 # TensorBoard Logging
 
-Rheidos includes a lightweight TensorBoard logger, `TBLogger`, backed by `tensorboardX`. It is independent from the profiler UI and writes event files in-process.
+Rheidos exposes scalar TensorBoard logging through the top-level `rheidos.logger`
+module. The same import works in plain Python, `rheidos.compute` producers, and
+Houdini runtime code.
 
 ## Quick start
 
-Inside a cook or solver entrypoint:
+Standalone or compute-only code:
 
 ```python
-def cook(ctx) -> None:
-    tb = getattr(ctx.session, "tb", None)
-    if tb is None:
-        return
+from rheidos import logger
 
-    value = 1.23
-    tb.add_scalar("demo/value", value, tb.next_step())
+logger.configure(logdir="/tmp/rheidos_tb", run_name="demo")
+logger.log("energy", 1.23)
+```
+
+Inside a Houdini cook or solver entrypoint:
+
+```python
+from rheidos import logger
+
+
+def cook(ctx) -> None:
+    logger.configure(run_name="annulus")
+    logger.log("harmonic_coefficient", 1.23, category="p1_annulus")
 ```
 
 ## Default log path
 
-If the node does not override `profile_logdir`, logs are written to:
+- Standalone mode writes under the configured `logdir`.
+- Houdini mode defaults to:
 
 ```text
-<hip_dir or cwd>/_tb_logs/<hip_name>/<node_path>/<session_id>
+<hip_dir or cwd>/_tb_logs/<hip_name>
 ```
 
-Where:
-- `<hip_name>` is `untitled` for unsaved HIP files
-- `<session_id>` is unique per Houdini session
+Each run gets a human-readable directory name:
+
+```text
+run-my-label-0007__2026-04-20_16-54-59
+run-0008__2026-04-20_17-01-12
+```
+
+Rheidos also writes:
+- `<base>/latest-run.json`
+- `<run_dir>/run.json`
+
+## Step policy
+
+`logger.log(...)` resolves the TensorBoard step in this order:
+- explicit `step=...`
+- ambient runtime hint, such as Houdini frame number for `substep == 0`
+- logger-local monotonic counter
+
+## Tag naming
+
+- `logger.log("residual", value, category="solver")` writes `solver/residual`
+- `logger.log("solver/residual", value)` uses the tag as-is
 
 ## Dependencies
 
-Install `tensorboardX` into Houdini's Python:
+Install `tensorboardX` into the Python environment that runs the simulation:
 
 ```bash
-hython -m pip install --user tensorboardX
+python -m pip install tensorboardX
 ```
 
 Then view logs with:
@@ -42,82 +72,13 @@ Then view logs with:
 tensorboard --logdir <your logdir>
 ```
 
-## Step management
-
-`TBLogger` keeps its own step counter:
-
-```python
-tb.next_step()
-tb.step = 100
-current = tb.step
-```
-
-For deterministic frame-based logging:
-
-```python
-tb.step = int(ctx.frame)
-tb.add_scalar("energy", value, tb.step)
-```
-
-## Common patterns
-
-Scalar:
-
-```python
-tb.add_scalar("solver/residual", residual, tb.next_step())
-```
-
-Histogram:
-
-```python
-tb.add_histogram("gamma", gammas, tb.next_step())
-```
-
-Image:
-
-```python
-tb.add_image("debug/field", image_np, tb.next_step(), dataformats="HWC")
-```
-
-Text:
-
-```python
-tb.add_text("notes", "solver converged", tb.next_step())
-```
-
-Grouped scalars:
-
-```python
-tb.add_scalars("losses", {"data": data_loss, "prior": prior_loss}, tb.next_step())
-```
-
-## Custom helpers
-
-You can register custom logging helpers:
-
-```python
-@tb.register()
-def add_vector_norm(tb_logger, writer, tag, vec, step):
-    return writer.add_scalar(tag, float(np.linalg.norm(vec)), step)
-```
-
-## Standalone usage
-
-```python
-from rheidos.compute.profiler.tb import TBConfig, TBLogger
-
-tb = TBLogger(TBConfig(logdir="/tmp/rheidos_tb"))
-tb.add_scalar("demo", 1.0, tb.next_step())
-tb.flush()
-```
-
 ## Troubleshooting
 
 No events found:
-- confirm the node cooked
-- confirm `tensorboardX` is installed for Houdini's Python
-- confirm the log directory exists
+- confirm the code path actually called `logger.log(...)`
+- confirm `tensorboardX` is installed in the active Python
+- confirm the configured or runtime-provided log root exists
 
 TensorBoard launch errors:
-- check the log path
-- delete stale event files if necessary and recook
+- check the resolved log path
+- delete stale event files if necessary and rerun

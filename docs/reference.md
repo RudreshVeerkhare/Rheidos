@@ -3,6 +3,22 @@
 This reference lists the supported public API surface in the compute and
 Houdini packages that back the active `rheidos/apps/p2` application.
 
+## Module: `rheidos.logger`
+
+Exports from `rheidos.logger` and `rheidos`:
+
+- `logger`
+- `SimulationLogger`
+
+### `logger`
+
+- `configure(*, logdir=None, run_name=None) -> None`
+- `log(name, value, *, category="simulation", step=None, flush=False) -> None`
+
+Use `logger.configure(...)` to set the process-local defaults for standalone
+simulations, or to override the active runtime scope before the first scalar is
+written for that run.
+
 ## Module: `rheidos.compute`
 
 Exports from `rheidos.compute`:
@@ -347,15 +363,12 @@ Use `create=True` to create the target session if it does not exist yet.
 - `last_topology_key: Optional[Tuple[Any, ...]]`
 - `last_error: Optional[BaseException]`
 - `last_traceback: Optional[str]`
-- `log_entries: Deque[Dict[str, Any]]`
 - `stats: Dict[str, Any]`
 - `created_at: float`
 - `last_cook_at: Optional[float]`
 - `reset(reason: str) -> None`
 - `record_error(exc, tb_str) -> None`
 - `clear_error() -> None`
-- `log_event(message, **payload) -> None`
-- `clear_log() -> None`
 
 ### SessionAccess (dataclass)
 
@@ -363,7 +376,6 @@ Use `create=True` to create the target session if it does not exist yet.
 - `node_path: str`
 - `mode: AccessMode`
 - `reg: RegistryAccess (read/ensure; write ops require mode="write")`
-- `log(message, **payload) -> None`
 
 ### ComputeRuntime
 

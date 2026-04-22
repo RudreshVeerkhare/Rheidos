@@ -37,6 +37,19 @@ def p1_velocity_rk4_advection(ctx: CookContext) -> None:
     _app().rk4_advect(ctx)
 
 
+# Coexact Part
+@session(SESSION_NAME, debugger=True)
+def interpolate_p1_coexact_stream_function_node(ctx: CookContext) -> None:
+    copy_input_to_output(ctx, 0)
+    _app().interpolate_p1_coexact_stream_function(ctx)
+
+
+@session(SESSION_NAME, debugger=True)
+def interpolate_p1_coexact_velocity_node(ctx: CookContext) -> None:
+    copy_input_to_output(ctx, 0)
+    _app().interpolate_p1_coexact_velocity(ctx)
+
+
 # Harmonic Part
 @session(SESSION_NAME, debugger=True)
 def interpolate_p1_harmonic_stream_function_node(ctx: CookContext) -> None:

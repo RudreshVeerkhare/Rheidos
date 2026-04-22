@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-from collections import deque
 from dataclasses import dataclass, field, replace
 from functools import wraps
 import inspect
 from types import ModuleType, SimpleNamespace
-from typing import Any, Callable, Deque, Dict, Optional, Tuple, TYPE_CHECKING, Literal, overload
+from typing import Any, Callable, Dict, Optional, Tuple, TYPE_CHECKING, Literal, overload
 import time
 import warnings
 
@@ -17,7 +16,6 @@ from rheidos.compute.world import World
 from rheidos.compute.profiler.core import Profiler, ProfilerConfig
 from rheidos.compute.profiler.runtime import reset_current_profiler, set_current_profiler
 from rheidos.compute.profiler.summary_store import SummaryStore
-from rheidos.compute.profiler.tb import TBLogger
 
 from .taichi_reset import reset_taichi_hard
 
@@ -43,6 +41,7 @@ _SHARED_SESSION_PREFIX = "::rheidos_shared_session__:"
 _SESSION_OWNER_MODULE_KEY = "decorator_session_owner_module"
 _SESSION_OWNER_QUALNAME_KEY = "decorator_session_owner_qualname"
 _SESSION_OWNER_FILE_KEY = "decorator_session_owner_file"
+_SESSION_OWNER_MISMATCH_KEY = "decorator_session_owner_mismatch"
 _SESSION_OWNER_WARNING_KEY = "decorator_session_owner_mismatch_warned"
 
 
@@ -180,16 +179,15 @@ def _register_named_session_owner(
         f"'{current_owner}' ({filename}). Sharing will continue."
     )
     warnings.warn(message, RuntimeWarning, stacklevel=3)
-    session_obj.log_event(
-        "session.named_owner_mismatch",
-        session_key=key,
-        first_owner_module=first_module,
-        first_owner_qualname=first_qualname,
-        first_owner_file=first_file,
-        current_owner_module=module_name,
-        current_owner_qualname=qualname,
-        current_owner_file=filename,
-    )
+    session_obj.stats[_SESSION_OWNER_MISMATCH_KEY] = {
+        "session_key": key,
+        "first_owner_module": first_module,
+        "first_owner_qualname": first_qualname,
+        "first_owner_file": first_file,
+        "current_owner_module": module_name,
+        "current_owner_qualname": qualname,
+        "current_owner_file": filename,
+    }
     session_obj.stats[_SESSION_OWNER_WARNING_KEY] = True
 
 
@@ -209,6 +207,23 @@ def _collect_input_geos(node: "hou.Node") -> tuple[Optional["hou.Geometry"], ...
             geo = None
         geos.append(geo)
     return tuple(geos)
+
+
+def _eval_optional_str_parm(node: object, name: str) -> str:
+    parm_getter = getattr(node, "parm", None)
+    if not callable(parm_getter):
+        return ""
+    parm = parm_getter(name)
+    if parm is None:
+        return ""
+    try:
+        value = parm.evalAsString()
+    except Exception:
+        try:
+            value = parm.eval()
+        except Exception:
+            value = ""
+    return "" if value is None else str(value)
 
 
 def _eval_action_parm(node: "hou.Node", name: str) -> bool:
@@ -302,10 +317,10 @@ def _run_entrypoint_debug(node: "hou.Node") -> None:
     maybe_break_now(node=node)
 
 
-def _forced_profiler_config() -> SimpleNamespace:
+def _forced_profiler_config(*, profile_logdir: Optional[str] = None) -> SimpleNamespace:
     return SimpleNamespace(
         profile=True,
-        profile_logdir=None,
+        profile_logdir=profile_logdir,
         profile_export_hz=5.0,
         profile_mode="coarse",
         profile_trace_cooks=64,
@@ -324,10 +339,11 @@ def _call_with_forced_profiler(
     *,
     node: "hou.Node",
     session_obj: "WorldSession",
+    profile_logdir: Optional[str],
 ) -> Any:
     from .driver import _configure_profiler
 
-    config = _forced_profiler_config()
+    config = _forced_profiler_config(profile_logdir=profile_logdir)
     _configure_profiler(session_obj, config, node)
 
     token = set_current_profiler(session_obj.profiler)
@@ -390,9 +406,25 @@ def _decorate_session_entrypoint(
         if debugger:
             _run_entrypoint_debug(node)
         ctx = _build_entrypoint_context(node, session_obj=session_obj)
-        if profiler:
-            return _call_with_forced_profiler(fn, ctx, node=node, session_obj=session_obj)
-        return fn(ctx)
+        profile_logdir = _eval_optional_str_parm(node, "profile_logdir") or None
+        logger_config = SimpleNamespace(profile_logdir=profile_logdir)
+        from .driver import _activate_session_logger_scope
+
+        with _activate_session_logger_scope(
+            session_obj,
+            node=node,
+            config=logger_config,
+            ctx=ctx,
+        ):
+            if profiler:
+                return _call_with_forced_profiler(
+                    fn,
+                    ctx,
+                    node=node,
+                    session_obj=session_obj,
+                    profile_logdir=profile_logdir,
+                )
+            return fn(ctx)
 
     return wrapped
 
@@ -497,9 +529,6 @@ class WorldSession:
     last_topology_key_by_input: Dict[int, Tuple[Any, ...]] = field(default_factory=dict)
     last_error: Optional[BaseException] = None
     last_traceback: Optional[str] = None
-    log_entries: Deque[Dict[str, Any]] = field(
-        default_factory=lambda: deque(maxlen=200)
-    )
     stats: Dict[str, Any] = field(default_factory=dict)
     created_at: float = field(default_factory=time.time)
     last_cook_at: Optional[float] = None
@@ -507,7 +536,7 @@ class WorldSession:
     profiler: Profiler = field(
         default_factory=lambda: Profiler(ProfilerConfig(enabled=False))
     )
-    tb: TBLogger = field(default_factory=TBLogger)
+    logger_scope: Optional[Any] = None
     summary_writer: Optional[Any] = None
     summary_server: Optional[Any] = None
     taichi_probe: Optional[Any] = None
@@ -516,12 +545,13 @@ class WorldSession:
         self.profiler.attach_summary_store(self.summary_store)
 
     def reset(self, reason: str) -> None:
-        tb = getattr(self, "tb", None)
-        if tb is not None:
+        logger_scope = getattr(self, "logger_scope", None)
+        if logger_scope is not None:
             try:
-                tb.reset()
+                logger_scope.close()
             except Exception:
                 pass
+        self.logger_scope = None
         if self.summary_writer is not None:
             try:
                 self.summary_writer.stop()
@@ -552,7 +582,6 @@ class WorldSession:
         self.last_topology_sig_by_input.clear()
         self.last_topology_key_by_input.clear()
         self.clear_error()
-        self.clear_log()
         self.stats.clear()
         self.last_cook_at = None
         self.stats["last_reset_reason"] = reason
@@ -566,14 +595,6 @@ class WorldSession:
     def clear_error(self) -> None:
         self.last_error = None
         self.last_traceback = None
-
-    def log_event(self, message: str, **payload: Any) -> None:
-        entry = {"message": message, "ts": time.time()}
-        entry.update(payload)
-        self.log_entries.append(entry)
-
-    def clear_log(self) -> None:
-        self.log_entries.clear()
 
 
 class RegistryAccess:
@@ -631,9 +652,6 @@ class SessionAccess:
     @property
     def reg(self) -> RegistryAccess:
         return self._reg_view
-
-    def log(self, message: str, **payload: Any) -> None:
-        self.session.log_event(message, node_path=self.node_path, **payload)
 
     def __enter__(self) -> "SessionAccess":
         return self

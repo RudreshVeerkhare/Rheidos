@@ -68,7 +68,7 @@ class P1VelocityFieldModule(ModuleBase):
         ctx.ensure_outputs()
         v_vel = self.vel_per_vertex.peek()
 
-        face_contrib = f_vel / 3.0
+        face_contrib = f_vel
         flat_verts = f_verts.reshape(-1)
         flat_area = np.repeat(f_area, 3)
         weighted_face_contrib = face_contrib * f_area[:, None]
@@ -124,7 +124,7 @@ class P1VelocityFieldModule(ModuleBase):
             )
         )
 
-    def interpolate(self, probes, smooth=False):
+    def interpolate(self, probes, smooth=True):
         """Calculates and return facewise constant velocity from P1 basis
 
         Args:

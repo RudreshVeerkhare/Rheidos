@@ -1,4 +1,3 @@
-from types import SimpleNamespace
 from typing import Callable
 
 from rheidos.apps.p2.modules.intergrator.rk4 import RK4IntegratorModule
@@ -6,6 +5,7 @@ from rheidos.apps.p2.modules.p1_space.dec import DEC
 from rheidos.apps.p2.modules.p1_space.p1_annulus_harmoic_stream_function import (
     P1AnnulusHarmonicStreamFunction,
 )
+from rheidos.apps.p2.modules.p1_space.probe_utils import probe_arrays
 from rheidos.apps.p2.modules.p1_space.p1_stream_function import P1StreamFunction
 from rheidos.apps.p2.modules.p1_space.p1_velocity import P1VelocityFieldModule
 from rheidos.apps.p2.modules.point_vortex.point_vortex_module import PointVortexModule
@@ -13,15 +13,13 @@ from rheidos.apps.p2.modules.surface_mesh.surface_mesh_module import SurfaceMesh
 from rheidos.compute.resource import ResourceSpec
 from rheidos.compute.wiring import ProducerContext, producer
 from rheidos.compute.world import World
-from rheidos.houdini import CookContext
 from rheidos.compute import ModuleBase, shape_map
+from rheidos.houdini import CookContext
+from rheidos import logger
 
 from ._io import load_mesh_input, read_probe_input, load_point_vortex_input
 
 import numpy as np
-
-
-_HARMONIC_COEFFICIENT_TB_TAG = "p1_annulus/harmonic_coefficient"
 
 
 class CombinedStreamFunction(ModuleBase):
@@ -96,11 +94,18 @@ class CombinedStreamFunction(ModuleBase):
 
         ctx.commit(psi=np.array(psi_s + c * psi_h, dtype=np.float64))
 
+    def interpolate(self, probes) -> np.ndarray:
+        psi = self.psi.get()
+        faceids, bary = probe_arrays(probes)
+        verts = self.stream.mesh.F_verts.get()[faceids]
+        return np.einsum("ij,ij->i", psi[verts], bary)
+
 
 class P1AnnulusHarmonicModule(ModuleBase):
 
     def __init__(self, world: World, *, scope: str = "") -> None:
         super().__init__(world, scope=scope)
+        self._graph = self
 
         self.mesh = self.require(SurfaceMeshModule)
         self.dec = self.require(DEC, mesh=self.mesh)
@@ -112,6 +117,15 @@ class P1AnnulusHarmonicModule(ModuleBase):
             mesh=self.mesh,
             point_vortex=self.point_vortex,
             dec=self.dec,
+        )
+        self.poisson = self.stream_function.poisson
+        self.coexact_stream_vel = self.require(
+            P1VelocityFieldModule,
+            child=True,
+            child_name="coexact_stream_vel",
+            mesh=self.mesh,
+            dec=self.dec,
+            stream=self.stream_function,
         )
 
         # Harmonic Component
@@ -142,7 +156,7 @@ class P1AnnulusHarmonicModule(ModuleBase):
             child_name="p1_velocity",
             mesh=self.mesh,
             dec=self.dec,
-            stream=self.combined_stream_function,
+            stream=self.stream_function,
         )
 
         self.rk4 = self.require(RK4IntegratorModule)
@@ -179,6 +193,20 @@ def setup_p1_harmonic_stream_function(ctx: CookContext) -> None:
     mods.harmonic_stream.set_annulus_dirichlet_boundary()
 
 
+def interpolate_p1_coexact_stream_function(ctx: CookContext) -> None:
+    mods = ctx.world().require(P1AnnulusHarmonicModule)
+    faceids, bary = read_probe_input(ctx, index=0)
+    stream_func = mods.stream_function.interpolate((faceids, bary))
+    ctx.write_point("coexact_stream_func", stream_func)
+
+
+def interpolate_p1_coexact_velocity(ctx: CookContext) -> None:
+    mods = ctx.world().require(P1AnnulusHarmonicModule)
+    faceids, bary = read_probe_input(ctx, index=0)
+    vel = mods.coexact_stream_vel.interpolate((faceids, bary))
+    ctx.write_point("coexact_vel", vel)
+
+
 def interpolate_p1_harmonic_stream_function(ctx: CookContext) -> None:
     mods = ctx.world().require(P1AnnulusHarmonicModule)
     faceids, bary = read_probe_input(ctx, index=0)
@@ -196,7 +224,7 @@ def interpolate_p1_harmonic_velocity(ctx: CookContext) -> None:
 def interpolate_p1_stream_function(ctx: CookContext) -> None:
     mods = ctx.world().require(P1AnnulusHarmonicModule)
     faceids, bary = read_probe_input(ctx, index=0)
-    stream_func = mods.stream_function.interpolate((faceids, bary))
+    stream_func = mods.combined_stream_function.interpolate((faceids, bary))
     ctx.write_point("stream_func", stream_func)
 
 
@@ -207,71 +235,19 @@ def interpolate_p1_velocity(ctx: CookContext) -> None:
     ctx.write_point("vel", vel)
 
 
-def _eval_optional_str_parm(node: object, name: str) -> str:
-    parm_getter = getattr(node, "parm", None)
-    if not callable(parm_getter):
-        return ""
-    parm = parm_getter(name)
-    if parm is None:
-        return ""
-    try:
-        value = parm.evalAsString()
-    except Exception:
-        try:
-            value = parm.eval()
-        except Exception:
-            value = ""
-    return "" if value is None else str(value)
-
-
-def _ensure_harmonic_coefficient_tb_logger(ctx: CookContext) -> None:
-    session = getattr(ctx, "session", None)
-    node = getattr(ctx, "node", None)
-    if session is None or node is None:
-        return
-
-    tb = getattr(session, "tb", None)
-    if (
-        tb is not None
-        and getattr(tb, "enabled", False)
-        and getattr(tb, "cfg", None) is not None
-    ):
-        return
-
-    from rheidos.houdini.runtime.driver import (
-        _configure_tb_logger,
-        _resolve_profile_logdir,
-    )
-
-    config = SimpleNamespace(
-        profile_logdir=_eval_optional_str_parm(node, "profile_logdir") or None
-    )
-    logdir = _resolve_profile_logdir(node, config)
-    _configure_tb_logger(session, logdir)
-
-
 def _log_harmonic_coefficient(ctx: CookContext, mods: P1AnnulusHarmonicModule) -> None:
-    _ensure_harmonic_coefficient_tb_logger(ctx)
-
-    session = getattr(ctx, "session", None)
-    tb = getattr(session, "tb", None)
-    if tb is None or not getattr(tb, "enabled", False):
-        return
-    if getattr(tb, "cfg", None) is None:
-        return
-
-    tb.add_scalar(
-        _HARMONIC_COEFFICIENT_TB_TAG,
+    logger.log(
+        "harmonic_coefficient",
         float(mods.combined_stream_function.harmonic_coefficient.get()),
-        int(ctx.frame),
+        category="p1_annulus",
+        flush=True,
     )
-    tb.flush()
 
 
 def rk4_advect(ctx: CookContext) -> None:
     mods = ctx.world().require(P1AnnulusHarmonicModule)
     y_dot = mods.rk4_step(ctx)
-    mods.rk4.configure(y_dot=y_dot, timestep=0.001)
+    mods.rk4.configure(y_dot=y_dot, timestep=0.1)
     load_point_vortex_input(ctx, mods.point_vortex, index=0)
     y0 = mods.point_vortex.pos_world.get()
     y = mods.rk4.step(y0)

@@ -259,25 +259,14 @@ class CookContext:
         caller_key = self.session.user_module_key
         target_key = access.session.user_module_key
         if caller_key and target_key and caller_key != target_key:
-            self.log(
-                "session_access.module_mismatch",
-                target_node_path=node_path,
-                caller_module=caller_key,
-                target_module=target_key,
-            )
+            self.session.stats["session_access_last_module_mismatch"] = {
+                "caller_module": caller_key,
+                "frame": self.frame,
+                "target_module": target_key,
+                "target_node_path": node_path,
+            }
 
         return access
-
-    def log(self, message: str, **payload: Any) -> None:
-        self.session.log_event(
-            message,
-            node_path=self.node.path(),
-            frame=self.frame,
-            time=self.time,
-            dt=self.dt,
-            substep=self.substep,
-            **payload,
-        )
 
 
 def build_cook_context(

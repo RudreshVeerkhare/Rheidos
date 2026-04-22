@@ -114,17 +114,20 @@ def step(ctx) -> None:
 
 Point `run_solver(...)` at a module that exposes `setup(ctx)` and `step(ctx)`. The driver handles session reuse, profiling, publishing, and repeated-step suppression.
 
-## Houdini: Record diagnostics from `CookContext`
+## Log simulation scalars to TensorBoard
 
 Goal:
-- emit structured events into the current session
+- write scalar simulation values with the shared logger API
 
 ```python
-def cook(ctx) -> None:
-    ctx.log("my_event", value=123)
+from rheidos import logger
+
+logger.configure(logdir="/tmp/rheidos_tb", run_name="demo")
+logger.log("energy", 123.0)
 ```
 
-Inspect the result from `ctx.session.log_entries`.
+Inside Houdini cooks or solvers you can use the same import. If no explicit
+`logdir` is configured, the runtime defaults to `<hip_dir or cwd>/_tb_logs/<hip_name>`.
 
 ## Houdini: Attach a debugger with `debugpy`
 
