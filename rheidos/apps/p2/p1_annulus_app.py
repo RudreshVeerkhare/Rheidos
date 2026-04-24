@@ -32,7 +32,7 @@ class CombinedStreamFunction(ModuleBase):
         point_vortex: PointVortexModule,
         stream: P1StreamFunction,
         harmonic: P1AnnulusHarmonicStreamFunction,
-        initial_coeff=0,
+        initial_coeff=-2,
         scope: str = "",
     ) -> None:
         super().__init__(world, scope=scope)
@@ -105,7 +105,6 @@ class P1AnnulusHarmonicModule(ModuleBase):
 
     def __init__(self, world: World, *, scope: str = "") -> None:
         super().__init__(world, scope=scope)
-        self._graph = self
 
         self.mesh = self.require(SurfaceMeshModule)
         self.dec = self.require(DEC, mesh=self.mesh)
@@ -118,7 +117,7 @@ class P1AnnulusHarmonicModule(ModuleBase):
             point_vortex=self.point_vortex,
             dec=self.dec,
         )
-        self.poisson = self.stream_function.poisson
+
         self.coexact_stream_vel = self.require(
             P1VelocityFieldModule,
             child=True,
@@ -156,7 +155,7 @@ class P1AnnulusHarmonicModule(ModuleBase):
             child_name="p1_velocity",
             mesh=self.mesh,
             dec=self.dec,
-            stream=self.stream_function,
+            stream=self.combined_stream_function,
         )
 
         self.rk4 = self.require(RK4IntegratorModule)
