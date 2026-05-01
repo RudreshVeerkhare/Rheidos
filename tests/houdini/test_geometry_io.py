@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from types import SimpleNamespace
+import builtins
+import sys
+from types import ModuleType, SimpleNamespace
 
 import numpy as np
 import pytest
@@ -27,8 +29,108 @@ class _FakeAttrib:
         return self._data_type
 
 
+def _attrib_name(name_or_attrib):
+    name = getattr(name_or_attrib, "name", None)
+    if callable(name):
+        return name()
+    return name_or_attrib
+
+
+class _FakePoint:
+    def __init__(self, geo, number: int) -> None:
+        self._geo = geo
+        self._number = int(number)
+
+    def number(self) -> int:
+        return self._number
+
+    def attribValue(self, name_or_attrib):
+        return self._geo._element_attrib_value(OWNER_POINT, self._number, name_or_attrib)
+
+
+class _FakePrimType:
+    def __init__(self, name: str = "Polygon") -> None:
+        self._name = name
+
+    def name(self) -> str:
+        return self._name
+
+
+class _FakeVertex:
+    def __init__(
+        self,
+        geo,
+        number: int,
+        prim_number,
+        local_number: int,
+        point_number: int,
+    ) -> None:
+        self._geo = geo
+        self._number = int(number)
+        self._prim_number = prim_number
+        self._local_number = int(local_number)
+        self._point_number = int(point_number)
+
+    def number(self) -> int:
+        return self._number
+
+    def point(self) -> _FakePoint:
+        return _FakePoint(self._geo, self._point_number)
+
+    def attribValue(self, name_or_attrib):
+        return self._geo._element_attrib_value(OWNER_VERTEX, self._number, name_or_attrib)
+
+
+class _FakePrim:
+    def __init__(self, geo, number: int) -> None:
+        self._geo = geo
+        self._number = int(number)
+
+    def number(self) -> int:
+        return self._number
+
+    def type(self) -> _FakePrimType:
+        return _FakePrimType()
+
+    def vertices(self):
+        if self._geo._prim_points is None:
+            return []
+        start = self._geo._prim_vertex_start(self._number)
+        return [
+            _FakeVertex(self._geo, start + local, self._number, local, point_number)
+            for local, point_number in enumerate(self._geo._prim_points[self._number])
+        ]
+
+    def numVertices(self) -> int:
+        return len(self.vertices())
+
+    def attribValue(self, name_or_attrib):
+        return self._geo._element_attrib_value(OWNER_PRIM, self._number, name_or_attrib)
+
+    def intrinsicNames(self):
+        return list(self._geo._prim_intrinsics[self._number].keys())
+
+    def intrinsicValue(self, name: str):
+        value = self._geo._prim_intrinsics[self._number][name]
+        if isinstance(value, Exception):
+            raise value
+        return value
+
+
 class _FakeGeometry:
-    def __init__(self, *, point_count: int = 0, prim_count: int = 0, vertex_count: int = 0) -> None:
+    def __init__(
+        self,
+        *,
+        point_count: int = 0,
+        prim_count: int = 0,
+        vertex_count: int = 0,
+        prim_points=None,
+    ) -> None:
+        if prim_points is not None:
+            prim_points = tuple(tuple(points) for points in prim_points)
+            prim_count = len(prim_points)
+            vertex_count = sum(len(points) for points in prim_points)
+
         self._counts = {
             OWNER_POINT: int(point_count),
             OWNER_PRIM: int(prim_count),
@@ -41,6 +143,8 @@ class _FakeGeometry:
             OWNER_VERTEX: {},
             OWNER_DETAIL: {},
         }
+        self._prim_points = prim_points
+        self._prim_intrinsics = [{} for _ in range(int(prim_count))]
         self._values = {
             OWNER_POINT: {},
             OWNER_PRIM: {},
@@ -73,13 +177,18 @@ class _FakeGeometry:
         return self._attribs[OWNER_DETAIL].get(name)
 
     def points(self):
-        return [object()] * self._counts[OWNER_POINT]
+        return [_FakePoint(self, number) for number in range(self._counts[OWNER_POINT])]
 
     def prims(self):
-        return [object()] * self._counts[OWNER_PRIM]
+        return [_FakePrim(self, number) for number in range(self._counts[OWNER_PRIM])]
 
     def vertices(self):
-        return [object()] * self._counts[OWNER_VERTEX]
+        if self._prim_points is None:
+            return [
+                _FakeVertex(self, number, None, number, min(number, self._counts[OWNER_POINT] - 1))
+                for number in range(self._counts[OWNER_VERTEX])
+            ]
+        return [vertex for prim in self.prims() for vertex in prim.vertices()]
 
     def addAttrib(self, attrib_type: str, name: str, default):
         tuple_size = len(default) if isinstance(default, tuple) else 1
@@ -149,10 +258,29 @@ class _FakeGeometry:
         self._values[OWNER_VERTEX][name] = list(values)
 
     def attribValue(self, name: str):
+        name = _attrib_name(name)
         return self._values[OWNER_DETAIL][name]
 
     def setGlobalAttribValue(self, name: str, value) -> None:
         self._values[OWNER_DETAIL][name] = value
+
+    def setPrimIntrinsic(self, prim_number: int, name: str, value) -> None:
+        self._prim_intrinsics[int(prim_number)][name] = value
+
+    def _element_attrib_value(self, owner: str, index: int, name_or_attrib):
+        name = _attrib_name(name_or_attrib)
+        attrib = self._attribs[owner][name]
+        values = self._values[owner][name]
+        tuple_size = attrib.size()
+        if tuple_size == 1:
+            return values[index]
+        start = index * tuple_size
+        return tuple(values[start : start + tuple_size])
+
+    def _prim_vertex_start(self, prim_number: int) -> int:
+        if self._prim_points is None:
+            return 0
+        return sum(len(points) for points in self._prim_points[:prim_number])
 
     @staticmethod
     def _data_type_for_default(default) -> str:
@@ -162,6 +290,31 @@ class _FakeGeometry:
         if isinstance(sample, (bool, int, np.integer)):
             return OWNER_DETAIL + ".int"
         return OWNER_DETAIL + ".float"
+
+
+class _FakeDataFrame:
+    def __init__(self, rows) -> None:
+        self._records = [dict(row) for row in rows]
+        columns = []
+        for record in self._records:
+            for key in record:
+                if key not in columns:
+                    columns.append(key)
+        self.columns = columns
+        self.shape = (len(self._records), len(columns))
+
+    def to_dict(self, orient: str = "dict"):
+        if orient != "records":
+            raise ValueError("Only records orient is supported by the test fake")
+        return [dict(row) for row in self._records]
+
+
+@pytest.fixture
+def fake_pandas(monkeypatch):
+    module = ModuleType("pandas")
+    module.DataFrame = _FakeDataFrame
+    monkeypatch.setitem(sys.modules, "pandas", module)
+    return module
 
 
 @pytest.fixture(autouse=True)
@@ -256,6 +409,109 @@ def test_write_wrapper_respects_read_only_io():
 
     with pytest.raises(RuntimeError, match="no output geometry"):
         io.write_point("P", np.array([[0.0, 0.0, 0.0]], dtype=np.float32), create=True)
+
+
+def test_geometry_io_to_dataframes_exports_spreadsheet_tables(fake_pandas):
+    geo = _FakeGeometry(point_count=3, prim_points=((0, 1, 2), (2, 1, 0)))
+    io = GeometryIO(geo, geo)
+
+    io.write_point(
+        "P",
+        np.array(
+            [
+                [0.0, 1.0, 2.0],
+                [3.0, 4.0, 5.0],
+                [6.0, 7.0, 8.0],
+            ],
+            dtype=np.float32,
+        ),
+        create=True,
+    )
+    io.write_point("label", np.array(["a", "b", "c"]), create=True)
+    io.write_prim("uv", np.array([[0.25, 0.5], [0.75, 1.0]], dtype=np.float32), create=True)
+    io.write_vertex("weight", np.arange(6, dtype=np.int32), create=True)
+    io.write_detail("bbox", np.array([1.0, 2.0, 3.0, 4.0, 5.0], dtype=np.float32), create=True)
+
+    dfs = io.to_dataframes()
+
+    assert set(dfs) == {"points", "primitives", "vertices", "detail"}
+    assert dfs["points"].shape == (3, 5)
+    assert dfs["primitives"].shape == (2, 5)
+    assert dfs["vertices"].shape == (6, 5)
+    assert dfs["detail"].shape == (1, 5)
+
+    points = dfs["points"].to_dict("records")
+    assert points[0] == {
+        "ptnum": 0,
+        "P_x": 0.0,
+        "P_y": 1.0,
+        "P_z": 2.0,
+        "label": "a",
+    }
+    assert points[2]["ptnum"] == 2
+    assert points[2]["P_z"] == 8.0
+
+    primitives = dfs["primitives"].to_dict("records")
+    assert primitives[0] == {
+        "primnum": 0,
+        "type": "Polygon",
+        "num_vertices": 3,
+        "uv_x": 0.25,
+        "uv_y": 0.5,
+    }
+
+    vertices = dfs["vertices"].to_dict("records")
+    assert vertices[3] == {
+        "vtxnum": 3,
+        "primnum": 1,
+        "prim_vtxnum": 0,
+        "ptnum": 2,
+        "weight": 3,
+    }
+
+    detail = dfs["detail"].to_dict("records")
+    assert detail == [
+        {
+            "bbox_x": 1.0,
+            "bbox_y": 2.0,
+            "bbox_z": 3.0,
+            "bbox_w": 4.0,
+            "bbox_4": 5.0,
+        }
+    ]
+
+
+def test_geometry_io_to_dataframes_includes_requested_prim_intrinsics(fake_pandas):
+    geo = _FakeGeometry(point_count=3, prim_points=((0, 1, 2),))
+    geo.setPrimIntrinsic(0, "bounds", (1.0, 2.0, 3.0, 4.0, 5.0))
+    geo.setPrimIntrinsic(0, "unreadable", RuntimeError("intrinsic read failed"))
+    io = GeometryIO(geo, geo)
+
+    without_intrinsics = io.to_dataframes()["primitives"].to_dict("records")[0]
+    with_intrinsics = io.to_dataframes(include_prim_intrinsics=True)["primitives"].to_dict(
+        "records"
+    )[0]
+
+    assert "intrinsic_bounds_x" not in without_intrinsics
+    assert with_intrinsics["intrinsic_bounds_x"] == 1.0
+    assert with_intrinsics["intrinsic_bounds_w"] == 4.0
+    assert with_intrinsics["intrinsic_bounds_4"] == 5.0
+    assert not any(key.startswith("intrinsic_unreadable") for key in with_intrinsics)
+
+
+def test_geometry_io_to_dataframes_missing_pandas_raises_clear_error(monkeypatch):
+    monkeypatch.delitem(sys.modules, "pandas", raising=False)
+    real_import = builtins.__import__
+
+    def blocked_import(name, *args, **kwargs):
+        if name == "pandas":
+            raise ImportError("blocked")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", blocked_import)
+
+    with pytest.raises(RuntimeError, match="Install pandas into the active Houdini Python"):
+        GeometryIO(_FakeGeometry()).to_dataframes()
 
 
 def test_cook_context_output_io_targets_output_geometry():

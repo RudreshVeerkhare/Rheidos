@@ -1,0 +1,8 @@
+{
+  "custom_name": null,
+  "hip_path": "/Users/codebox/dev/kung_fu_panda/rheidos/apps/p2/hips/plot_1_vel_vs_radius.hipnc",
+  "node_path": "/obj/geo1/solver1/d/s/rk4_advect",
+  "run_dir": "/Users/codebox/dev/kung_fu_panda/rheidos/apps/p2/hips/_tb_logs/plot_1_vel_vs_radius/run-0001__2026-04-30_22-30-42",
+  "run_id": 1,
+  "timestamp": "2026-04-30_22-30-42"
+}

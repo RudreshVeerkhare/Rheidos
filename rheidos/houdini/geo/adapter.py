@@ -19,6 +19,7 @@ from .schema import (
 
 if TYPE_CHECKING:
     import hou
+    import pandas as pd
 
 _CacheKey = Tuple[str, str, Optional[int], Optional[str]]
 
@@ -203,6 +204,19 @@ class GeometryIO:
         if owner is None:
             self._schema_cache = schema
         return schema
+
+    def to_dataframes(
+        self,
+        *,
+        include_prim_intrinsics: bool = False,
+    ) -> "dict[str, pd.DataFrame]":
+        """Return spreadsheet-style pandas DataFrames for `geo_in`."""
+        from .dataframes import geometry_to_dataframes
+
+        return geometry_to_dataframes(
+            self.geo_in,
+            include_prim_intrinsics=include_prim_intrinsics,
+        )
 
     def _read_attrib(self, owner: str, name: str) -> np.ndarray:
         owner = _validate_owner(owner)
