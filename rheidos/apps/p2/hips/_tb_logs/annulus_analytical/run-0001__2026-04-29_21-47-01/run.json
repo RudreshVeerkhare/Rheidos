@@ -1,0 +1,8 @@
+{
+  "custom_name": null,
+  "hip_path": "/Users/codebox/dev/kung_fu_panda/rheidos/apps/p2/hips/annulus_analytical.hipnc",
+  "node_path": "/obj/DEC/solver1/d/s/rk4_advect",
+  "run_dir": "/Users/codebox/dev/kung_fu_panda/rheidos/apps/p2/hips/_tb_logs/annulus_analytical/run-0001__2026-04-29_21-47-01",
+  "run_id": 1,
+  "timestamp": "2026-04-29_21-47-01"
+}
