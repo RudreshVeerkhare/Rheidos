@@ -185,6 +185,38 @@ class CookContext:
     def write_detail(self, name: str, values: Any, *, create: bool = True) -> None:
         self.io.write_detail(name, values, create=create)
 
+    def clear_output(self) -> None:
+        self.io.clear_output()
+
+    def create_point(self, position: Any = None) -> "hou.Point":
+        return self.io.create_point(position)
+
+    def create_points(self, positions: Any) -> tuple["hou.Point", ...]:
+        return self.io.create_points(positions)
+
+    def create_polygon(
+        self,
+        points: Sequence[Any],
+        *,
+        closed: bool = True,
+    ) -> "hou.Polygon":
+        return self.io.create_polygon(points, closed=closed)
+
+    def create_polygons(
+        self,
+        polygons: Sequence[Sequence[Any]],
+        *,
+        closed: bool = True,
+    ) -> tuple["hou.Polygon", ...]:
+        return self.io.create_polygons(polygons, closed=closed)
+
+    def add_vertices(
+        self,
+        prim: "hou.Polygon",
+        points: Sequence[Any],
+    ) -> tuple["hou.Vertex", ...]:
+        return self.io.add_vertices(prim, points)
+
     def read_prims(self, arity: int = 3) -> np.ndarray:
         return self.io.read_prims(arity=arity)
 

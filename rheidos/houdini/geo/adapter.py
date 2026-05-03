@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Sequence, Tuple, TYPE_CHECKING
+from typing import Any, Dict, Iterable, Optional, Sequence, Tuple, TYPE_CHECKING
 
 import numpy as np
 
@@ -177,6 +177,11 @@ class GeometryIO:
         self._cache.clear()
         self._schema_cache = None
 
+    def _require_output_geo(self) -> "hou.Geometry":
+        if self.geo_out is None:
+            raise RuntimeError("GeometryIO has no output geometry to write")
+        return self.geo_out
+
     def describe(self, owner: Optional[str] = None) -> GeometrySchema:
         if owner is None and self._schema_cache is not None:
             return self._schema_cache
@@ -218,6 +223,83 @@ class GeometryIO:
         return geometry_to_dataframes(
             self.geo_in,
             include_prim_intrinsics=include_prim_intrinsics,
+        )
+
+    def clear_output(self) -> None:
+        """Clear all topology and attributes from the output geometry."""
+
+        geo = self._require_output_geo()
+        geo.clear()
+        self.clear_cache()
+
+    def create_point(self, position: Any = None) -> "hou.Point":
+        """Create one output point, optionally setting its 3D position."""
+
+        geo = self._require_output_geo()
+        point = geo.createPoint()
+        if position is not None:
+            point.setPosition(position)
+        self.clear_cache()
+        return point
+
+    def create_points(self, positions: Any) -> tuple["hou.Point", ...]:
+        """Create output points from an ``(N, 3)`` array-like of positions."""
+
+        geo = self._require_output_geo()
+        positions_np = np.asarray(positions)
+        if positions_np.ndim != 2 or positions_np.shape[1] != 3:
+            raise ValueError(f"positions must have shape (N,3), got {positions_np.shape}")
+        points = tuple(geo.createPoints(tuple(map(tuple, positions_np.tolist()))))
+        self.clear_cache()
+        return points
+
+    def _point_from_ref(self, point_ref: Any) -> "hou.Point":
+        if isinstance(point_ref, (int, np.integer)):
+            point_number = int(point_ref)
+            if point_number < 0:
+                raise ValueError(f"Point number {point_number} does not exist")
+            try:
+                return self._require_output_geo().points()[point_number]
+            except IndexError as exc:
+                raise ValueError(f"Point number {point_number} does not exist") from exc
+        return point_ref
+
+    def add_vertices(
+        self,
+        prim: "hou.Polygon",
+        points: Iterable[Any],
+    ) -> tuple["hou.Vertex", ...]:
+        """Append vertices to ``prim`` from point objects or point numbers."""
+
+        vertices = tuple(prim.addVertex(self._point_from_ref(point)) for point in points)
+        self.clear_cache()
+        return vertices
+
+    def create_polygon(
+        self,
+        points: Iterable[Any],
+        *,
+        closed: bool = True,
+    ) -> "hou.Polygon":
+        """Create a polygon face or polygon curve from point objects or numbers."""
+
+        geo = self._require_output_geo()
+        prim = geo.createPolygon(is_closed=bool(closed))
+        self.add_vertices(prim, points)
+        self.clear_cache()
+        return prim
+
+    def create_polygons(
+        self,
+        polygons: Iterable[Iterable[Any]],
+        *,
+        closed: bool = True,
+    ) -> tuple["hou.Polygon", ...]:
+        """Create multiple polygon faces or curves from point objects or numbers."""
+
+        return tuple(
+            self.create_polygon(points, closed=closed)
+            for points in polygons
         )
 
     def _read_attrib(self, owner: str, name: str) -> np.ndarray:
@@ -322,25 +404,24 @@ class GeometryIO:
 
     def write(self, owner: str, name: str, values: Any, *, create: bool = True) -> None:
         owner = _validate_owner(owner)
-        if self.geo_out is None:
-            raise RuntimeError("GeometryIO has no output geometry to write")
+        geo_out = self._require_output_geo()
 
         values_np = _normalize_values(owner, values)
         tuple_size = values_np.shape[1]
-        count_expected = _owner_count(self.geo_out, owner)
+        count_expected = _owner_count(geo_out, owner)
         if owner != OWNER_DETAIL and values_np.shape[0] != count_expected:
             raise ValueError(
                 f"{owner} attrib '{name}' expects {count_expected} elements, got {values_np.shape[0]}"
             )
 
-        attrib = _find_attrib(self.geo_out, owner, name)
+        attrib = _find_attrib(geo_out, owner, name)
         if attrib is None:
             if not create:
                 raise KeyError(f"Missing {owner} attribute '{name}'")
             _create_attrib(
-                self.geo_out, owner, name, tuple_size, _values_kind(values_np)
+                geo_out, owner, name, tuple_size, _values_kind(values_np)
             )
-            attrib = _find_attrib(self.geo_out, owner, name)
+            attrib = _find_attrib(geo_out, owner, name)
             if attrib is None:
                 raise RuntimeError(f"Failed to create {owner} attribute '{name}'")
 
@@ -351,11 +432,11 @@ class GeometryIO:
 
         kind = _attrib_kind(attrib)
         if kind == "string":
-            _write_string_attrib(self.geo_out, owner, name, values_np)
+            _write_string_attrib(geo_out, owner, name, values_np)
         elif kind == "int":
-            _write_int_attrib(self.geo_out, owner, name, values_np)
+            _write_int_attrib(geo_out, owner, name, values_np)
         elif kind == "float":
-            _write_float_attrib(self.geo_out, owner, name, values_np)
+            _write_float_attrib(geo_out, owner, name, values_np)
         else:
             raise TypeError(f"Unsupported attribute data type for '{name}'")
 
@@ -536,8 +617,14 @@ def _write_string_attrib(
 def _detail_value(values: np.ndarray) -> Any:
     values = values.reshape((-1,))
     if values.size == 1:
-        return values[0]
-    return tuple(values.tolist())
+        value = values[0]
+        if isinstance(value, np.generic):
+            return value.item()
+        return value
+    return [
+        value.item() if isinstance(value, np.generic) else value
+        for value in values.tolist()
+    ]
 
 
 def _create_attrib(

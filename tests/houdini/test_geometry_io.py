@@ -44,6 +44,12 @@ class _FakePoint:
     def number(self) -> int:
         return self._number
 
+    def position(self):
+        return tuple(self._geo._point_positions[self._number])
+
+    def setPosition(self, position) -> None:
+        self._geo._point_positions[self._number] = tuple(position)
+
     def attribValue(self, name_or_attrib):
         return self._geo._element_attrib_value(OWNER_POINT, self._number, name_or_attrib)
 
@@ -104,6 +110,25 @@ class _FakePrim:
     def numVertices(self) -> int:
         return len(self.vertices())
 
+    def isClosed(self) -> bool:
+        return bool(self._geo._prim_closed[self._number])
+
+    def addVertex(self, point):
+        if self._geo._prim_points is None:
+            self._geo._prim_points = [[] for _ in range(self._geo._counts[OWNER_PRIM])]
+        point_number = int(point.number())
+        self._geo._prim_points[self._number].append(point_number)
+        vertex_number = self._geo._counts[OWNER_VERTEX]
+        self._geo._counts[OWNER_VERTEX] += 1
+        self._geo._append_default_values(OWNER_VERTEX, 1)
+        return _FakeVertex(
+            self._geo,
+            vertex_number,
+            self._number,
+            len(self._geo._prim_points[self._number]) - 1,
+            point_number,
+        )
+
     def attribValue(self, name_or_attrib):
         return self._geo._element_attrib_value(OWNER_PRIM, self._number, name_or_attrib)
 
@@ -127,7 +152,7 @@ class _FakeGeometry:
         prim_points=None,
     ) -> None:
         if prim_points is not None:
-            prim_points = tuple(tuple(points) for points in prim_points)
+            prim_points = [list(points) for points in prim_points]
             prim_count = len(prim_points)
             vertex_count = sum(len(points) for points in prim_points)
 
@@ -144,13 +169,51 @@ class _FakeGeometry:
             OWNER_DETAIL: {},
         }
         self._prim_points = prim_points
+        self._prim_closed = [True] * int(prim_count)
         self._prim_intrinsics = [{} for _ in range(int(prim_count))]
+        self._point_positions = [(0.0, 0.0, 0.0)] * int(point_count)
+        self._attrib_defaults = {
+            OWNER_POINT: {},
+            OWNER_PRIM: {},
+            OWNER_VERTEX: {},
+            OWNER_DETAIL: {},
+        }
         self._values = {
             OWNER_POINT: {},
             OWNER_PRIM: {},
             OWNER_VERTEX: {},
             OWNER_DETAIL: {},
         }
+
+    def clear(self) -> None:
+        self._counts = {
+            OWNER_POINT: 0,
+            OWNER_PRIM: 0,
+            OWNER_VERTEX: 0,
+            OWNER_DETAIL: 1,
+        }
+        self._attribs = {
+            OWNER_POINT: {},
+            OWNER_PRIM: {},
+            OWNER_VERTEX: {},
+            OWNER_DETAIL: {},
+        }
+        self._attrib_defaults = {
+            OWNER_POINT: {},
+            OWNER_PRIM: {},
+            OWNER_VERTEX: {},
+            OWNER_DETAIL: {},
+        }
+        self._values = {
+            OWNER_POINT: {},
+            OWNER_PRIM: {},
+            OWNER_VERTEX: {},
+            OWNER_DETAIL: {},
+        }
+        self._prim_points = []
+        self._prim_closed = []
+        self._prim_intrinsics = []
+        self._point_positions = []
 
     def pointAttribs(self):
         return list(self._attribs[OWNER_POINT].values())
@@ -197,11 +260,43 @@ class _FakeGeometry:
             tuple_size=tuple_size,
             data_type=self._data_type_for_default(default),
         )
+        self._attrib_defaults[attrib_type][name] = default
         if attrib_type == OWNER_DETAIL:
             self._values[OWNER_DETAIL][name] = default
             return
         flat_default = list(default) if isinstance(default, tuple) else [default]
         self._values[attrib_type][name] = flat_default * self._counts[attrib_type]
+
+    def _append_default_values(self, owner: str, count: int) -> None:
+        for name, default in self._attrib_defaults[owner].items():
+            flat_default = list(default) if isinstance(default, tuple) else [default]
+            self._values[owner][name].extend(flat_default * int(count))
+
+    def createPoint(self):
+        number = self._counts[OWNER_POINT]
+        self._counts[OWNER_POINT] += 1
+        self._point_positions.append((0.0, 0.0, 0.0))
+        self._append_default_values(OWNER_POINT, 1)
+        return _FakePoint(self, number)
+
+    def createPoints(self, positions):
+        points = []
+        for position in positions:
+            point = self.createPoint()
+            point.setPosition(position)
+            points.append(point)
+        return tuple(points)
+
+    def createPolygon(self, *, is_closed=True):
+        if self._prim_points is None:
+            self._prim_points = [[] for _ in range(self._counts[OWNER_PRIM])]
+        number = self._counts[OWNER_PRIM]
+        self._counts[OWNER_PRIM] += 1
+        self._prim_points.append([])
+        self._prim_closed.append(bool(is_closed))
+        self._prim_intrinsics.append({})
+        self._append_default_values(OWNER_PRIM, 1)
+        return _FakePrim(self, number)
 
     def pointFloatAttribValues(self, name: str):
         return list(self._values[OWNER_POINT][name])
@@ -380,7 +475,16 @@ def test_write_prim_and_detail_preserve_validation():
         io.write_prim("id", np.array([10, 20, 30], dtype=np.int32), create=False)
 
     io.write_detail("strength", np.array([1.5], dtype=np.float32), create=True)
-    assert geo.attribValue("strength") == np.float32(1.5)
+    assert geo.attribValue("strength") == pytest.approx(1.5)
+    assert type(geo.attribValue("strength")) is float
+
+    io.write_detail("genus", np.array([1], dtype=np.int32), create=True)
+    assert geo.attribValue("genus") == 1
+    assert type(geo.attribValue("genus")) is int
+
+    io.write_detail("ids", np.array([1, 2], dtype=np.int32), create=True)
+    assert geo.attribValue("ids") == [1, 2]
+    assert all(type(value) is int for value in geo.attribValue("ids"))
 
     with pytest.raises(ValueError, match="expected tuple size 1, got 2"):
         io.write_detail("strength", np.array([1.0, 2.0], dtype=np.float32), create=False)
@@ -409,6 +513,108 @@ def test_write_wrapper_respects_read_only_io():
 
     with pytest.raises(RuntimeError, match="no output geometry"):
         io.write_point("P", np.array([[0.0, 0.0, 0.0]], dtype=np.float32), create=True)
+
+    with pytest.raises(RuntimeError, match="no output geometry"):
+        io.create_point((0.0, 0.0, 0.0))
+
+    with pytest.raises(RuntimeError, match="no output geometry"):
+        io.clear_output()
+
+
+def test_geometry_io_creates_single_and_bulk_points():
+    geo = _FakeGeometry()
+    io = GeometryIO(geo, geo)
+
+    point = io.create_point((1.0, 2.0, 3.0))
+    points = io.create_points(
+        np.array(
+            [
+                [4.0, 5.0, 6.0],
+                [7.0, 8.0, 9.0],
+            ],
+            dtype=np.float32,
+        )
+    )
+
+    assert point.number() == 0
+    assert point.position() == (1.0, 2.0, 3.0)
+    assert [pt.number() for pt in points] == [1, 2]
+    assert [pt.position() for pt in points] == [
+        (4.0, 5.0, 6.0),
+        (7.0, 8.0, 9.0),
+    ]
+    assert len(geo.points()) == 3
+
+    with pytest.raises(ValueError, match="positions must have shape"):
+        io.create_points(np.array([1.0, 2.0, 3.0]))
+
+
+def test_geometry_io_creates_open_and_closed_polygon_primitives():
+    geo = _FakeGeometry()
+    io = GeometryIO(geo, geo)
+    points = io.create_points(
+        np.array(
+            [
+                [0.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0],
+                [1.0, 1.0, 0.0],
+            ],
+            dtype=np.float32,
+        )
+    )
+
+    open_line = io.create_polygon([points[0], points[1]], closed=False)
+    closed_triangle = io.create_polygon([0, 1, 2], closed=True)
+
+    assert open_line.number() == 0
+    assert closed_triangle.number() == 1
+    assert open_line.isClosed() is False
+    assert closed_triangle.isClosed() is True
+    assert [vertex.point().number() for vertex in open_line.vertices()] == [0, 1]
+    assert [vertex.point().number() for vertex in closed_triangle.vertices()] == [0, 1, 2]
+    assert len(geo.vertices()) == 5
+
+
+def test_geometry_io_creates_multiple_polygons_and_returns_vertices():
+    geo = _FakeGeometry()
+    io = GeometryIO(geo, geo)
+    io.create_points(
+        np.array(
+            [
+                [0.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0],
+                [2.0, 0.0, 0.0],
+                [3.0, 0.0, 0.0],
+            ],
+            dtype=np.float32,
+        )
+    )
+
+    prims = io.create_polygons([[0, 1], [2, 3]], closed=False)
+    extra_vertices = io.add_vertices(prims[0], [2, 3])
+
+    assert [prim.number() for prim in prims] == [0, 1]
+    assert [prim.isClosed() for prim in prims] == [False, False]
+    assert [vertex.point().number() for vertex in prims[0].vertices()] == [0, 1, 2, 3]
+    assert [vertex.number() for vertex in extra_vertices] == [4, 5]
+
+    with pytest.raises(ValueError, match="Point number 10 does not exist"):
+        io.create_polygon([0, 10], closed=False)
+
+
+def test_geometry_io_clear_output_removes_topology_and_attributes():
+    geo = _FakeGeometry()
+    io = GeometryIO(geo, geo)
+    io.create_points(np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]], dtype=np.float32))
+    io.create_polygon([0, 1], closed=False)
+    io.write_point("id", np.array([1, 2], dtype=np.int32), create=True)
+
+    io.clear_output()
+
+    assert geo.points() == []
+    assert geo.prims() == []
+    assert geo.vertices() == []
+    assert geo.findPointAttrib("id") is None
 
 
 def test_geometry_io_to_dataframes_exports_spreadsheet_tables(fake_pandas):
@@ -565,6 +771,30 @@ def test_cook_context_owner_specific_methods_delegate_to_io():
         def write_detail(self, name: str, values, *, create=True):
             calls.append(("write_detail", name, np.asarray(values).shape, create))
 
+        def clear_output(self):
+            calls.append(("clear_output",))
+
+        def create_point(self, position=None):
+            calls.append(("create_point", position))
+            return "point"
+
+        def create_points(self, positions):
+            calls.append(("create_points", np.asarray(positions).shape))
+            return ("point0", "point1")
+
+        def create_polygon(self, points, *, closed=True):
+            calls.append(("create_polygon", tuple(points), closed))
+            return "prim"
+
+        def create_polygons(self, polygons, *, closed=True):
+            normalized = tuple(tuple(points) for points in polygons)
+            calls.append(("create_polygons", normalized, closed))
+            return ("prim0", "prim1")
+
+        def add_vertices(self, prim, points):
+            calls.append(("add_vertices", prim, tuple(points)))
+            return ("vertex0", "vertex1")
+
     ctx = _make_ctx(_FakeIO())
 
     point_values = ctx.read_point("P", components=3)
@@ -577,11 +807,22 @@ def test_cook_context_owner_specific_methods_delegate_to_io():
     ctx.write_detail("scale", np.array([1.0], dtype=np.float32), create=False)
     ctx.P()
     ctx.set_P(np.ones((1, 3), dtype=np.float32))
+    created_point = ctx.create_point((0.0, 0.0, 0.0))
+    created_points = ctx.create_points(np.ones((2, 3), dtype=np.float32))
+    created_prim = ctx.create_polygon([0, 1], closed=False)
+    created_prims = ctx.create_polygons([[0, 1], [1, 0]], closed=True)
+    created_vertices = ctx.add_vertices("prim", [0, 1])
+    ctx.clear_output()
 
     assert point_values.shape == (1, 3)
     assert prim_values.shape == (1,)
     assert vertex_values.shape == (1,)
     assert detail_values.shape == (1,)
+    assert created_point == "point"
+    assert created_points == ("point0", "point1")
+    assert created_prim == "prim"
+    assert created_prims == ("prim0", "prim1")
+    assert created_vertices == ("vertex0", "vertex1")
     assert calls == [
         ("read_point", "P", None, 3),
         ("read_prim", "id", None, None),
@@ -593,4 +834,10 @@ def test_cook_context_owner_specific_methods_delegate_to_io():
         ("write_detail", "scale", (1,), False),
         ("read_point", "P", None, 3),
         ("write_point", "P", (1, 3), True),
+        ("create_point", (0.0, 0.0, 0.0)),
+        ("create_points", (2, 3)),
+        ("create_polygon", (0, 1), False),
+        ("create_polygons", ((0, 1), (1, 0)), True),
+        ("add_vertices", "prim", (0, 1)),
+        ("clear_output",),
     ]
