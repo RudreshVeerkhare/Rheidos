@@ -22,8 +22,23 @@ from rheidos.houdini.sop import (
     point_attrib_to_numpy,
 )
 
-DEFAULT_REFERENCE_SURFACE_PROJECT_SOP = "/obj/geo1/solver1/d/s/face_bary_project1"
+DEFAULT_REFERENCE_SURFACE_PROJECT_SOP = "/obj/geo1/solver1/d/s/ray1"
 REFERENCE_SURFACE_PROJECT_SOP_PARM = "reference_surface_project_sop"
+RAY_HIT_PRIM_ATTR = "hitprim"
+RAY_HIT_UVW_ATTR = "hitprimuv"
+
+
+def triangle_bary_from_hituvw(
+    hituvw: np.ndarray,
+) -> np.ndarray:
+    hituvw = np.asarray(hituvw, dtype=np.float64)
+    if hituvw.ndim != 2 or hituvw.shape[1] != 3:
+        raise ValueError(f"hituvw must have shape (N, 3), got {hituvw.shape}")
+    bary = np.empty((hituvw.shape[0], 3), dtype=np.float64)
+    bary[:, 0] = 1.0 - hituvw[:, 0] - hituvw[:, 1]
+    bary[:, 1] = hituvw[:, 0]
+    bary[:, 2] = hituvw[:, 1]
+    return bary
 
 
 @dataclass(frozen=True)
@@ -31,15 +46,13 @@ class ReferenceSurfaceProjection:
     pos: np.ndarray
     faceids: np.ndarray
     bary: np.ndarray
-    hituv: np.ndarray
-    hitdist: np.ndarray
 
 
 class ProjectPointsToReferenceSurface(SopFunctionModule):
     NAME = "ProjectPointsToReferenceSurface"
     SOP_INPUTS = {
         0: CallGeo("query"),
-        1: CtxInputGeo(1),
+        1: CtxInputGeo(1, cache="cook"),
     }
 
     def project_points(self, points: np.ndarray) -> ReferenceSurfaceProjection:
@@ -48,12 +61,18 @@ class ProjectPointsToReferenceSurface(SopFunctionModule):
 
     def postprocess(self, out_geo, meta) -> ReferenceSurfaceProjection:
         del meta
+        pos = point_attrib_to_numpy(out_geo, "P", dtype=np.float64, components=3)
+        faceids = point_attrib_to_numpy(out_geo, RAY_HIT_PRIM_ATTR, dtype=np.int32)
+        hituvw = point_attrib_to_numpy(
+            out_geo,
+            RAY_HIT_UVW_ATTR,
+            dtype=np.float64,
+            components=3,
+        )
         return ReferenceSurfaceProjection(
-            pos=point_attrib_to_numpy(out_geo, "P", dtype=np.float64, components=3),
-            faceids=point_attrib_to_numpy(out_geo, "faceid", dtype=np.int32),
-            bary=point_attrib_to_numpy(out_geo, "bary", dtype=np.float64, components=3),
-            # hituv=point_attrib_to_numpy(out_geo, "hituv", dtype=np.float64, components=3),
-            # hitdist=point_attrib_to_numpy(out_geo, "hitdist", dtype=np.float64),
+            pos,
+            faceids,
+            triangle_bary_from_hituvw(hituvw),
         )
 
 
@@ -210,13 +229,10 @@ def project_points_to_reference_surface(ctx: CookContext) -> None:
     ctx.write_point("P", projected.pos)
     ctx.write_point("bary", projected.bary)
     ctx.write_point("faceid", projected.faceids)
-    ctx.write_point("hituv", projected.hituv)
-    ctx.write_point("hitdist", projected.hitdist)
 
 
 def read_coexact_stream_function_per_vertex(ctx: CookContext):
     mods = ctx.world().require(App)
-
     # read stream function on mesh vertex
     # NOTE: We are assuming that the order is consistent between python mesh and houdini mesh
     stream_func = mods.coexact_stream_function.psi.get()
@@ -225,7 +241,6 @@ def read_coexact_stream_function_per_vertex(ctx: CookContext):
 
 def read_facewise_velocity_field(ctx: CookContext):
     mods = ctx.world().require(App)
-
     # NOTE: We are assuming that the order/indexing is consistent between python mesh and houdini mesh
     facewise_vel = mods.coexact_vel.vel_per_face.get()
     ctx.write_prim("velocity", facewise_vel)
@@ -233,7 +248,6 @@ def read_facewise_velocity_field(ctx: CookContext):
 
 def read_per_vertex_velocity_field(ctx: CookContext):
     mods = ctx.world().require(App)
-
     # NOTE: We are assuming that the order/indexing is consistent between python mesh and houdini mesh
     per_vertex_vel = mods.coexact_vel.vel_per_vertex.get()
     ctx.write_point("velocity", per_vertex_vel)

@@ -117,7 +117,7 @@ Point `run_solver(...)` at a module that exposes `setup(ctx)` and `step(ctx)`. T
 ## Houdini: Wrap a SOP verb as a composable module
 
 Goal:
-- use a Houdini SOP node, such as an Attribute Wrangle, as a function inside a
+- use a verb-capable Houdini SOP node, such as Ray, as a function inside a
   `ModuleBase` graph
 - pass stable input geometry directly from the Python SOP cook context without
   framework-level mesh copies
@@ -148,7 +148,7 @@ class MyGraph(ModuleBase):
             ProjectToSurface,
             child=True,
             child_name="projector",
-            node_path="/obj/geo1/project_wrangle",
+            node_path="/obj/geo1/reference_surface_ray_project",
         )
 
 
@@ -179,6 +179,11 @@ assert bound_geo.freeze().sopNode() is None
 For performance validation, time repeated `project_points(...)` calls against an
 intentional copy path such as `hou.Geometry(ctx.input_geo(0))` or
 `ctx.input_geo(0).freeze()` in the loop.
+
+Attribute Wrangle nodes may not expose SOP verbs. For projection onto a fixed
+reference surface, prefer a Ray SOP configured for Minimum Distance projection,
+with primitive number and primitive UVW attributes enabled as `hitprim` and
+`hituvw`.
 
 ## Log simulation scalars to TensorBoard
 

@@ -38,4 +38,23 @@ def project_points_to_reference_surface_node(ctx: CookContext) -> None:
 @session(SESSION_NAME, debugger=True)
 def advection_rk4(ctx: CookContext) -> None:
     copy_input_to_output(ctx, 0)
-    _app().rk4_advect(ctx, dt=0.001, project_to_faces=True)
+    _app().rk4_advect(ctx, dt=0.0001, project_to_faces=True)
+
+
+# Eularian Mesh export
+@session(SESSION_NAME, debugger=True)
+def read_stream_function_per_vertex_node(ctx: CookContext):
+    copy_input_to_output(ctx, 0)
+    _app().read_coexact_stream_function_per_vertex(ctx)
+
+
+@session(SESSION_NAME, debugger=True)
+def read_facewise_velocity(ctx: CookContext):
+    copy_input_to_output(ctx, 0)
+    _app().read_facewise_velocity_field(ctx)
+
+
+@session(SESSION_NAME, debugger=True)
+def read_per_vertex_velocity(ctx: CookContext):
+    copy_input_to_output(ctx, 0)
+    _app().read_per_vertex_velocity_field(ctx)
