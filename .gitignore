@@ -1,3 +1,7 @@
+# Big Files
+*.zip
+geo/
+
 # Python
 __pycache__/
 *.py[cod]

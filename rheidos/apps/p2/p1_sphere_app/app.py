@@ -45,7 +45,9 @@ class App(ModuleBase):
 
     # y_dot
     @staticmethod
-    def rk4_step(ctx: CookContext) -> Callable[[np.ndarray, float], np.ndarray]:
+    def rk4_step(
+        ctx: CookContext, project_to_faces=True
+    ) -> Callable[[np.ndarray, float], np.ndarray]:
         mods = ctx.world().require(App)
 
         def _fn(y: np.ndarray, t: float) -> np.ndarray:
@@ -85,10 +87,10 @@ def interpolate_coexact_velocity(ctx: CookContext) -> None:
     ctx.write_point("coexact_vel", vel)
 
 
-def rk4_advect(ctx: CookContext) -> None:
+def rk4_advect(ctx: CookContext, dt=0.001, project_to_faces=True) -> None:
     mods = ctx.world().require(App)
     y_dot = mods.rk4_step(ctx)
-    mods.rk4.configure(y_dot=y_dot, timestep=0.001)
+    mods.rk4.configure(y_dot=y_dot, timestep=dt)
     load_point_vortex_input(ctx, mods.point_vortex, index=0)
     y0 = mods.point_vortex.pos_world.get()
     y = mods.rk4.step(y0)
@@ -103,3 +105,28 @@ def rk4_advect(ctx: CookContext) -> None:
     ctx.write_point("P", pos)
     ctx.write_point("bary", barys)
     ctx.write_point("faceid", faceids)
+
+
+def read_coexact_stream_function_per_vertex(ctx: CookContext):
+    mods = ctx.world().require(App)
+
+    # read stream function on mesh vertex
+    # NOTE: We are assuming that the order is consistent between python mesh and houdini mesh
+    stream_func = mods.coexact_stream_function.psi.get()
+    ctx.write_point("coexact_stream_func", stream_func)
+
+
+def read_facewise_velocity_field(ctx: CookContext):
+    mods = ctx.world().require(App)
+
+    # NOTE: We are assuming that the order/indexing is consistent between python mesh and houdini mesh
+    facewise_vel = mods.coexact_vel.vel_per_face.get()
+    ctx.write_prim("velocity", facewise_vel)
+
+
+def read_per_vertex_velocity_field(ctx: CookContext):
+    mods = ctx.world().require(App)
+
+    # NOTE: We are assuming that the order/indexing is consistent between python mesh and houdini mesh
+    per_vertex_vel = mods.coexact_vel.vel_per_vertex.get()
+    ctx.write_point("velocity", per_vertex_vel)

@@ -144,7 +144,9 @@ def _normalize_values(owner: str, values: Any) -> np.ndarray:
             return values_np.reshape((1, values_np.shape[0]))
         if values_np.ndim == 2 and values_np.shape[0] == 1:
             return values_np
-        raise ValueError("Detail attributes must be scalar, (tuple_size,), or (1, tuple_size)")
+        raise ValueError(
+            "Detail attributes must be scalar, (tuple_size,), or (1, tuple_size)"
+        )
 
     if values_np.ndim == 1:
         return values_np.reshape((values_np.shape[0], 1))
@@ -236,7 +238,9 @@ class GeometryIO:
             if isinstance(value, (tuple, list, np.ndarray)):
                 data = np.asarray(value)
                 if data.shape[0] != tuple_size:
-                    raise ValueError(f"Detail attrib '{name}' expected tuple size {tuple_size}")
+                    raise ValueError(
+                        f"Detail attrib '{name}' expected tuple size {tuple_size}"
+                    )
                 return np.asarray([data])
             raise ValueError(f"Detail attrib '{name}' expected tuple size {tuple_size}")
 
@@ -268,7 +272,9 @@ class GeometryIO:
         arr = self._read_attrib(owner, name)
         tuple_size = arr.shape[1] if arr.ndim == 2 else 1
         if components is not None and int(components) != int(tuple_size):
-            raise ValueError(f"Attrib '{name}' expected tuple size {components}, got {tuple_size}")
+            raise ValueError(
+                f"Attrib '{name}' expected tuple size {components}, got {tuple_size}"
+            )
         if dtype is not None:
             arr = arr.astype(dtype, copy=False)
         self._cache[cache_key] = arr
@@ -331,7 +337,9 @@ class GeometryIO:
         if attrib is None:
             if not create:
                 raise KeyError(f"Missing {owner} attribute '{name}'")
-            _create_attrib(self.geo_out, owner, name, tuple_size, _values_kind(values_np))
+            _create_attrib(
+                self.geo_out, owner, name, tuple_size, _values_kind(values_np)
+            )
             attrib = _find_attrib(self.geo_out, owner, name)
             if attrib is None:
                 raise RuntimeError(f"Failed to create {owner} attribute '{name}'")
@@ -410,7 +418,9 @@ class GeometryIO:
 
         return np.asarray(indices, dtype=np.int64).reshape((-1, arity))
 
-    def read_group(self, owner: str, group_name: str, *, as_mask: bool = False) -> np.ndarray:
+    def read_group(
+        self, owner: str, group_name: str, *, as_mask: bool = False
+    ) -> np.ndarray:
         owner = _validate_owner(owner)
         group = _find_group(self.geo_in, owner, group_name)
         if group is None:
@@ -466,7 +476,9 @@ def _read_string_attrib(geo: "hou.Geometry", owner: str, name: str) -> Sequence[
     raise ValueError(f"String attribs are not supported for owner '{owner}'")
 
 
-def _write_float_attrib(geo: "hou.Geometry", owner: str, name: str, values: np.ndarray) -> None:
+def _write_float_attrib(
+    geo: "hou.Geometry", owner: str, name: str, values: np.ndarray
+) -> None:
     flat = values.reshape(-1).astype(float).tolist()
     if owner == OWNER_POINT:
         geo.setPointFloatAttribValues(name, flat)
@@ -483,7 +495,9 @@ def _write_float_attrib(geo: "hou.Geometry", owner: str, name: str, values: np.n
     raise ValueError(f"Float attribs are not supported for owner '{owner}'")
 
 
-def _write_int_attrib(geo: "hou.Geometry", owner: str, name: str, values: np.ndarray) -> None:
+def _write_int_attrib(
+    geo: "hou.Geometry", owner: str, name: str, values: np.ndarray
+) -> None:
     flat = values.reshape(-1).astype(int).tolist()
     if owner == OWNER_POINT:
         geo.setPointIntAttribValues(name, flat)
@@ -500,7 +514,9 @@ def _write_int_attrib(geo: "hou.Geometry", owner: str, name: str, values: np.nda
     raise ValueError(f"Int attribs are not supported for owner '{owner}'")
 
 
-def _write_string_attrib(geo: "hou.Geometry", owner: str, name: str, values: np.ndarray) -> None:
+def _write_string_attrib(
+    geo: "hou.Geometry", owner: str, name: str, values: np.ndarray
+) -> None:
     if owner == OWNER_DETAIL:
         geo.setGlobalAttribValue(name, _detail_value(values))
         return
