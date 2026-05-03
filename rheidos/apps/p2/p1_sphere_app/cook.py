@@ -28,8 +28,14 @@ def interpolate_coexact_velocity_node(ctx: CookContext) -> None:
     _app().interpolate_coexact_velocity(ctx)
 
 
+@session(SESSION_NAME, debugger=True)
+def project_points_to_reference_surface_node(ctx: CookContext) -> None:
+    copy_input_to_output(ctx, 0)
+    _app().project_points_to_reference_surface(ctx)
+
+
 # Advection
 @session(SESSION_NAME, debugger=True)
 def advection_rk4(ctx: CookContext) -> None:
     copy_input_to_output(ctx, 0)
-    _app().rk4_advect(ctx, dt=0.001, project_to_faces=False)
+    _app().rk4_advect(ctx, dt=0.001, project_to_faces=True)

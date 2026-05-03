@@ -1,4 +1,5 @@
 import numpy as np
+from dataclasses import dataclass
 from typing import Callable
 
 from rheidos.apps.p2._io import (
@@ -14,6 +15,76 @@ from rheidos.apps.p2.modules.point_vortex.point_vortex_module import PointVortex
 from rheidos.apps.p2.modules.surface_mesh.surface_mesh_module import SurfaceMeshModule
 from rheidos.compute.world import ModuleBase, World
 from rheidos.houdini.runtime.cook_context import CookContext
+from rheidos.houdini.sop import (
+    CallGeo,
+    CtxInputGeo,
+    SopFunctionModule,
+    point_attrib_to_numpy,
+)
+
+DEFAULT_REFERENCE_SURFACE_PROJECT_SOP = "/obj/geo1/solver1/d/s/face_bary_project1"
+REFERENCE_SURFACE_PROJECT_SOP_PARM = "reference_surface_project_sop"
+
+
+@dataclass(frozen=True)
+class ReferenceSurfaceProjection:
+    pos: np.ndarray
+    faceids: np.ndarray
+    bary: np.ndarray
+    hituv: np.ndarray
+    hitdist: np.ndarray
+
+
+class ProjectPointsToReferenceSurface(SopFunctionModule):
+    NAME = "ProjectPointsToReferenceSurface"
+    SOP_INPUTS = {
+        0: CallGeo("query"),
+        1: CtxInputGeo(1),
+    }
+
+    def project_points(self, points: np.ndarray) -> ReferenceSurfaceProjection:
+        query_geo = self.points_to_geo(np.asarray(points, dtype=np.float64))
+        return self.run(query=query_geo)
+
+    def postprocess(self, out_geo, meta) -> ReferenceSurfaceProjection:
+        del meta
+        return ReferenceSurfaceProjection(
+            pos=point_attrib_to_numpy(out_geo, "P", dtype=np.float64, components=3),
+            faceids=point_attrib_to_numpy(out_geo, "faceid", dtype=np.int32),
+            bary=point_attrib_to_numpy(out_geo, "bary", dtype=np.float64, components=3),
+            # hituv=point_attrib_to_numpy(out_geo, "hituv", dtype=np.float64, components=3),
+            # hitdist=point_attrib_to_numpy(out_geo, "hitdist", dtype=np.float64),
+        )
+
+
+def _eval_parm_str(node, name: str, default: str) -> str:
+    parm = node.parm(name)
+    if parm is None:
+        return default
+    try:
+        value = parm.evalAsString()
+    except Exception:
+        try:
+            value = parm.eval()
+        except Exception:
+            value = default
+    value = "" if value is None else str(value).strip()
+    return value or default
+
+
+def _projection_sop_path(ctx: CookContext) -> str:
+    return _eval_parm_str(
+        ctx.node,
+        REFERENCE_SURFACE_PROJECT_SOP_PARM,
+        DEFAULT_REFERENCE_SURFACE_PROJECT_SOP,
+    )
+
+
+def _setup_reference_surface_projector(ctx: CookContext) -> "App":
+    mods = ctx.world().require(App)
+    mods.reference_surface_projector.configure(node_path=_projection_sop_path(ctx))
+    mods.reference_surface_projector.setup(ctx)
+    return mods
 
 
 class App(ModuleBase):
@@ -42,16 +113,34 @@ class App(ModuleBase):
 
         # Advection
         self.rk4 = self.require(RK4IntegratorModule)
+        self.reference_surface_projector = self.require(
+            ProjectPointsToReferenceSurface,
+            child=True,
+            child_name="reference_surface_projector",
+            node_path=DEFAULT_REFERENCE_SURFACE_PROJECT_SOP,
+        )
 
     # y_dot
     @staticmethod
     def rk4_step(
         ctx: CookContext, project_to_faces=True
     ) -> Callable[[np.ndarray, float], np.ndarray]:
-        mods = ctx.world().require(App)
+        mods = (
+            _setup_reference_surface_projector(ctx)
+            if project_to_faces
+            else ctx.world().require(App)
+        )
 
         def _fn(y: np.ndarray, t: float) -> np.ndarray:
-            faceids, barys, pos = mods.mesh.project_on_nearest_face(y)
+            if project_to_faces:
+                projected = mods.reference_surface_projector.project_points(y)
+                faceids, barys, pos = (
+                    projected.faceids,
+                    projected.bary,
+                    projected.pos,
+                )
+            else:
+                faceids, barys, pos = mods.mesh.project_on_nearest_face(y)
             gammas = mods.point_vortex.gamma.get()
             mods.point_vortex.set_vortex(
                 faceids,
@@ -88,13 +177,21 @@ def interpolate_coexact_velocity(ctx: CookContext) -> None:
 
 
 def rk4_advect(ctx: CookContext, dt=0.001, project_to_faces=True) -> None:
-    mods = ctx.world().require(App)
-    y_dot = mods.rk4_step(ctx)
+    mods = (
+        _setup_reference_surface_projector(ctx)
+        if project_to_faces
+        else ctx.world().require(App)
+    )
+    y_dot = mods.rk4_step(ctx, project_to_faces=project_to_faces)
     mods.rk4.configure(y_dot=y_dot, timestep=dt)
     load_point_vortex_input(ctx, mods.point_vortex, index=0)
     y0 = mods.point_vortex.pos_world.get()
     y = mods.rk4.step(y0)
-    faceids, barys, pos = mods.mesh.project_on_nearest_face(y)
+    if project_to_faces:
+        projected = mods.reference_surface_projector.project_points(y)
+        faceids, barys, pos = projected.faceids, projected.bary, projected.pos
+    else:
+        faceids, barys, pos = mods.mesh.project_on_nearest_face(y)
     gammas = mods.point_vortex.gamma.get()
     mods.point_vortex.set_vortex(
         faceids,
@@ -105,6 +202,16 @@ def rk4_advect(ctx: CookContext, dt=0.001, project_to_faces=True) -> None:
     ctx.write_point("P", pos)
     ctx.write_point("bary", barys)
     ctx.write_point("faceid", faceids)
+
+
+def project_points_to_reference_surface(ctx: CookContext) -> None:
+    mods = _setup_reference_surface_projector(ctx)
+    projected = mods.reference_surface_projector.project_points(ctx.P())
+    ctx.write_point("P", projected.pos)
+    ctx.write_point("bary", projected.bary)
+    ctx.write_point("faceid", projected.faceids)
+    ctx.write_point("hituv", projected.hituv)
+    ctx.write_point("hitdist", projected.hitdist)
 
 
 def read_coexact_stream_function_per_vertex(ctx: CookContext):

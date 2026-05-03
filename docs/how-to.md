@@ -114,6 +114,72 @@ def step(ctx) -> None:
 
 Point `run_solver(...)` at a module that exposes `setup(ctx)` and `step(ctx)`. The driver handles session reuse, profiling, publishing, and repeated-step suppression.
 
+## Houdini: Wrap a SOP verb as a composable module
+
+Goal:
+- use a Houdini SOP node, such as an Attribute Wrangle, as a function inside a
+  `ModuleBase` graph
+- pass stable input geometry directly from the Python SOP cook context without
+  framework-level mesh copies
+
+```python
+from rheidos.compute import ModuleBase
+from rheidos.houdini.sop import CallGeo, CtxInputGeo, SopFunctionModule
+
+
+class ProjectToSurface(SopFunctionModule):
+    NAME = "ProjectToSurface"
+    SOP_INPUTS = {
+        0: CallGeo("query"),
+        1: CtxInputGeo(0),  # direct ctx.input_geo(0), no freeze/copy
+    }
+
+    def project_points(self, points_np):
+        query_geo = self.points_to_geo(points_np)
+        return self.run(query=query_geo)
+
+
+class MyGraph(ModuleBase):
+    NAME = "MyGraph"
+
+    def __init__(self, world, *, scope=""):
+        super().__init__(world, scope=scope)
+        self.projector = self.require(
+            ProjectToSurface,
+            child=True,
+            child_name="projector",
+            node_path="/obj/geo1/project_wrangle",
+        )
+
+
+def cook(ctx):
+    graph = ctx.world().require(MyGraph)
+    graph.projector.setup(ctx)
+    result_geo = graph.projector.project_points(ctx.P())
+```
+
+`CtxInputGeo(..., freeze=True)` is explicit opt-in. Freezing detaches the
+geometry and should be used only when you want a stable copy.
+
+To validate direct binding inside Houdini, run a small Python SOP check:
+
+```python
+from rheidos.houdini.sop import CtxInputGeo, SopCall
+
+provider = CtxInputGeo(0)
+module = graph.projector.setup(ctx)
+bound_geo = provider.resolve(module, verb_input=1, call=SopCall())
+
+assert bound_geo is ctx.input_geo(0)
+assert bound_geo.sopNode() is not None
+assert bound_geo.isReadOnly()
+assert bound_geo.freeze().sopNode() is None
+```
+
+For performance validation, time repeated `project_points(...)` calls against an
+intentional copy path such as `hou.Geometry(ctx.input_geo(0))` or
+`ctx.input_geo(0).freeze()` in the loop.
+
 ## Log simulation scalars to TensorBoard
 
 Goal:

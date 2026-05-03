@@ -211,6 +211,53 @@ Exports:
 - `prim_attrib(name, index=0) -> str`
 - `point_group_mask(name, index=0) -> str`
 - `point_group_indices(name, index=0) -> str`
+- `SopVerbRunner`, `SopFunctionModule`, `SopCall`
+- `CallGeo`, `CtxInputGeo`, `StaticGeo`
+- `points_np_to_geo`, `tri_mesh_np_to_geo`, `point_attrib_to_numpy`
+- `SopVerbUnavailableError`, `SopFunctionSetupError`
+
+## Module: `rheidos.houdini.sop`
+
+Composable SOP verb helpers for using Houdini SOP nodes as function-like
+modules.
+
+### SopVerbRunner
+
+- `SopVerbRunner(node_or_path)`
+- `execute(inputs, *, parms=None, time=None, add_time_dep=False) -> hou.Geometry`
+
+The runner resolves a SOP node, requires a verb representation, reloads node
+parameters for each execution, applies optional parameter overrides, and writes
+the result into a fresh `hou.Geometry`.
+
+### SopFunctionModule
+
+Subclass `ModuleBase` when a SOP verb should be part of the compute module
+graph.
+
+- class attrs: `SOP_NODE_PATH`, `SOP_INPUTS`
+- `setup(ctx) -> self`
+- `configure(*, node_path=None, sop_inputs=None, default_parms=None, clear_session_cache=True) -> None`
+- `run(*args, parms=None, time=None, add_time_dep=False, **kwargs) -> Any`
+- hooks: `preprocess(call)`, `sop_inputs(call)`, `postprocess(out_geo, meta)`
+
+`setup(ctx)` attaches the current Houdini cook context. Context-backed providers
+such as `CtxInputGeo` resolve geometry from that context, while call-backed
+providers such as `CallGeo` resolve geometry passed to `run(...)`.
+
+### Providers
+
+- `CallGeo(slot)`: resolves `run(..., slot=geo)`.
+- `CtxInputGeo(index, freeze=False, cache="cook")`: resolves `ctx.input_geo(index)`.
+  `freeze=False` preserves the live input reference. `cache` may be `"none"`,
+  `"cook"`, or `"session"`.
+- `StaticGeo(geo)`: returns a pre-owned geometry object.
+
+### Geometry helpers
+
+- `points_np_to_geo(points, *, dtype=np.float64) -> hou.Geometry`
+- `tri_mesh_np_to_geo(vertices, faces, *, dtype=np.float64) -> hou.Geometry`
+- `point_attrib_to_numpy(geo, name, *, dtype, components=None) -> np.ndarray`
 
 ## Module: `rheidos.houdini.debug`
 

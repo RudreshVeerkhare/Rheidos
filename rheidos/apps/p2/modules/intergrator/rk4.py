@@ -31,10 +31,9 @@ class RK4IntegratorModule(ModuleBase):
         )
         self.timestep = self._validate_timestep(timestep)
         self.substeps = self._validate_substeps(substeps)
-        self.project_to_faces = True
 
         if y_dot is not None:
-            self.configure(y_dot=y_dot, project_to_faces=True)
+            self.configure(y_dot=y_dot)
 
     def _validate_y_dot(
         self,
@@ -64,9 +63,7 @@ class RK4IntegratorModule(ModuleBase):
         *,
         y_dot: Callable[[np.ndarray, float], np.ndarray] | None = None,
         timestep: float | None = None,
-        project_to_faces: bool = True,
     ) -> None:
-        self.project_to_faces = project_to_faces
         if y_dot is not None:
             self.y_dot = self._validate_y_dot(y_dot)
         if timestep is not None:

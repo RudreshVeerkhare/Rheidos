@@ -33,6 +33,19 @@ from .runtime import (
     run_solver,
     session,
 )
+from .sop import (
+    CallGeo,
+    CtxInputGeo,
+    SopCall,
+    SopFunctionModule,
+    SopFunctionSetupError,
+    SopVerbRunner,
+    SopVerbUnavailableError,
+    StaticGeo,
+    point_attrib_to_numpy,
+    points_np_to_geo,
+    tri_mesh_np_to_geo,
+)
 
 __all__ = [
     "AccessMode",
@@ -48,6 +61,8 @@ __all__ = [
     "SIM_SUBSTEP",
     "SIM_TIME",
     "SessionKey",
+    "CallGeo",
+    "CtxInputGeo",
     "WorldSession",
     "build_cook_context",
     "get_runtime",
@@ -64,4 +79,13 @@ __all__ = [
     "run_cook",
     "run_solver",
     "session",
+    "SopCall",
+    "SopFunctionModule",
+    "SopFunctionSetupError",
+    "SopVerbRunner",
+    "SopVerbUnavailableError",
+    "StaticGeo",
+    "point_attrib_to_numpy",
+    "points_np_to_geo",
+    "tri_mesh_np_to_geo",
 ]
