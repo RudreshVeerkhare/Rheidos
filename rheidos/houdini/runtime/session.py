@@ -336,6 +336,7 @@ def _forced_profiler_config(*, profile_logdir: Optional[str] = None) -> SimpleNa
 def _call_with_forced_profiler(
     fn: Callable[..., Any],
     ctx: Any,
+    entry_kwargs: Dict[str, Any],
     *,
     node: "hou.Node",
     session_obj: "WorldSession",
@@ -360,7 +361,7 @@ def _call_with_forced_profiler(
     try:
         if probe is not None:
             probe.clear()
-        result = fn(ctx)
+        result = fn(ctx, **entry_kwargs)
         if probe is not None:
             probe.sync()
             k_ms = probe.kernel_total_ms()
@@ -371,6 +372,40 @@ def _call_with_forced_profiler(
         session_obj.profiler.set_taichi_sample(False)
 
 
+def _session_signature_error(fn: Callable[..., Any]) -> TypeError:
+    return TypeError(
+        f"@session target '{fn.__qualname__}' must be defined as "
+        f"'def {fn.__name__}(ctx, optional=value)'"
+    )
+
+
+def _session_optional_param_names(fn: Callable[..., Any]) -> set[str]:
+    sig = inspect.signature(fn)
+    params = list(sig.parameters.values())
+    if (
+        len(params) < 1
+        or params[0].name != "ctx"
+        or params[0].kind not in (
+            inspect.Parameter.POSITIONAL_ONLY,
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+        )
+    ):
+        raise _session_signature_error(fn)
+
+    optional_param_names: set[str] = set()
+    for param in params[1:]:
+        if param.kind in (
+            inspect.Parameter.VAR_POSITIONAL,
+            inspect.Parameter.VAR_KEYWORD,
+            inspect.Parameter.POSITIONAL_ONLY,
+        ):
+            raise _session_signature_error(fn)
+        if param.default is inspect.Parameter.empty:
+            raise _session_signature_error(fn)
+        optional_param_names.add(param.name)
+    return optional_param_names
+
+
 def _decorate_session_entrypoint(
     fn: Callable[..., Any],
     *,
@@ -378,26 +413,24 @@ def _decorate_session_entrypoint(
     debugger: bool,
     profiler: bool,
 ) -> Callable[..., Any]:
-    sig = inspect.signature(fn)
-    params = list(sig.parameters.values())
-    if (
-        len(params) != 1
-        or params[0].name != "ctx"
-        or params[0].kind not in (
-            inspect.Parameter.POSITIONAL_ONLY,
-            inspect.Parameter.POSITIONAL_OR_KEYWORD,
-        )
-    ):
-        raise TypeError(
-            f"@session target '{fn.__qualname__}' must be defined as 'def {fn.__name__}(ctx)'"
-        )
+    optional_param_names = _session_optional_param_names(fn)
 
     @wraps(fn)
     def wrapped(*args: Any, **kwargs: Any) -> Any:
-        if args or kwargs:
+        if args:
             raise TypeError(
-                f"@session target '{fn.__qualname__}' injects 'ctx'; do not pass arguments explicitly"
+                f"@session target '{fn.__qualname__}' injects 'ctx'; "
+                "do not pass arguments explicitly; only keyword entrypoint "
+                "parameters are supported"
             )
+        unknown_kwargs = set(kwargs) - optional_param_names
+        if unknown_kwargs:
+            names = ", ".join(sorted(unknown_kwargs))
+            raise TypeError(
+                f"@session target '{fn.__qualname__}' got unexpected keyword "
+                f"argument(s): {names}"
+            )
+        entry_kwargs = dict(kwargs)
 
         node = _resolve_entrypoint_node(fn.__qualname__, key=key)
         session_obj = _prepare_entrypoint_session(node, key=key)
@@ -420,11 +453,12 @@ def _decorate_session_entrypoint(
                 return _call_with_forced_profiler(
                     fn,
                     ctx,
+                    entry_kwargs,
                     node=node,
                     session_obj=session_obj,
                     profile_logdir=profile_logdir,
                 )
-            return fn(ctx)
+            return fn(ctx, **entry_kwargs)
 
     return wrapped
 

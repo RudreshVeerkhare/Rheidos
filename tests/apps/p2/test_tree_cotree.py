@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from rheidos.apps.p2.modules.tree_cotree.tree_cotree_module import TreeCotreeModule
+from rheidos.apps.p2.modules.higher_genus.tree_cotree import TreeCotreeModule
 from rheidos.apps.p2.modules.surface_mesh.surface_mesh_module import SurfaceMeshModule
 from rheidos.compute import World
 

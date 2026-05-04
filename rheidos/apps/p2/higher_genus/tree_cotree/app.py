@@ -2,7 +2,7 @@ import numpy as np
 
 from rheidos.apps.p2.modules.p1_space.dec import DEC
 from rheidos.apps.p2.modules.surface_mesh.surface_mesh_module import SurfaceMeshModule
-from rheidos.apps.p2.modules.tree_cotree.tree_cotree_module import TreeCotreeModule
+from rheidos.apps.p2.modules.higher_genus.tree_cotree import TreeCotreeModule
 from rheidos.compute.world import ModuleBase, World
 from rheidos.houdini.runtime.cook_context import CookContext
 

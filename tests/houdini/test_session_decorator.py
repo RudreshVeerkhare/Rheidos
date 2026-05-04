@@ -240,6 +240,18 @@ def test_session_decorator_validates_key_and_signature(fake_hou) -> None:
     with pytest.raises(TypeError, match="must be defined as"):
         session_mod.session(_extra)
 
+    def _varargs(ctx, *args):
+        return ctx, args
+
+    with pytest.raises(TypeError, match="must be defined as"):
+        session_mod.session(_varargs)
+
+    def _varkwargs(ctx, **kwargs):
+        return ctx, kwargs
+
+    with pytest.raises(TypeError, match="must be defined as"):
+        session_mod.session(_varkwargs)
+
 
 def test_session_decorator_rejects_explicit_ctx_argument(fake_hou) -> None:
     @session_mod.session
@@ -248,6 +260,27 @@ def test_session_decorator_rejects_explicit_ctx_argument(fake_hou) -> None:
 
     with pytest.raises(TypeError, match="do not pass arguments explicitly"):
         entry(object())
+
+
+def test_session_decorator_allows_optional_keyword_parameters(fake_hou) -> None:
+    @session_mod.session
+    def entry(ctx, basis_id=0, *, scale=1.0):
+        return ctx, basis_id, scale
+
+    default_ctx, default_basis_id, default_scale = entry()
+    explicit_ctx, explicit_basis_id, explicit_scale = entry(basis_id=2, scale=3.5)
+
+    assert default_ctx.session is session_mod.get_runtime().get_or_create_session(
+        fake_hou._pwd_node
+    )
+    assert default_basis_id == 0
+    assert default_scale == 1.0
+    assert explicit_ctx.session is default_ctx.session
+    assert explicit_basis_id == 2
+    assert explicit_scale == 3.5
+
+    with pytest.raises(TypeError, match="unexpected keyword"):
+        entry(unknown=1)
 
 
 def test_named_session_warns_once_for_mixed_owners(fake_hou) -> None:
@@ -432,6 +465,21 @@ def test_profiler_true_forces_default_profiler_config(fake_hou, monkeypatch) -> 
     assert config.profile_taichi_every == 30
     assert config.profile_taichi_sync is True
     assert config.profile_taichi_scoped_once is False
+
+
+def test_profiler_true_forwards_entrypoint_kwargs(fake_hou, monkeypatch) -> None:
+    monkeypatch.setattr(driver_mod, "_configure_profiler", lambda *args, **kwargs: None)
+
+    @session_mod.session(profiler=True)
+    def entry(ctx, basis_id=0):
+        return ctx.session, basis_id
+
+    session_obj, basis_id = entry(basis_id=7)
+
+    assert session_obj is session_mod.get_runtime().get_or_create_session(
+        fake_hou._pwd_node
+    )
+    assert basis_id == 7
 
 
 def test_named_session_reset_and_nuke_all_cover_shared_keys(fake_hou) -> None:
