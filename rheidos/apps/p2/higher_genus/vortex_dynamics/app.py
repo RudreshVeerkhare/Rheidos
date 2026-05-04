@@ -1,3 +1,5 @@
+from typing import Optional
+
 import numpy as np
 
 from rheidos.apps.p2._io import read_probe_input
@@ -8,6 +10,7 @@ from rheidos.apps.p2.modules.higher_genus.dual_harmonic_field import (
 from rheidos.apps.p2.modules.higher_genus.harmonic_basis import HarmonicBasis
 from rheidos.apps.p2.modules.higher_genus.tree_cotree import TreeCotreeModule
 from rheidos.apps.p2.modules.p1_space.dec import DEC
+from rheidos.apps.p2.modules.p1_space.probe_utils import probe_arrays
 from rheidos.apps.p2.modules.p1_space.p1_stream_function import P1StreamFunction
 from rheidos.apps.p2.modules.p1_space.p1_velocity import P1VelocityFieldModule
 from rheidos.apps.p2.modules.p1_space.whitney_1form import Whitney1FormInterpolator
@@ -20,6 +23,109 @@ from ..io import load_mesh_input, load_point_vortex_input
 from .ray_sop_module import RaySopModule
 
 RAY_SOP_NODE_PATH = "/obj/geo1/solver1/d/s/ray1"
+
+
+class AbelJacobiModule(ModuleBase):
+    def __init__(
+        self,
+        world: World,
+        *,
+        mesh: SurfaceMeshModule,
+        point_vortex: PointVortexModule,
+        dual_harmonic_field: DualHarmonicFieldModule,
+        scope: str = "",
+    ) -> None:
+        super().__init__(world, scope=scope)
+
+        self.mesh = mesh
+        self.point_vortex = point_vortex
+        self.dual_harmonic_field = dual_harmonic_field
+
+    def _positions_from_probes(self, probes, *, name: str) -> np.ndarray:
+        faceids, bary = probe_arrays(probes)
+        if (
+            bary.ndim != 2
+            or bary.shape[1] != 3
+            or faceids.shape != (bary.shape[0],)
+        ):
+            raise ValueError(
+                f"{name} barycentric coordinates must have shape (N,3), "
+                f"got {bary.shape}"
+            )
+
+        face_vertices = self.mesh.F_verts.get()[faceids]
+        vertex_positions = self.mesh.V_pos.get()[face_vertices]
+        return np.einsum("ni,nij->nj", bary, vertex_positions)
+
+    @staticmethod
+    def _validate_positions(
+        positions: Optional[np.ndarray],
+        *,
+        count: int,
+        name: str,
+    ) -> Optional[np.ndarray]:
+        if positions is None:
+            return None
+
+        positions = np.asarray(positions, dtype=np.float64)
+        if positions.shape != (count, 3):
+            raise ValueError(
+                f"{name} must have shape ({count},3), got {positions.shape}"
+            )
+        return positions
+
+    def delta_aj(
+        self,
+        start_probes,
+        end_probes,
+        *,
+        pos0: Optional[np.ndarray] = None,
+        pos1: Optional[np.ndarray] = None,
+    ) -> np.ndarray:
+        """Return per-vortex Abel-Jacobi increments between consecutive samples."""
+        start_faceids, start_bary = probe_arrays(start_probes)
+        end_faceids, end_bary = probe_arrays(end_probes)
+
+        if (
+            start_bary.ndim != 2
+            or start_bary.shape[1] != 3
+            or start_faceids.shape != (start_bary.shape[0],)
+        ):
+            raise ValueError(
+                "start_probes barycentric coordinates must have shape (N,3), "
+                f"got {start_bary.shape}"
+            )
+        if (
+            end_bary.ndim != 2
+            or end_bary.shape[1] != 3
+            or end_faceids.shape != (end_bary.shape[0],)
+        ):
+            raise ValueError(
+                "end_probes barycentric coordinates must have shape (N,3), "
+                f"got {end_bary.shape}"
+            )
+        if start_faceids.shape != end_faceids.shape:
+            raise ValueError(
+                "start_probes and end_probes must contain the same number of "
+                f"points, got {start_faceids.shape[0]} and {end_faceids.shape[0]}"
+            )
+
+        count = int(start_faceids.shape[0])
+        p0 = self._validate_positions(pos0, count=count, name="pos0")
+        p1 = self._validate_positions(pos1, count=count, name="pos1")
+        if p0 is None:
+            p0 = self._positions_from_probes((start_faceids, start_bary), name="pos0")
+        if p1 is None:
+            p1 = self._positions_from_probes((end_faceids, end_bary), name="pos1")
+
+        xi0 = self.dual_harmonic_field.interpolate(
+            (start_faceids, start_bary), field="xi"
+        )
+        xi1 = self.dual_harmonic_field.interpolate((end_faceids, end_bary), field="xi")
+
+        # Harmonic fields are basis-major (K,N,3), while DeltaAJ is returned
+        # vortex-major (N,K) so rows align with point-vortex arrays.
+        return 0.5 * np.einsum("kni,ni->nk", xi0 + xi1, p1 - p0)
 
 
 class App(ModuleBase):
@@ -60,6 +166,14 @@ class App(ModuleBase):
             DualHarmonicFieldModule,
             mesh=self.mesh,
             harmonic_basis=self.harmonic_basis,
+        )
+
+        # Abel-Jacobi Map
+        self.abel_jacobi = self.require(
+            AbelJacobiModule,
+            mesh=self.mesh,
+            point_vortex=self.point_vortex,
+            dual_harmonic_field=self.dual_harmonic_field,
         )
 
         # Advection

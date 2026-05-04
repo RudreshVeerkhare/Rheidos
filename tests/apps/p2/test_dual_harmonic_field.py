@@ -6,13 +6,14 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from rheidos.apps.p2.higher_genus.vortex_dynamics.app import App
+from rheidos.apps.p2.higher_genus.vortex_dynamics.app import AbelJacobiModule, App
 from rheidos.apps.p2.modules.higher_genus.dual_harmonic_field import (
     DualHarmonicFieldModule,
 )
 from rheidos.apps.p2.modules.higher_genus.harmonic_basis import HarmonicBasis
 from rheidos.apps.p2.modules.higher_genus.tree_cotree import TreeCotreeModule
 from rheidos.apps.p2.modules.p1_space.dec import DEC
+from rheidos.apps.p2.modules.point_vortex.point_vortex_module import PointVortexModule
 from rheidos.apps.p2.modules.surface_mesh.surface_mesh_module import SurfaceMeshModule
 from rheidos.compute import World
 
@@ -66,11 +67,36 @@ def _tetrahedron_mesh() -> tuple[np.ndarray, np.ndarray]:
     return vertices, faces
 
 
+def _square_disk_mesh() -> tuple[np.ndarray, np.ndarray]:
+    vertices = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [0.0, 1.0, 0.0],
+        ],
+        dtype=np.float64,
+    )
+    faces = np.array([[0, 1, 2], [0, 2, 3]], dtype=np.int32)
+    return vertices, faces
+
+
+class _FakeDualHarmonicField:
+    def __init__(self, xi_face: np.ndarray) -> None:
+        self.xi_face = np.asarray(xi_face, dtype=np.float64)
+
+    def interpolate(self, probes, field: str = "xi") -> np.ndarray:
+        assert field == "xi"
+        faceids, _bary = probes
+        return self.xi_face[:, faceids, :]
+
+
 def _build_dual_module(vertices: np.ndarray, faces: np.ndarray) -> SimpleNamespace:
     world = World()
     mesh = world.require(SurfaceMeshModule)
     dec = world.require(DEC, mesh=mesh)
     tree_cotree = world.require(TreeCotreeModule, mesh=mesh)
+    point_vortex = world.require(PointVortexModule)
     harmonic_basis = world.require(
         HarmonicBasis,
         dec=dec,
@@ -81,14 +107,22 @@ def _build_dual_module(vertices: np.ndarray, faces: np.ndarray) -> SimpleNamespa
         mesh=mesh,
         harmonic_basis=harmonic_basis,
     )
+    abel_jacobi = world.require(
+        AbelJacobiModule,
+        mesh=mesh,
+        point_vortex=point_vortex,
+        dual_harmonic_field=dual,
+    )
     mesh.set_mesh(vertices, faces)
     return SimpleNamespace(
         world=world,
         mesh=mesh,
         dec=dec,
         tree_cotree=tree_cotree,
+        point_vortex=point_vortex,
         harmonic_basis=harmonic_basis,
         dual=dual,
+        abel_jacobi=abel_jacobi,
     )
 
 
@@ -112,6 +146,31 @@ def _max_face_edge_integral_error(
     return np.max(np.abs(got - target), axis=(1, 2))
 
 
+def _probe_positions(
+    mesh: SurfaceMeshModule,
+    faceids: np.ndarray,
+    bary: np.ndarray,
+) -> np.ndarray:
+    face_vertices = mesh.F_verts.get()[faceids]
+    vertex_positions = mesh.V_pos.get()[face_vertices]
+    return np.einsum("ni,nij->nj", bary, vertex_positions)
+
+
+def _expected_trapezoid_delta_aj(
+    mesh: SurfaceMeshModule,
+    dual: DualHarmonicFieldModule,
+    start_probes: tuple[np.ndarray, np.ndarray],
+    end_probes: tuple[np.ndarray, np.ndarray],
+) -> np.ndarray:
+    start_faceids, start_bary = start_probes
+    end_faceids, end_bary = end_probes
+    p0 = _probe_positions(mesh, start_faceids, start_bary)
+    p1 = _probe_positions(mesh, end_faceids, end_bary)
+    xi0 = dual.interpolate(start_probes, field="xi")
+    xi1 = dual.interpolate(end_probes, field="xi")
+    return 0.5 * np.einsum("kni,ni->nk", xi0 + xi1, p1 - p0)
+
+
 @pytest.fixture(scope="module")
 def torus_dual_module() -> SimpleNamespace:
     vertices, faces = _load_tri_obj(TORUS_OBJ)
@@ -125,6 +184,9 @@ def test_vortex_dynamics_app_wires_dual_harmonic_field() -> None:
 
     assert mods.dual_harmonic_field.mesh is mods.mesh
     assert mods.dual_harmonic_field.harmonic_basis is mods.harmonic_basis
+    assert mods.abel_jacobi.mesh is mods.mesh
+    assert mods.abel_jacobi.point_vortex is mods.point_vortex
+    assert mods.abel_jacobi.dual_harmonic_field is mods.dual_harmonic_field
 
 
 def test_dual_harmonic_field_torus_obj_builds_dual_basis(
@@ -201,6 +263,147 @@ def test_dual_harmonic_field_utility_methods(
         zeta_face[:, faceids, :],
     )
     np.testing.assert_allclose(got_velocity, expected_velocity, atol=1e-12)
+
+
+def test_abel_jacobi_delta_aj_same_face_uses_trapezoid_rule(
+    torus_dual_module: SimpleNamespace,
+) -> None:
+    mesh = torus_dual_module.mesh
+    dual = torus_dual_module.dual
+    abel_jacobi = torus_dual_module.abel_jacobi
+    faceids = np.array([0, 17], dtype=np.int32)
+    bary0 = np.array([[0.2, 0.3, 0.5], [0.6, 0.1, 0.3]], dtype=np.float64)
+    bary1 = np.array([[0.3, 0.2, 0.5], [0.4, 0.4, 0.2]], dtype=np.float64)
+
+    got = abel_jacobi.delta_aj((faceids, bary0), (faceids, bary1))
+    expected = _expected_trapezoid_delta_aj(
+        mesh,
+        dual,
+        (faceids, bary0),
+        (faceids, bary1),
+    )
+
+    np.testing.assert_allclose(got, expected, atol=1e-12)
+
+
+def test_abel_jacobi_delta_aj_allows_different_endpoint_faces(
+    torus_dual_module: SimpleNamespace,
+) -> None:
+    mesh = torus_dual_module.mesh
+    dual = torus_dual_module.dual
+    abel_jacobi = torus_dual_module.abel_jacobi
+    faceids0 = np.array([0, 17], dtype=np.int32)
+    faceids1 = np.array([1, 23], dtype=np.int32)
+    bary0 = np.array([[0.2, 0.3, 0.5], [0.6, 0.1, 0.3]], dtype=np.float64)
+    bary1 = np.array([[0.5, 0.2, 0.3], [0.2, 0.5, 0.3]], dtype=np.float64)
+
+    got = abel_jacobi.delta_aj((faceids0, bary0), (faceids1, bary1))
+    expected = _expected_trapezoid_delta_aj(
+        mesh,
+        dual,
+        (faceids0, bary0),
+        (faceids1, bary1),
+    )
+
+    np.testing.assert_allclose(got, expected, atol=1e-12)
+
+
+def test_abel_jacobi_delta_aj_accepts_explicit_positions(
+    torus_dual_module: SimpleNamespace,
+) -> None:
+    mesh = torus_dual_module.mesh
+    dual = torus_dual_module.dual
+    abel_jacobi = torus_dual_module.abel_jacobi
+    faceids0 = np.array([0, 17], dtype=np.int32)
+    faceids1 = np.array([1, 23], dtype=np.int32)
+    bary0 = np.array([[0.2, 0.3, 0.5], [0.6, 0.1, 0.3]], dtype=np.float64)
+    bary1 = np.array([[0.5, 0.2, 0.3], [0.2, 0.5, 0.3]], dtype=np.float64)
+    pos0 = _probe_positions(mesh, faceids0, bary0)
+    pos1 = _probe_positions(mesh, faceids1, bary1)
+
+    got = abel_jacobi.delta_aj(
+        (faceids0, bary0),
+        (faceids1, bary1),
+        pos0=pos0,
+        pos1=pos1,
+    )
+    expected = 0.5 * np.einsum(
+        "kni,ni->nk",
+        dual.interpolate((faceids0, bary0), field="xi")
+        + dual.interpolate((faceids1, bary1), field="xi"),
+        pos1 - pos0,
+    )
+
+    np.testing.assert_allclose(got, expected, atol=1e-12)
+
+
+def test_abel_jacobi_delta_aj_empty_basis_returns_vortex_rows() -> None:
+    vertices, faces = _tetrahedron_mesh()
+    mods = _build_dual_module(vertices, faces)
+    faceids = np.array([0, 1], dtype=np.int32)
+    bary0 = np.array([[0.2, 0.3, 0.5], [0.6, 0.1, 0.3]], dtype=np.float64)
+    bary1 = np.array([[0.3, 0.2, 0.5], [0.4, 0.4, 0.2]], dtype=np.float64)
+
+    got = mods.abel_jacobi.delta_aj((faceids, bary0), (faceids, bary1))
+
+    np.testing.assert_array_equal(got, np.empty((2, 0), dtype=np.float64))
+
+
+def test_abel_jacobi_delta_aj_uses_dynamic_generator_count() -> None:
+    vertices, faces = _square_disk_mesh()
+    world = World()
+    mesh = world.require(SurfaceMeshModule)
+    point_vortex = world.require(PointVortexModule)
+    xi_face = np.array(
+        [
+            [[1.0, 0.0, 0.0], [0.5, 0.0, 0.0]],
+            [[0.0, 2.0, 0.0], [0.0, 0.5, 0.0]],
+            [[1.0, 1.0, 0.0], [0.25, 0.75, 0.0]],
+            [[-0.5, 0.0, 0.0], [0.0, -1.0, 0.0]],
+        ],
+        dtype=np.float64,
+    )
+    dual = _FakeDualHarmonicField(xi_face)
+    abel_jacobi = world.require(
+        AbelJacobiModule,
+        mesh=mesh,
+        point_vortex=point_vortex,
+        dual_harmonic_field=dual,
+    )
+    mesh.set_mesh(vertices, faces)
+    faceids0 = np.array([0, 1], dtype=np.int32)
+    faceids1 = np.array([1, 0], dtype=np.int32)
+    bary0 = np.array([[0.2, 0.3, 0.5], [0.6, 0.1, 0.3]], dtype=np.float64)
+    bary1 = np.array([[0.4, 0.2, 0.4], [0.2, 0.6, 0.2]], dtype=np.float64)
+    pos0 = _probe_positions(mesh, faceids0, bary0)
+    pos1 = _probe_positions(mesh, faceids1, bary1)
+
+    got = abel_jacobi.delta_aj((faceids0, bary0), (faceids1, bary1))
+    expected = 0.5 * np.einsum(
+        "kni,ni->nk",
+        xi_face[:, faceids0, :] + xi_face[:, faceids1, :],
+        pos1 - pos0,
+    )
+
+    assert got.shape == (2, 4)
+    np.testing.assert_allclose(got, expected, atol=1e-12)
+
+
+def test_abel_jacobi_delta_aj_validates_input_shapes(
+    torus_dual_module: SimpleNamespace,
+) -> None:
+    abel_jacobi = torus_dual_module.abel_jacobi
+    faceids = np.array([0, 17], dtype=np.int32)
+    bary = np.array([[0.2, 0.3, 0.5], [0.6, 0.1, 0.3]], dtype=np.float64)
+
+    with pytest.raises(ValueError, match="same number"):
+        abel_jacobi.delta_aj(
+            (faceids, bary),
+            (np.array([0], dtype=np.int32), bary[:1]),
+        )
+
+    with pytest.raises(ValueError, match="pos0"):
+        abel_jacobi.delta_aj((faceids, bary), (faceids, bary), pos0=np.zeros((1, 3)))
 
 
 def test_dual_harmonic_field_interpolate_uses_probe_convention(
