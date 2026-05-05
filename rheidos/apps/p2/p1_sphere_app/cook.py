@@ -38,7 +38,7 @@ def project_points_to_reference_surface_node(ctx: CookContext) -> None:
 @session(SESSION_NAME, debugger=True)
 def advection_rk4(ctx: CookContext) -> None:
     copy_input_to_output(ctx, 0)
-    _app().rk4_advect(ctx, dt=0.0001, project_to_faces=True)
+    _app().rk4_advect(ctx, dt=0.05, project_to_faces=True)
 
 
 # Eularian Mesh export

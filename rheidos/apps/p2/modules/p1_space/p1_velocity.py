@@ -12,6 +12,62 @@ from rheidos.compute.wiring import ProducerContext, producer
 from .probe_utils import probe_arrays
 
 
+def area_weighted_face_vectors_to_vertices(
+    vel_per_face: np.ndarray,
+    face_area: np.ndarray,
+    face_verts: np.ndarray,
+    n_vertices: int,
+) -> np.ndarray:
+    """Average facewise tangent vectors to vertices using incident face areas."""
+    vel_per_face = np.asarray(vel_per_face, dtype=np.float64)
+    face_area = np.asarray(face_area, dtype=np.float64)
+    face_verts = np.asarray(face_verts)
+    n_vertices = int(n_vertices)
+
+    if vel_per_face.ndim != 2 or vel_per_face.shape[1] != 3:
+        raise ValueError(f"vel_per_face must have shape (nF,3), got {vel_per_face.shape}")
+    if face_area.shape != (vel_per_face.shape[0],):
+        raise ValueError(
+            "face_area must have shape "
+            f"({vel_per_face.shape[0]},), got {face_area.shape}"
+        )
+    if face_verts.shape != (vel_per_face.shape[0], 3):
+        raise ValueError(
+            "face_verts must have shape "
+            f"({vel_per_face.shape[0]},3), got {face_verts.shape}"
+        )
+    if n_vertices < 0:
+        raise ValueError("n_vertices must be non-negative")
+
+    vertex_velocity = np.zeros((n_vertices, 3), dtype=np.float64)
+    if vel_per_face.shape[0] == 0 or n_vertices == 0:
+        return vertex_velocity
+
+    flat_verts = face_verts.reshape(-1)
+    flat_area = np.repeat(face_area, 3)
+    weighted_face_velocity = vel_per_face * face_area[:, None]
+    vertex_area = np.bincount(
+        flat_verts,
+        weights=flat_area,
+        minlength=n_vertices,
+    )
+
+    for axis in range(3):
+        vertex_velocity[:, axis] = np.bincount(
+            flat_verts,
+            weights=np.repeat(weighted_face_velocity[:, axis], 3),
+            minlength=n_vertices,
+        )
+
+    np.divide(
+        vertex_velocity,
+        vertex_area[:, None],
+        out=vertex_velocity,
+        where=vertex_area[:, None] > 0,
+    )
+    return vertex_velocity
+
+
 class P1VelocityFieldModule(ModuleBase):
     NAME = "P1VelocityFieldModule"
 
@@ -54,7 +110,7 @@ class P1VelocityFieldModule(ModuleBase):
         self.bind_producers()
 
     @producer(
-        inputs=("vel_per_face", "mesh.F_area", "mesh.F_verts"),
+        inputs=("vel_per_face", "mesh.F_area", "mesh.F_verts", "mesh.V_pos"),
         outputs=("vel_per_vertex",),
     )
     def per_vertex_vel_calculate(self, ctx: ProducerContext):
@@ -65,40 +121,14 @@ class P1VelocityFieldModule(ModuleBase):
         f_area = self.mesh.F_area.get()
         f_verts = self.mesh.F_verts.get()
 
-        ctx.ensure_outputs()
-        v_vel = self.vel_per_vertex.peek()
-
-        face_contrib = f_vel
-        flat_verts = f_verts.reshape(-1)
-        flat_area = np.repeat(f_area, 3)
-        weighted_face_contrib = face_contrib * f_area[:, None]
-        vertex_area = np.bincount(
-            flat_verts,
-            weights=flat_area,
-            minlength=v_vel.shape[0],
+        ctx.commit(
+            vel_per_vertex=area_weighted_face_vectors_to_vertices(
+                f_vel,
+                f_area,
+                f_verts,
+                self.mesh.V_pos.get().shape[0],
+            )
         )
-
-        # Area-weighted mean of per-face contributions at each vertex.
-        v_vel[:, 0] = np.bincount(
-            flat_verts,
-            weights=np.repeat(weighted_face_contrib[:, 0], 3),
-            minlength=v_vel.shape[0],
-        )
-        v_vel[:, 1] = np.bincount(
-            flat_verts,
-            weights=np.repeat(weighted_face_contrib[:, 1], 3),
-            minlength=v_vel.shape[0],
-        )
-        v_vel[:, 2] = np.bincount(
-            flat_verts,
-            weights=np.repeat(weighted_face_contrib[:, 2], 3),
-            minlength=v_vel.shape[0],
-        )
-        np.divide(
-            v_vel, vertex_area[:, None], out=v_vel, where=vertex_area[:, None] > 0
-        )
-
-        ctx.commit(vel_per_vertex=v_vel)
 
     @producer(
         inputs=("mesh.F_verts", "mesh.F_normal", "mesh.grad_bary", "stream.psi"),

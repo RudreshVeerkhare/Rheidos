@@ -180,6 +180,10 @@ def setup_coexact_stream_function(ctx: CookContext):
     load_point_vortex_input(ctx, mods.point_vortex, index=1)
     mods.coexact_stream_function.set_homo_dirichlet_boundary()
 
+    is_closed_surface = mods.mesh.boundary_edge_count.get() == 0
+    if is_closed_surface:
+        mods.coexact_stream_function.distribute_excess_vorticity = True
+
 
 def interpolate_coexact_stream_function(ctx: CookContext) -> None:
     mods = ctx.world().require(App)

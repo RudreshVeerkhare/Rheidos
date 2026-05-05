@@ -184,6 +184,11 @@ def test_vortex_dynamics_app_wires_dual_harmonic_field() -> None:
 
     assert mods.dual_harmonic_field.mesh is mods.mesh
     assert mods.dual_harmonic_field.harmonic_basis is mods.harmonic_basis
+    assert mods.harmonic_velocity.mesh is mods.mesh
+    assert mods.harmonic_velocity.dual_harmonic_field is mods.dual_harmonic_field
+    assert mods.combined_velocity.mesh is mods.mesh
+    assert mods.combined_velocity.coexact_velocity is mods.stream_velocity
+    assert mods.combined_velocity.harmonic_velocity is mods.harmonic_velocity
     assert mods.abel_jacobi.mesh is mods.mesh
     assert mods.abel_jacobi.point_vortex is mods.point_vortex
     assert mods.abel_jacobi.dual_harmonic_field is mods.dual_harmonic_field
