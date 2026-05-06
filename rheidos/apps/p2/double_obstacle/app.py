@@ -1,6 +1,13 @@
 import numpy as np
 
-from rheidos.apps.p2._io import load_mesh_input, load_point_vortex_input
+from rheidos.apps.p2._io import (
+    load_mesh_input,
+    load_point_vortex_input,
+    read_probe_input,
+)
+from rheidos.apps.p2.double_obstacle.combined_stream_function import (
+    CombinedStreamFunction,
+)
 from rheidos.apps.p2.double_obstacle.ray_sop_module import RaySopModule
 from rheidos.apps.p2.modules.intergrator.rk4 import RK4IntegratorModule
 from rheidos.apps.p2.modules.p1_space.dec import DEC
@@ -11,11 +18,12 @@ from rheidos.apps.p2.modules.surface_mesh.surface_mesh_module import SurfaceMesh
 from rheidos.compute.world import ModuleBase, World
 from rheidos.houdini.runtime.cook_context import CookContext
 
+from .harmonic_basis import HarmonicBasisFieldModule, HarmonicBasisModule
+
 RAY_SOP_NODE_PATH = "/obj/geo1/solver1/d/s/ray1"
 
 
 class App(ModuleBase):
-
     def __init__(self, world: World, *, scope: str = "") -> None:
         super().__init__(world, scope=scope)
 
@@ -41,6 +49,36 @@ class App(ModuleBase):
             stream=self.stream_function,
         )
 
+        # Harmonic Part
+        self.harmonic_basis_potential = self.require(
+            HarmonicBasisModule,
+            mesh=self.mesh,
+            dec=self.dec,
+            harmonic_dim=2,
+        )
+        self.harmonic_basis_field = self.require(
+            HarmonicBasisFieldModule,
+            mesh=self.mesh,
+            dec=self.dec,
+            harmonic_basis=self.harmonic_basis_potential,
+        )
+
+        # Combined Stream function
+        self.combined_stream_function = self.require(
+            CombinedStreamFunction,
+            point_vortex=self.point_vortex,
+            stream=self.stream_function,
+            harmonic_basis_potential=self.harmonic_basis_potential,
+        )
+        self.velocity = self.require(
+            P1VelocityFieldModule,
+            child=True,
+            child_name="combined_velocity",
+            mesh=self.mesh,
+            dec=self.dec,
+            stream=self.combined_stream_function,
+        )
+
         # Advection
         self.rk4 = self.require(RK4IntegratorModule)
         self.surface_projector = self.require(
@@ -51,10 +89,12 @@ class App(ModuleBase):
         )
 
     @staticmethod
-    def rk4_step(ctx: CookContext):
+    def rk4_step(ctx: CookContext, no_harmonic):
         mods = ctx.world().require(App)
         mods.surface_projector.configure(node_path=RAY_SOP_NODE_PATH)
         mods.surface_projector.setup(ctx)
+
+        velocity_mod = mods.coexact_velocity if no_harmonic else mods.velocity
 
         def y_dot(y: np.ndarray, t: float):
             projected = mods.surface_projector.project_points(y)
@@ -70,11 +110,13 @@ class App(ModuleBase):
                 gammas,
                 pos,
             )
-            return mods.coexact_velocity.interpolate((faceids, barys))
+
+            return velocity_mod.interpolate((faceids, barys))
 
         return y_dot
 
 
+# Node callers
 def setup_mesh_and_point_vortices(ctx: CookContext):
     """Loads mesh and vortices from the geometry passed on by the houdini"""
     mods = ctx.world().require(App)
@@ -90,13 +132,54 @@ def setup_mesh_and_point_vortices(ctx: CookContext):
     load_point_vortex_input(ctx, mods.point_vortex, index=1)
     mods.stream_function.set_homo_dirichlet_boundary()
 
+    # Setup harmonic potential
+    bo, bi1, bi2 = mods.mesh.boundary_vertex_components.get()
+    mods.harmonic_basis_potential.set_boudaries([1, 2], 0)
 
-def rk4_advect(ctx: CookContext, dt=0.001):
+    # Compute initial harmonic coefficient
+    mods.combined_stream_function.initialize_harmonic_coeffs()
+
+
+def interpolate_harmonic_potential(ctx: CookContext, basis_id=0):
+    mods = ctx.world().require(App)
+    faceids, bary = read_probe_input(ctx, index=0)
+    potential_value = mods.harmonic_basis_potential.interpolate(
+        (faceids, bary), basis_id=basis_id
+    )
+    ctx.write_point("harmonic_potential", potential_value)
+
+
+def interpolate_combined_stream_function(ctx: CookContext):
+    mods = ctx.world().require(App)
+    faceids, bary = read_probe_input(ctx, index=0)
+    combined_stream_functions = mods.combined_stream_function.interpolate(
+        (faceids, bary)
+    )
+    ctx.write_point("combined_stream_functions", combined_stream_functions)
+
+
+def interpolate_harmonic_basis_field(ctx: CookContext, basis_id=0):
+    mods = ctx.world().require(App)
+    faceids, bary = read_probe_input(ctx, index=0)
+    field_value = mods.harmonic_basis_field.interpolate(
+        (faceids, bary), basis_id=basis_id
+    )
+    ctx.write_point("harmonic_field", field_value)
+
+
+def interpolate_combined_velocity_field(ctx: CookContext, smooth=True):
+    mods = ctx.world().require(App)
+    faceids, bary = read_probe_input(ctx, index=0)
+    velocity = mods.velocity.interpolate((faceids, bary), smooth=smooth)
+    ctx.write_point("velocity", velocity)
+
+
+def rk4_advect(ctx: CookContext, dt=0.001, no_harmonic=False):
     mods = ctx.world().require(App)
     mods.surface_projector.configure(node_path=RAY_SOP_NODE_PATH)
     mods.surface_projector.setup(ctx)
 
-    y_dot = mods.rk4_step(ctx)
+    y_dot = mods.rk4_step(ctx, no_harmonic=no_harmonic)
     mods.rk4.configure(y_dot=y_dot, timestep=dt)
 
     load_point_vortex_input(ctx, mods.point_vortex, index=0)
@@ -114,6 +197,8 @@ def rk4_advect(ctx: CookContext, dt=0.001):
         gammas,
         pos,
     )
+    harmonic_coeff = mods.combined_stream_function.harmonic_coefficient.get()
     ctx.write_point("P", pos)
     ctx.write_point("bary", barys)
     ctx.write_point("faceid", faceids)
+    ctx.write_detail("harmonic_coeff", harmonic_coeff)
