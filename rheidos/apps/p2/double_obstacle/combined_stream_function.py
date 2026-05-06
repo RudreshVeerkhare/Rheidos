@@ -3,7 +3,7 @@ import numpy as np
 from rheidos.apps.p2.modules.p1_space.probe_utils import probe_arrays
 from rheidos.compute.wiring import ProducerContext, producer
 
-from .harmonic_basis import HarmonicBasisModule
+from .harmonic_basis import HarmonicBasisFieldModule, HarmonicBasisModule
 from rheidos.apps.p2.modules.p1_space.p1_stream_function import P1StreamFunction
 from rheidos.apps.p2.modules.point_vortex.point_vortex_module import PointVortexModule
 from rheidos.compute import shape_map
@@ -20,6 +20,7 @@ class CombinedStreamFunction(ModuleBase):
         point_vortex: PointVortexModule,
         stream: P1StreamFunction,
         harmonic_basis_potential: HarmonicBasisModule,
+        harmonic_basis_field: HarmonicBasisFieldModule,
         scope: str = "",
     ) -> None:
         super().__init__(world, scope=scope)
@@ -27,6 +28,7 @@ class CombinedStreamFunction(ModuleBase):
         self.point_vortex = point_vortex
         self.stream = stream
         self.harmonic_basis_potential = harmonic_basis_potential
+        self.harmonic_basis_field = harmonic_basis_field
 
         self.harmonic_coefficient = self.resource(
             "harmonic_coefficient",
@@ -62,7 +64,33 @@ class CombinedStreamFunction(ModuleBase):
             doc="Initial value of coefficient based on vortex initial position",
         )
 
+        self.gram_inv = self.resource(
+            "gram_inv",
+            spec=ResourceSpec(kind="numpy", dtype=np.float64, shape=(2, 2)),
+            doc="Inverse of gram matrix",
+        )
+
         self.bind_producers()
+
+    @producer(
+        inputs=("harmonic_basis_field.vel_per_face", "stream.mesh.F_area"),
+        outputs=("gram_inv",),
+    )
+    def build_gram_inverse(self, ctx: ProducerContext):
+        print("1")
+        F_area = self.stream.mesh.F_area.get()
+        F_field = self.harmonic_basis_field.vel_per_face.get()
+
+        G = np.zeros((2, 2))
+        for fid, A in enumerate(F_area):
+            for k in range(2):
+                for l in range(2):
+                    G[k, l] += A * np.dot(F_field[k][fid], F_field[l][fid])
+
+        Ginv = np.linalg.inv(G)
+        print("2")
+        ctx.commit(gram_inv=Ginv)
+        pass
 
     def initialize_harmonic_coeffs(self):
         gammas = self.point_vortex.gamma.get()
@@ -85,6 +113,7 @@ class CombinedStreamFunction(ModuleBase):
     @producer(
         inputs=(
             "harmonic_basis_potential.basis",
+            "gram_inv",
             "point_vortex.gamma",
             "point_vortex.face_ids",
             "point_vortex.bary",
@@ -107,11 +136,12 @@ class CombinedStreamFunction(ModuleBase):
                 for basis_id in range(self.harmonic_basis_potential.dim)
             ]
         )  # (Hdim, nVortices)
+        Ginv = self.gram_inv.get()
 
         # c = ∑ Gamma_vid * psi(x_vid) - C0
         harmonic_coeff = (hpsi * gammas).sum(axis=1) - self.initial_coeff
 
-        ctx.commit(harmonic_coefficient=harmonic_coeff)
+        ctx.commit(harmonic_coefficient=Ginv @ harmonic_coeff)
 
     @producer(
         inputs=("stream.psi", "harmonic_basis_potential.basis", "harmonic_coefficient"),

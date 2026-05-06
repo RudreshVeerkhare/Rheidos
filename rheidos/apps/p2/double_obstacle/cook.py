@@ -8,6 +8,7 @@ from .app import (
     interpolate_harmonic_basis_field,
     interpolate_combined_stream_function,
     interpolate_combined_velocity_field,
+    interpolate_coexact_stream_function,
 )
 
 SESSION_NAME = "point_vortex_obstacle"
@@ -41,6 +42,12 @@ def interpolate_combined_velocity_field_node(ctx: CookContext, smooth=True):
 def interpolate_combined_stream_function_node(ctx: CookContext):
     copy_input_to_output(ctx, 0)
     interpolate_combined_stream_function(ctx)
+
+
+@session(SESSION_NAME, debugger=True)
+def interpolate_coexact_stream_function_node(ctx: CookContext):
+    copy_input_to_output(ctx, 0)
+    interpolate_coexact_stream_function(ctx)
 
 
 @session(SESSION_NAME, debugger=True)

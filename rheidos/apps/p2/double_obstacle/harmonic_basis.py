@@ -95,7 +95,6 @@ class HarmonicBasisModule(ModuleBase):
             solve = self.poisson.solve_cg.get()
             psi_h.append(solve(rhs))
 
-        # TODO: Check if this works!
         ctx.commit(basis=np.array(psi_h))
 
     def set_boudaries(self, inner: List[int], outer: int):

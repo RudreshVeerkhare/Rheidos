@@ -69,6 +69,7 @@ class App(ModuleBase):
             point_vortex=self.point_vortex,
             stream=self.stream_function,
             harmonic_basis_potential=self.harmonic_basis_potential,
+            harmonic_basis_field=self.harmonic_basis_field,
         )
         self.velocity = self.require(
             P1VelocityFieldModule,
@@ -147,6 +148,13 @@ def interpolate_harmonic_potential(ctx: CookContext, basis_id=0):
         (faceids, bary), basis_id=basis_id
     )
     ctx.write_point("harmonic_potential", potential_value)
+
+
+def interpolate_coexact_stream_function(ctx: CookContext):
+    mods = ctx.world().require(App)
+    faceids, bary = read_probe_input(ctx, index=0)
+    coexact_stream_function = mods.stream_function.interpolate((faceids, bary))
+    ctx.write_point("coexact_stream_function", coexact_stream_function)
 
 
 def interpolate_combined_stream_function(ctx: CookContext):
