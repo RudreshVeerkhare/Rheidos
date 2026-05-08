@@ -449,7 +449,7 @@ class App(ModuleBase):
         )
 
     @staticmethod
-    def rk4_step(ctx: CookContext, dt: float):
+    def rk4_step(ctx: CookContext, dt: float, no_harmonic: bool):
         mods = ctx.world().require(App)
         mods.surface_projector.configure(node_path=RAY_SOP_NODE_PATH)
         mods.surface_projector.setup(ctx)
@@ -484,7 +484,7 @@ def setup_mesh_and_point_vortices(ctx: CookContext):
     mods.stream_function.set_homo_dirichlet_boundary()
 
 
-def rk4_advect(ctx: CookContext, dt=0.001) -> None:
+def rk4_advect(ctx: CookContext, dt=0.001, no_harmonic=False) -> None:
     mods = ctx.world().require(App)
     mods.surface_projector.configure(node_path=RAY_SOP_NODE_PATH)
     mods.surface_projector.setup(ctx)

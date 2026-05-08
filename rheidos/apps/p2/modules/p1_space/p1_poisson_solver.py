@@ -102,19 +102,38 @@ class P1PoissonSolver(ModuleBase):
     )
     def solve_for_stream_func(self, ctx: ProducerContext) -> None:
         ctx.require_inputs()
-        ctx.ensure_outputs()
 
         if self.mode == "cg":
             rhs = self.rhs.get()
-            ctx.commit(psi=np.asarray(self.solve_cg.get()(rhs), dtype=np.float64))
+            x0 = self._previous_psi_guess(rhs.shape)
+            ctx.ensure_outputs()
+            ctx.commit(psi=np.asarray(self.solve_cg.get()(rhs, x0=x0), dtype=np.float64))
             return
 
         if self.mode == "cholesky":
             rhs = self.rhs.get()
+            ctx.ensure_outputs()
             ctx.commit(psi=np.asarray(self.solve_cholesky.get()(rhs), dtype=np.float64))
             return
 
         raise ValueError(f"{self.mode} is not valid mode for the Poisson Solver")
+
+    def _previous_psi_guess(self, shape: tuple[int, ...]) -> np.ndarray | None:
+        # Read the existing output buffer without ensuring or recording a self-read.
+        reg = getattr(self, "reg", None)
+        name = getattr(self.psi, "name", None)
+        if reg is not None and name is not None:
+            psi = reg.get(name).buffer
+        else:
+            psi = self.psi.peek()
+        if psi is None:
+            return None
+
+        psi = np.asarray(psi, dtype=np.float64)
+        if psi.shape != shape:
+            return None
+
+        return psi
 
     @producer(
         inputs=(

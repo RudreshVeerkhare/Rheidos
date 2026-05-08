@@ -77,7 +77,6 @@ class CombinedStreamFunction(ModuleBase):
         outputs=("gram_inv",),
     )
     def build_gram_inverse(self, ctx: ProducerContext):
-        print("1")
         F_area = self.stream.mesh.F_area.get()
         F_field = self.harmonic_basis_field.vel_per_face.get()
 
@@ -88,7 +87,6 @@ class CombinedStreamFunction(ModuleBase):
                     G[k, l] += A * np.dot(F_field[k][fid], F_field[l][fid])
 
         Ginv = np.linalg.inv(G)
-        print("2")
         ctx.commit(gram_inv=Ginv)
         pass
 

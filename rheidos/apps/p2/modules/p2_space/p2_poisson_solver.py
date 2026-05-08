@@ -72,11 +72,29 @@ class P2PoissonSolver(ModuleBase):
     @producer(inputs=("solve_cg", "rhs"), outputs=("psi",))
     def solve_for_psi(self, ctx: ProducerContext) -> None:
         ctx.require_inputs()
-        ctx.ensure_outputs()
         solve_cg = self.solve_cg.get()
         rhs = self.rhs.get()
+        x0 = self._previous_psi_guess(rhs.shape)
 
-        ctx.commit(psi=solve_cg(rhs))
+        ctx.ensure_outputs()
+        ctx.commit(psi=solve_cg(rhs, x0=x0))
+
+    def _previous_psi_guess(self, shape: tuple[int, ...]) -> np.ndarray | None:
+        # Read the existing output buffer without ensuring or recording a self-read.
+        reg = getattr(self, "reg", None)
+        name = getattr(self.psi, "name", None)
+        if reg is not None and name is not None:
+            psi = reg.get(name).buffer
+        else:
+            psi = self.psi.peek()
+        if psi is None:
+            return None
+
+        psi = np.asarray(psi, dtype=np.float64)
+        if psi.shape != shape:
+            return None
+
+        return psi
 
     @producer(
         inputs=(
