@@ -1,6 +1,7 @@
 # Big Files
 *.zip
 geo/
+_geo/
 
 # Python
 __pycache__/
