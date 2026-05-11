@@ -338,25 +338,32 @@ def _rk4_step_with_abel_jacobi(
     c_ref: np.ndarray,
     dt: float,
     projector: Callable[[np.ndarray], VortexProjection],
+    *,
+    no_harmonic: bool = False,
 ) -> tuple[VortexProjection, np.ndarray, np.ndarray]:
     gamma = np.asarray(mods.point_vortex.gamma.get(), dtype=np.float64)
     c_ref = np.asarray(c_ref, dtype=np.float64)
     if gamma.shape != (ref.pos.shape[0],):
         raise ValueError(f"gamma must have shape ({ref.pos.shape[0]},)")
 
+    def trial_c(trial: VortexProjection) -> tuple[np.ndarray, np.ndarray]:
+        if no_harmonic:
+            return c_ref, np.zeros_like(c_ref)
+        return _trial_c_from_projection(mods, ref, trial, c_ref, gamma)
+
     # Every trial configuration is measured from the same frozen reference.
     v1 = _evaluate_total_velocity(mods, ref, c_ref, gamma)
 
     p2 = projector(ref.pos + 0.5 * dt * v1)
-    c2, _ = _trial_c_from_projection(mods, ref, p2, c_ref, gamma)
+    c2, _ = trial_c(p2)
     v2 = _evaluate_total_velocity(mods, p2, c2, gamma)
 
     p3 = projector(ref.pos + 0.5 * dt * v2)
-    c3, _ = _trial_c_from_projection(mods, ref, p3, c_ref, gamma)
+    c3, _ = trial_c(p3)
     v3 = _evaluate_total_velocity(mods, p3, c3, gamma)
 
     p4 = projector(ref.pos + dt * v3)
-    c4, _ = _trial_c_from_projection(mods, ref, p4, c_ref, gamma)
+    c4, _ = trial_c(p4)
     v4 = _evaluate_total_velocity(mods, p4, c4, gamma)
 
     ref_normals = mods.mesh.F_normal.get()[ref.faceids]
@@ -368,7 +375,7 @@ def _rk4_step_with_abel_jacobi(
     ) / 6.0
 
     accepted = projector(ref.pos + dt * v_rk4)
-    c_next, dA_final = _trial_c_from_projection(mods, ref, accepted, c_ref, gamma)
+    c_next, dA_final = trial_c(accepted)
 
     mods.point_vortex.set_vortex(
         accepted.faceids,
@@ -449,7 +456,7 @@ class App(ModuleBase):
         )
 
     @staticmethod
-    def rk4_step(ctx: CookContext, dt: float, no_harmonic: bool):
+    def rk4_step(ctx: CookContext, dt: float, no_harmonic: bool = False):
         mods = ctx.world().require(App)
         mods.surface_projector.configure(node_path=RAY_SOP_NODE_PATH)
         mods.surface_projector.setup(ctx)
@@ -471,6 +478,7 @@ class App(ModuleBase):
             lambda points: _as_vortex_projection(
                 mods.surface_projector.project_points(points)
             ),
+            no_harmonic=no_harmonic,
         )
         return projected, c_next, dA_final, aj_total + dA_final
 
@@ -492,7 +500,9 @@ def rk4_advect(ctx: CookContext, dt=0.001, no_harmonic=False) -> None:
     load_point_vortex_input(ctx, mods.point_vortex, index=0)
     mods.rk4.configure(timestep=dt)
 
-    projected, c_next, dA_final, aj_total_next = mods.rk4_step(ctx, dt)
+    projected, c_next, dA_final, aj_total_next = mods.rk4_step(
+        ctx, dt, no_harmonic=no_harmonic
+    )
     mods.rk4.time.set(mods.rk4.time.get() + dt)
 
     ctx.write_point("P", projected.pos)

@@ -113,7 +113,6 @@ def configure_matplotlib():
             "ytick.labelsize": 8.5,
             "lines.linewidth": 2.0,
             "savefig.facecolor": "white",
-            "savefig.bbox": "tight",
         }
     )
     return plt, Wedge
@@ -345,7 +344,6 @@ def add_annulus_inset(fig, Wedge, metadata: Dict[str, float | str]) -> None:
     inset.set_aspect("equal", adjustable="box")
     inset.set_xticks([])
     inset.set_yticks([])
-    inset.set_title("plotted band", pad=2, fontsize=8)
     for spine in inset.spines.values():
         spine.set_color("#7d8791")
         spine.set_linewidth(0.8)
@@ -381,42 +379,22 @@ def plot_profile(
         label=r"$u_{\mathrm{numerical}}(r)$",
     )
     component = str(metadata["component"])
-    component_math = r"\theta" if component == "theta" else "r"
-    component_title = "angular" if component == "theta" else "radial"
     component_stem = "u_theta" if component == "theta" else "u_r"
 
     ax.set_xlim(float(metadata["r_min_plot"]), float(metadata["r_max_plot"]))
     ax.set_ylim(*(y_limits or profile_y_limits(rows)))
-    ax.set_xlabel("radius r")
-    ax.set_ylabel(rf"{component_title} velocity $u_{{{component_math}}}(r)$")
-    ax.set_title(rf"Annulus {component_title} velocity profile, $\theta = 0$")
-    ax.text(
-        0.02,
-        0.965,
-        (
-            f"Rin = {float(metadata['rin']):.1f}, Rout = {float(metadata['rout']):.1f}, "
-            f"sidelen = {float(metadata['sidelen']):.1f}"
-        ),
-        transform=ax.transAxes,
-        fontsize=8.5,
-        color="#4b5563",
-        va="top",
-    )
-    ax.legend(
-        loc="upper center",
-        bbox_to_anchor=(0.5, -0.16),
-        ncol=2,
-        frameon=True,
-        framealpha=0.92,
-    )
+    ax.set_xlabel("")
+    ax.set_ylabel("")
+    ax.set_title("")
+    ax.tick_params(labelbottom=False, labelleft=False)
     ax.margins(x=0.0)
-    fig.tight_layout(rect=(0.0, 0.08, 0.78, 1.0))
+    fig.subplots_adjust(left=0.13, right=0.76, bottom=0.23, top=0.86)
     add_annulus_inset(fig, Wedge, metadata)
 
     png_path = out_dir / f"{component_stem}_profile_0.00_1.00_2.00.png"
     pdf_path = out_dir / f"{component_stem}_profile_0.00_1.00_2.00.pdf"
-    fig.savefig(png_path, dpi=dpi)
-    fig.savefig(pdf_path)
+    fig.savefig(png_path, dpi=dpi, bbox_inches=None)
+    fig.savefig(pdf_path, bbox_inches=None)
     plt.close(fig)
     return png_path, pdf_path
 

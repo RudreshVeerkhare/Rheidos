@@ -42,6 +42,51 @@ def test_p1_poisson_interpolate_accepts_faceid_and_bary_arrays() -> None:
     np.testing.assert_allclose(result, np.array([1.05], dtype=np.float64))
 
 
+def test_p1_poisson_cg_uses_previous_psi_as_initial_guess() -> None:
+    solver = object.__new__(P1PoissonSolver)
+    solver.mode = "cg"
+
+    rhs = np.array([1.0, 2.0, 3.0], dtype=np.float64)
+    previous_psi = np.array([4.0, 5.0, 6.0], dtype=np.float64)
+    captured = {}
+    committed = {}
+
+    class FakePsi:
+        value = previous_psi
+
+        def peek(self):
+            return self.value
+
+    psi = FakePsi()
+    solver.rhs = SimpleNamespace(get=lambda: rhs)
+    solver.psi = psi
+
+    def solve(b, x0=None):
+        captured["b"] = b
+        captured["x0"] = x0
+        return np.array([7.0, 8.0, 9.0], dtype=np.float64)
+
+    solver.solve_cg = SimpleNamespace(get=lambda: solve)
+
+    class DummyCtx:
+        def require_inputs(self) -> None:
+            return None
+
+        def ensure_outputs(self) -> None:
+            psi.value = np.zeros_like(previous_psi)
+
+        def commit(self, **buffers) -> None:
+            committed.update(buffers)
+
+    solver.solve_for_stream_func(DummyCtx())
+
+    assert captured["b"] is rhs
+    np.testing.assert_array_equal(captured["x0"], previous_psi)
+    np.testing.assert_array_equal(
+        committed["psi"], np.array([7.0, 8.0, 9.0], dtype=np.float64)
+    )
+
+
 def test_p1_poisson_sets_zero_dirichlet_boundary_from_dec_boundary_mask() -> None:
     world = World()
 

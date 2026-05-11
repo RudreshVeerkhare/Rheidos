@@ -102,3 +102,46 @@ def test_rk4_reconstructs_trial_coefficients_from_aj_delta() -> None:
     np.testing.assert_allclose(accepted.pos, np.array([[3.0, 0.0, 0.0]]))
     np.testing.assert_allclose(dA_final, np.array([6.0], dtype=np.float64))
     np.testing.assert_allclose(c_next, np.array([7.0], dtype=np.float64))
+
+
+def test_rk4_no_harmonic_keeps_coefficients_fixed() -> None:
+    gamma = np.array([2.0], dtype=np.float64)
+    harmonic_velocity = _HarmonicVelocity()
+    mods = SimpleNamespace(
+        point_vortex=_PointVortex(gamma),
+        harmonic_velocity=harmonic_velocity,
+        combined_velocity=_CombinedVelocity(harmonic_velocity),
+        abel_jacobi=_AbelJacobi(),
+        mesh=SimpleNamespace(
+            F_normal=_ArrayRef(np.array([[0.0, 0.0, 1.0]], dtype=np.float64))
+        ),
+    )
+    ref = VortexProjection(
+        np.array([0], dtype=np.int32),
+        np.array([[1.0, 0.0, 0.0]], dtype=np.float64),
+        np.array([[0.0, 0.0, 0.0]], dtype=np.float64),
+    )
+
+    def projector(points: np.ndarray) -> VortexProjection:
+        return VortexProjection(
+            np.array([0], dtype=np.int32),
+            np.array([[1.0, 0.0, 0.0]], dtype=np.float64),
+            np.asarray(points, dtype=np.float64).copy(),
+        )
+
+    accepted, c_next, dA_final = _rk4_step_with_abel_jacobi(
+        mods,
+        ref,
+        np.array([1.0], dtype=np.float64),
+        1.0,
+        projector,
+        no_harmonic=True,
+    )
+
+    np.testing.assert_allclose(
+        np.asarray(harmonic_velocity.history).reshape(-1),
+        np.ones(5, dtype=np.float64),
+    )
+    np.testing.assert_allclose(accepted.pos, np.array([[1.0, 0.0, 0.0]]))
+    np.testing.assert_allclose(dA_final, np.array([0.0], dtype=np.float64))
+    np.testing.assert_allclose(c_next, np.array([1.0], dtype=np.float64))
