@@ -346,24 +346,25 @@ def _rk4_step_with_abel_jacobi(
     if gamma.shape != (ref.pos.shape[0],):
         raise ValueError(f"gamma must have shape ({ref.pos.shape[0]},)")
 
-    def trial_c(trial: VortexProjection) -> tuple[np.ndarray, np.ndarray]:
+    def trial_c(trial: VortexProjection) -> np.ndarray:
         if no_harmonic:
-            return c_ref, np.zeros_like(c_ref)
-        return _trial_c_from_projection(mods, ref, trial, c_ref, gamma)
+            return c_ref
+        c_trial, _ = _trial_c_from_projection(mods, ref, trial, c_ref, gamma)
+        return c_trial
 
     # Every trial configuration is measured from the same frozen reference.
     v1 = _evaluate_total_velocity(mods, ref, c_ref, gamma)
 
     p2 = projector(ref.pos + 0.5 * dt * v1)
-    c2, _ = trial_c(p2)
+    c2 = trial_c(p2)
     v2 = _evaluate_total_velocity(mods, p2, c2, gamma)
 
     p3 = projector(ref.pos + 0.5 * dt * v2)
-    c3, _ = trial_c(p3)
+    c3 = trial_c(p3)
     v3 = _evaluate_total_velocity(mods, p3, c3, gamma)
 
     p4 = projector(ref.pos + dt * v3)
-    c4, _ = trial_c(p4)
+    c4 = trial_c(p4)
     v4 = _evaluate_total_velocity(mods, p4, c4, gamma)
 
     ref_normals = mods.mesh.F_normal.get()[ref.faceids]
@@ -375,7 +376,10 @@ def _rk4_step_with_abel_jacobi(
     ) / 6.0
 
     accepted = projector(ref.pos + dt * v_rk4)
-    c_next, dA_final = trial_c(accepted)
+    c_projected, dA_final = _trial_c_from_projection(
+        mods, ref, accepted, c_ref, gamma
+    )
+    c_next = c_ref if no_harmonic else c_projected
 
     mods.point_vortex.set_vortex(
         accepted.faceids,

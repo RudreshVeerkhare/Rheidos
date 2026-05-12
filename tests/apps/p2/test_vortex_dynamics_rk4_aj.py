@@ -143,5 +143,5 @@ def test_rk4_no_harmonic_keeps_coefficients_fixed() -> None:
         np.ones(5, dtype=np.float64),
     )
     np.testing.assert_allclose(accepted.pos, np.array([[1.0, 0.0, 0.0]]))
-    np.testing.assert_allclose(dA_final, np.array([0.0], dtype=np.float64))
+    np.testing.assert_allclose(dA_final, np.array([2.0], dtype=np.float64))
     np.testing.assert_allclose(c_next, np.array([1.0], dtype=np.float64))

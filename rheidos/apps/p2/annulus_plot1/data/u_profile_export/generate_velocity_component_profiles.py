@@ -311,7 +311,7 @@ def profile_y_limits(rows: Sequence[Dict[str, float | int | str]]) -> Tuple[floa
 
 
 def add_annulus_inset(fig, Wedge, metadata: Dict[str, float | str]) -> None:
-    inset = fig.add_axes([0.805, 0.54, 0.155, 0.28])
+    inset = fig.add_axes([0.805, 0.6, 0.155, 0.155])
     rin = float(metadata["rin"])
     rout = float(metadata["rout"])
     r_min_plot = float(metadata["r_min_plot"])
@@ -365,7 +365,7 @@ def plot_profile(
     u_exact = [float(row["u_exact"]) for row in plot_rows]
     u_numerical = [float(row["u_numerical"]) for row in plot_rows]
 
-    fig, ax = plt.subplots(figsize=(8.6, 4.65))
+    fig, ax = plt.subplots(figsize=(6.5, 6.5))
     ax.axhline(0.0, color="#2f3742", linewidth=0.75, alpha=0.68)
     ax.plot(radius, u_exact, color="#1f5a93", label=r"$u_{\mathrm{exact}}(r)$")
     ax.plot(
