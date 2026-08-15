@@ -5,6 +5,7 @@ import numpy as np
 from rheidos.compute import (
     ModuleBase,
     ProducerContext,
+    ResourceRef,
     ResourceSpec,
     World,
     producer,
@@ -47,21 +48,40 @@ class SurfaceMeshModule(ModuleBase):
     DEGENERATE_FACE_AREA_EPS = 0.5e-20
     BARY_REGION_EPS = 1e-12
 
-    def __init__(self, world: World, *, scope: str = "") -> None:
+    def __init__(
+        self,
+        world: World,
+        *,
+        vertices: ResourceRef[np.ndarray] | None = None,
+        faces: ResourceRef[np.ndarray] | None = None,
+        scope: str = "",
+    ) -> None:
         super().__init__(world, scope=scope)
 
-        self.V_pos = self.resource(
-            "V_pos",
-            declare=True,
-            spec=ResourceSpec(kind="numpy", dtype=np.float64, allow_none=True),
-            doc="Mesh vertices (nV,3)",
-        )
-        self.F_verts = self.resource(
-            "F_verts",
-            declare=True,
-            spec=ResourceSpec(kind="numpy", dtype=np.int32, allow_none=True),
-            doc="Triangle indices (nF,3)",
-        )
+        if (vertices is None) != (faces is None):
+            raise ValueError("vertices and faces resource bindings must be provided together")
+
+        self._owns_mesh_inputs = vertices is None
+        if self._owns_mesh_inputs:
+            self.V_pos = self.resource(
+                "V_pos",
+                declare=True,
+                spec=ResourceSpec(kind="numpy", dtype=np.float64, allow_none=True),
+                doc="Mesh vertices (nV,3)",
+            )
+            self.F_verts = self.resource(
+                "F_verts",
+                declare=True,
+                spec=ResourceSpec(kind="numpy", dtype=np.int32, allow_none=True),
+                doc="Triangle indices (nF,3)",
+            )
+        else:
+            # Generated meshes can borrow geometry resources from an upstream
+            # module while retaining their own derived topology and geometry.
+            # This keeps invalidation declarative: consumers of this mesh force
+            # the upstream producer through these two ResourceRefs.
+            self.V_pos = vertices
+            self.F_verts = faces
 
         self.n_edges = self.resource(
             "n_edges",
@@ -257,6 +277,10 @@ class SurfaceMeshModule(ModuleBase):
         ctx.commit(grad_bary=grad)
 
     def set_mesh(self, vertices: np.ndarray, faces: np.ndarray) -> None:
+        if not self._owns_mesh_inputs:
+            raise RuntimeError(
+                "Cannot set geometry on a SurfaceMeshModule bound to upstream resources"
+            )
         self.V_pos.set(np.ascontiguousarray(vertices, dtype=np.float64))
         self.F_verts.set(np.ascontiguousarray(faces, dtype=np.int32))
 
