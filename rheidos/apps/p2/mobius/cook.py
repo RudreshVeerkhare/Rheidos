@@ -117,6 +117,39 @@ class App(ModuleBase):
             stream=self.stream_function,
         )
 
+        # Adding RK4 Advection with intrinsic advection
+
+    @staticmethod
+    def rk4_step():
+        pass
+
+    def advect(self, velocity, pos):
+        """
+        velocity: [N, vec3f] (velocity vector scaled by magnitude)
+        pos: [N, (faceid, bary: vec3f)]
+
+        Advects points intrinsically on the mesh without need for projection in $\mathbb{R}^3$.
+
+        """
+
+
+class RK4AdevectorMoudule(ModuleBase):
+    """A Module dealing with RK4 integration and intrinsic advection"""
+
+    NAME = "RK4AdvectorModule"
+
+    # takes in y_dot: Callable
+    # advect: (velocity, displacement, faceid, bary) -> (faceid, bary)
+    # v1 = y_dot(vortex_pos)
+    # x2 = advect(v1, v1*0.5*dt, pos)
+    # v2 = y_dot(x2)
+    # ...
+
+    def __init__(self, world: World, *, scope: str = "") -> None:
+        super().__init__(world, scope=scope)
+
+    pass
+
 
 class DoubleCoverPointVortex(ModuleBase):
     NAME = "DoubleCoverPointVortex"
