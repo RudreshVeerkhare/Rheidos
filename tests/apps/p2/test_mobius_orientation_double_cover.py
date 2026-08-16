@@ -6,8 +6,8 @@ import numpy as np
 import pytest
 from scipy.sparse import csr_matrix, diags, eye
 
-from rheidos.apps.p2.mobius.cook import App, DoubleCoverPointVortex
-from rheidos.apps.p2.modules.point_vortex.point_vortex_module import PointVortexModule
+from rheidos.apps.p2.mobius.cook import App
+from rheidos.apps.p2.mobius.intrinsic_advection import IntrinsicVortexState
 from rheidos.apps.p2.mobius.orientation_double_cover import (
     OrientationDoubleCover,
     build_orientation_double_cover,
@@ -233,33 +233,56 @@ def test_mobius_app_exposes_cover_mesh_and_cover_dec() -> None:
     assert app.dec.mesh is app.cover_mesh
 
 
+def test_real_mobius_p1_fields_obey_deck_parity(
+    mobius_obj_mesh: tuple[np.ndarray, np.ndarray],
+) -> None:
+    vertices, faces = mobius_obj_mesh
+    app = World().require(App)
+    app.base_mesh.set_mesh(vertices, faces)
+    app.base_point_vortex.set_vortex(
+        faceids=np.array([100], dtype=np.int32),
+        bary=np.array([[0.2, 0.3, 0.5]], dtype=np.float64),
+        gamma=np.array([1.0]),
+        pos=np.zeros((1, 3)),
+    )
+    app.initialize_lifted_point_vortices()
+    app.stream_function.set_homo_dirichlet_boundary()
+
+    tau_vertex = app.cover.tau_vertex.get()
+    tau_face = app.cover.tau_face.get()
+    psi = app.stream_function.psi.get()
+    velocity = app.stream_velocity.vel_per_face.get()
+
+    assert np.max(np.abs(psi)) > 0.0
+    np.testing.assert_allclose(psi[tau_vertex], -psi, rtol=0.0, atol=0.0)
+    np.testing.assert_allclose(
+        velocity[tau_face],
+        velocity,
+        rtol=0.0,
+        atol=0.0,
+    )
+
+
 def test_point_vortices_are_lifted_in_interleaved_deck_pairs() -> None:
     vertices, faces, seams = _small_cut_mobius()
     world = World()
-    base_mesh = world.require(SurfaceMeshModule)
-    cover = world.require(OrientationDoubleCover, parent_mesh=base_mesh)
-    base_vortices = world.require(PointVortexModule)
-    lifted_vortices = world.require(
-        DoubleCoverPointVortex,
-        base_point_vortex=base_vortices,
-        base_mesh=base_mesh,
-        double_cover=cover,
-    )
-    cover.set_seam_edge_pairs(seams)
-    base_mesh.set_mesh(vertices, faces)
-    base_vortices.set_vortex(
+    app = world.require(App)
+    app.cover.set_seam_edge_pairs(seams)
+    app.base_mesh.set_mesh(vertices, faces)
+    app.base_point_vortex.set_vortex(
         faceids=np.array([1, 5], dtype=np.int32),
         bary=np.array([[0.2, 0.3, 0.5], [0.1, 0.7, 0.2]]),
         gamma=np.array([4.0, -2.0]),
         pos=np.zeros((2, 3)),
     )
+    app.initialize_lifted_point_vortices()
 
     np.testing.assert_array_equal(
-        lifted_vortices.face_ids.get(),
+        app.point_vortex.face_ids.get(),
         np.array([2, 3, 10, 11], dtype=np.int32),
     )
     np.testing.assert_allclose(
-        lifted_vortices.bary.get(),
+        app.point_vortex.bary.get(),
         np.array(
             [
                 [0.2, 0.3, 0.5],
@@ -270,33 +293,68 @@ def test_point_vortices_are_lifted_in_interleaved_deck_pairs() -> None:
         ),
     )
     np.testing.assert_allclose(
-        lifted_vortices.gamma.get(),
+        app.point_vortex.gamma.get(),
         np.array([4.0, -4.0, -2.0, 2.0]),
     )
 
+    # Only N originals are stored as live dynamical state.
+    assert app.lifted_point_vortex.face_ids.get().shape == (2,)
+
+    paired_faces = app.point_vortex.face_ids.get().reshape(-1, 2)
+    paired_bary = app.point_vortex.bary.get().reshape(-1, 2, 3)
+    paired_vertices = app.cover_mesh.V_pos.get()[
+        app.cover_mesh.F_verts.get()[paired_faces]
+    ]
+    paired_positions = np.einsum("nki,nkij->nkj", paired_bary, paired_vertices)
+    np.testing.assert_allclose(paired_positions[:, 0], paired_positions[:, 1])
+
     # The explicit cover dependency must invalidate the lifted data when the
     # base topology changes, even if the base vortex resources do not.
-    cover.set_seam_edge_pairs(np.empty((0, 4), dtype=np.int32))
-    base_mesh.set_mesh(vertices, faces[:2])
+    app.cover.set_seam_edge_pairs(np.empty((0, 4), dtype=np.int32))
+    app.base_mesh.set_mesh(vertices, faces[:2])
     with pytest.raises(ValueError, match="face_ids must be in"):
-        lifted_vortices.face_ids.get()
+        app.point_vortex.face_ids.get()
+
+
+def test_a_live_vortex_can_use_either_sheet_and_still_sync_to_base() -> None:
+    vertices, faces, seams = _small_cut_mobius()
+    app = World().require(App)
+    app.cover.set_seam_edge_pairs(seams)
+    app.base_mesh.set_mesh(vertices, faces)
+    expected_bary = np.array([[0.2, 0.3, 0.5]], dtype=np.float64)
+    app.base_point_vortex.set_vortex(
+        faceids=np.array([1], dtype=np.int32),
+        bary=expected_bary,
+        gamma=np.array([4.0]),
+        pos=np.zeros((1, 3)),
+    )
+    initial = app.initialize_lifted_point_vortices()
+
+    # Replace the live original by its deck mate.  The derived pair then swaps
+    # order, while the projected base vortex must remain unchanged.
+    paired_bary = app.point_vortex.bary.get()[1::2]
+    odd_state = IntrinsicVortexState(
+        app.cover.tau_face.get()[initial.face_ids],
+        paired_bary,
+    )
+    app.vortex_state.set_state(odd_state, app.lifted_point_vortex.gamma.get())
+    base_state = app.sync_base_point_vortices()
+
+    np.testing.assert_array_equal(base_state.face_ids, np.array([1], dtype=np.int32))
+    np.testing.assert_allclose(base_state.bary, expected_bary)
+    np.testing.assert_array_equal(
+        app.point_vortex.face_ids.get(),
+        np.array([3, 2], dtype=np.int32),
+    )
 
 
 def test_point_vortex_lift_rejects_invalid_base_face_ids() -> None:
     vertices, faces, seams = _small_cut_mobius()
     world = World()
-    base_mesh = world.require(SurfaceMeshModule)
-    cover = world.require(OrientationDoubleCover, parent_mesh=base_mesh)
-    base_vortices = world.require(PointVortexModule)
-    lifted_vortices = world.require(
-        DoubleCoverPointVortex,
-        base_point_vortex=base_vortices,
-        base_mesh=base_mesh,
-        double_cover=cover,
-    )
-    cover.set_seam_edge_pairs(seams)
-    base_mesh.set_mesh(vertices, faces)
-    base_vortices.set_vortex(
+    app = world.require(App)
+    app.cover.set_seam_edge_pairs(seams)
+    app.base_mesh.set_mesh(vertices, faces)
+    app.base_point_vortex.set_vortex(
         faceids=np.array([-1], dtype=np.int32),
         bary=np.array([[0.2, 0.3, 0.5]]),
         gamma=np.array([1.0]),
@@ -304,4 +362,4 @@ def test_point_vortex_lift_rejects_invalid_base_face_ids() -> None:
     )
 
     with pytest.raises(ValueError, match="face_ids must be in"):
-        lifted_vortices.face_ids.get()
+        app.initialize_lifted_point_vortices()
