@@ -1,5 +1,7 @@
 # Big Files
 *.zip
+*.bgeo.sc
+*.exr
 geo/
 _geo/
 
