@@ -173,6 +173,15 @@ class OrientationCoverVortexState(ModuleBase):
             np.array(self.lifted_point_vortex.bary.get(), dtype=np.float64, copy=True),
         )
 
+    def deck_state(self) -> IntrinsicVortexState:
+        """Return the deck mate of every live lift in the same vortex order."""
+        paired_face_ids = self.paired_point_vortex.face_ids.get()
+        paired_bary = self.paired_point_vortex.bary.get()
+        return IntrinsicVortexState(
+            np.ascontiguousarray(paired_face_ids[1::2], dtype=np.int32),
+            np.ascontiguousarray(paired_bary[1::2], dtype=np.float64),
+        )
+
     def set_state(
         self,
         state: IntrinsicVortexState,

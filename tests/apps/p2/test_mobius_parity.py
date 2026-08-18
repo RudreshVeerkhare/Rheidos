@@ -32,6 +32,40 @@ def _grid_with_interior_vertex() -> tuple[np.ndarray, np.ndarray]:
     return vertices, np.asarray(faces, dtype=np.int32)
 
 
+def _use_zero_harmonic_component(app: App) -> None:
+    """This test isolates parity rebuilding in the coexact pipeline."""
+    class ScalarState:
+        def __init__(self) -> None:
+            self.value = 0.0
+
+        def get(self) -> float:
+            return self.value
+
+        def set(self, value: float) -> None:
+            self.value = float(value)
+
+    coefficient = ScalarState()
+    coordinate = ScalarState()
+
+    class ZeroHarmonicComponent:
+        @staticmethod
+        def stage_coefficient(reference_coordinate, reference_coefficient) -> float:
+            return float(reference_coefficient)
+
+        @staticmethod
+        def interpolate(probes, coefficient=None) -> np.ndarray:
+            face_ids, _ = probes
+            return np.zeros((face_ids.shape[0], 3), dtype=np.float64)
+
+        @staticmethod
+        def commit_accepted_step(reference_coordinate, reference_coefficient):
+            return float(reference_coefficient), 0.0
+
+    app.harmonic_component = ZeroHarmonicComponent()
+    app.harmonic_coefficient = coefficient
+    app.abel_jacobi_coordinate = coordinate
+
+
 def test_parity_validation_rejects_a_mismatched_deck_pair() -> None:
     tau = np.array([1, 0, 3, 2], dtype=np.int32)
     values = np.array([2.0, -2.0, 1.0, 1.0], dtype=np.float64)
@@ -95,6 +129,7 @@ def test_actual_rk4_stages_rebuild_parity_matched_lifted_solves() -> None:
     )
     app.initialize_lifted_point_vortices()
     app.stream_function.set_homo_dirichlet_boundary()
+    _use_zero_harmonic_component(app)
 
     accepted = app.rk4_step(0.01)
 

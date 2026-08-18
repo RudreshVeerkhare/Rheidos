@@ -12,6 +12,11 @@ from rheidos.compute import ModuleBase, World
 from rheidos.houdini import CookContext, session
 
 from .cover_vortices import DoubleCoverPointVortex, OrientationCoverVortexState
+from .harmonic_component import (
+    DEFAULT_HARMONIC_COEFFICIENT,
+    MobiusHarmonicBasis,
+    MobiusHarmonicComponent,
+)
 from .intrinsic_advection import (
     IntrinsicVortexState,
     RK4AdvectorModule,
@@ -22,6 +27,10 @@ from .orientation_double_cover import OrientationDoubleCover
 from .parity import DeckEvenP1VelocityField, DeckOddP1StreamFunction
 
 SESSION_NAME = "mobius_strip_vortex_dynamics"
+HARMONIC_COEFFICIENT_ATTR = "harmonic_coefficient"
+ABEL_JACOBI_COORDINATE_ATTR = "abel_jacobi_coordinate"
+ABEL_JACOBI_STEP_DELTA_ATTR = "abel_jacobi_step_delta"
+ABEL_JACOBI_INVARIANT_ATTR = "abel_jacobi_invariant"
 
 
 def _paired_positions(app: "App") -> np.ndarray:
@@ -32,12 +41,23 @@ def _paired_positions(app: "App") -> np.ndarray:
     return np.einsum("ni,nij->nj", bary, vertices)
 
 
-def _restore_lifted_state_from_input(ctx: CookContext, app: "App") -> None:
-    """Restore cover-sheet state when a solver feeds the previous output back.
+def _read_optional_scalar_detail(input_io, name: str) -> float | None:
+    try:
+        values = np.asarray(input_io.read_detail(name, dtype=np.float64)).reshape(-1)
+    except KeyError:
+        return None
+    if values.shape != (1,):
+        raise ValueError(f"Detail attribute {name!r} must contain one scalar")
+    return float(values[0])
+
+
+def _restore_solver_state_from_input(ctx: CookContext, app: "App") -> None:
+    """Restore cover-sheet and harmonic state from solver feedback.
 
     Base face coordinates alone cannot distinguish the two cover sheets.  The
     explicit cover attributes make solver state robust to session rebuilds and
-    timeline recooks instead of relying only on Python object persistence.
+    timeline recooks.  The accepted harmonic coefficient is persisted for the
+    same reason; the Abel--Jacobi coordinate itself is derived from particles.
     """
     input_io = ctx.input_io(0)
     if input_io is None:
@@ -50,10 +70,19 @@ def _restore_lifted_state_from_input(ctx: CookContext, app: "App") -> None:
         )
         gamma = np.asarray(input_io.read_point("gamma"), dtype=np.float64)
     except KeyError:
-        return
+        pass
+    else:
+        app.vortex_state.set_state(IntrinsicVortexState(face_ids, bary), gamma)
+        app.vortex_state.sync_base()
+        app.harmonic_component.refresh_accepted_coordinate()
 
-    app.vortex_state.set_state(IntrinsicVortexState(face_ids, bary), gamma)
-    app.vortex_state.sync_base()
+    coefficient = _read_optional_scalar_detail(input_io, HARMONIC_COEFFICIENT_ATTR)
+    if coefficient is not None:
+        app.harmonic_coefficient.set(coefficient)
+
+    step_delta = _read_optional_scalar_detail(input_io, ABEL_JACOBI_STEP_DELTA_ATTR)
+    if step_delta is not None:
+        app.abel_jacobi_step_delta.set(step_delta)
 
 
 @session(SESSION_NAME, debugger=True)
@@ -79,6 +108,7 @@ def setup_mesh_node(ctx: CookContext) -> None:
     load_point_vortex_input(ctx, app.base_point_vortex, index=1)
     app.initialize_lifted_point_vortices()
     app.stream_function.set_homo_dirichlet_boundary()
+    app.initialize_harmonic_component()
 
     # Export the cover and its maps so topology/parity can be inspected in
     # Houdini without exposing implementation-only Python resources.
@@ -97,18 +127,41 @@ def setup_mesh_node(ctx: CookContext) -> None:
 def rk4_advection_node(ctx: CookContext, dt: float = 0.01) -> None:
     """Advance N lifted vortices and write both cover and base coordinates."""
     app = ctx.world().require(App)
-    _restore_lifted_state_from_input(ctx, app)
+    _restore_solver_state_from_input(ctx, app)
     app.rk4_step(dt)
 
     base = app.base_point_vortex
     lifted = app.lifted_point_vortex
+    deck = app.vortex_state.deck_state()
     ctx.clear_output()
     ctx.create_points(base.pos_world.get())
     ctx.write_point("faceid", base.face_ids.get(), create=True)
     ctx.write_point("bary", base.bary.get(), create=True)
     ctx.write_point("cover_faceid", lifted.face_ids.get(), create=True)
     ctx.write_point("cover_bary", lifted.bary.get(), create=True)
+    ctx.write_point("deck_faceid", deck.face_ids, create=True)
+    ctx.write_point("deck_bary", deck.bary, create=True)
     ctx.write_point("gamma", lifted.gamma.get(), create=True)
+    ctx.write_detail(
+        HARMONIC_COEFFICIENT_ATTR,
+        np.array([app.harmonic_coefficient.get()], dtype=np.float64),
+        create=True,
+    )
+    ctx.write_detail(
+        ABEL_JACOBI_COORDINATE_ATTR,
+        np.array([app.abel_jacobi_coordinate.get()], dtype=np.float64),
+        create=True,
+    )
+    ctx.write_detail(
+        ABEL_JACOBI_STEP_DELTA_ATTR,
+        np.array([app.abel_jacobi_step_delta.get()], dtype=np.float64),
+        create=True,
+    )
+    ctx.write_detail(
+        ABEL_JACOBI_INVARIANT_ATTR,
+        np.array([app.abel_jacobi_invariant.get()], dtype=np.float64),
+        create=True,
+    )
 
 
 @session(SESSION_NAME, debugger=True)
@@ -170,6 +223,28 @@ class App(ModuleBase):
             stream=self.stream_function,
             double_cover=self.cover,
         )
+        self.harmonic_basis = self.require(
+            MobiusHarmonicBasis,
+            child=True,
+            child_name="harmonic_basis",
+            mesh=self.cover_mesh,
+            dec=self.dec,
+            double_cover=self.cover,
+        )
+        self.harmonic_component = self.require(
+            MobiusHarmonicComponent,
+            child=True,
+            child_name="harmonic_component",
+            mesh=self.cover_mesh,
+            point_vortex=self.point_vortex,
+            basis=self.harmonic_basis,
+        )
+        # Public aliases make accepted harmonic state easy to query from the
+        # running App without exposing its internal module layout.
+        self.harmonic_coefficient = self.harmonic_component.harmonic_coefficient
+        self.abel_jacobi_coordinate = self.harmonic_component.abel_jacobi_coordinate
+        self.abel_jacobi_step_delta = self.harmonic_component.abel_jacobi_step_delta
+        self.abel_jacobi_invariant = self.harmonic_component.abel_jacobi_invariant
         self.rk4 = self.require(RK4AdvectorModule, mesh=self.cover_mesh)
 
     def initialize_lifted_point_vortices(self) -> IntrinsicVortexState:
@@ -177,6 +252,16 @@ class App(ModuleBase):
 
     def sync_base_point_vortices(self) -> IntrinsicVortexState:
         return self.vortex_state.sync_base()
+
+    def initialize_harmonic_component(
+        self,
+        coefficient: float = DEFAULT_HARMONIC_COEFFICIENT,
+    ) -> None:
+        """Precompute the basis and initialize accepted scalar state."""
+        self.harmonic_basis.configure_boundary_pair()
+        self.harmonic_component.initialize(coefficient)
+        self.harmonic_basis.zeta_face.get()
+        self.abel_jacobi_coordinate.get()
 
     def rk4_step(self, dt: float) -> IntrinsicVortexState:
         """Advance the authoritative N-state and commit only an accepted step."""
@@ -186,13 +271,28 @@ class App(ModuleBase):
             copy=True,
         )
         reference = self.vortex_state.current_state()
+        reference_coefficient = float(self.harmonic_coefficient.get())
+
+        # The reference coordinate and coefficient stay frozen for all four
+        # RK stages.  Only the installed particle configuration changes.
+        self.vortex_state.set_state(reference, gamma)
+        reference_coordinate = float(self.abel_jacobi_coordinate.get())
 
         def velocity(state: IntrinsicVortexState) -> np.ndarray:
             # Every trial replaces only the N originals.  Reading velocity
             # lazily rebuilds the 2N odd pair, odd psi, and even velocity for
             # precisely that RK4 stage.
             self.vortex_state.set_state(state, gamma)
-            return self.stream_velocity.interpolate(state.probes)
+            stage_coefficient = self.harmonic_component.stage_coefficient(
+                reference_coordinate,
+                reference_coefficient,
+            )
+            stream_velocity = self.stream_velocity.interpolate(state.probes)
+            harmonic_velocity = self.harmonic_component.interpolate(
+                state.probes,
+                coefficient=stage_coefficient,
+            )
+            return stream_velocity + harmonic_velocity
 
         try:
             accepted = self.rk4.step(reference, velocity, dt)
@@ -203,13 +303,21 @@ class App(ModuleBase):
             raise
 
         self.vortex_state.set_state(accepted, gamma)
+        self.harmonic_component.commit_accepted_step(
+            reference_coordinate,
+            reference_coefficient,
+        )
         self.vortex_state.sync_base()
         return accepted
 
 
 __all__ = [
     "App",
+    "ABEL_JACOBI_COORDINATE_ATTR",
+    "ABEL_JACOBI_INVARIANT_ATTR",
+    "ABEL_JACOBI_STEP_DELTA_ATTR",
     "DoubleCoverPointVortex",
+    "HARMONIC_COEFFICIENT_ATTR",
     "IntrinsicVortexState",
     "RK4AdvectorModule",
     "ReduceTimestepError",

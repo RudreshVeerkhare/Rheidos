@@ -300,6 +300,20 @@ def test_point_vortices_are_lifted_in_interleaved_deck_pairs() -> None:
     # Only N originals are stored as live dynamical state.
     assert app.lifted_point_vortex.face_ids.get().shape == (2,)
 
+    deck_state = app.vortex_state.deck_state()
+    np.testing.assert_array_equal(
+        deck_state.face_ids,
+        app.point_vortex.face_ids.get()[1::2],
+    )
+    np.testing.assert_allclose(
+        deck_state.bary,
+        app.point_vortex.bary.get()[1::2],
+    )
+    np.testing.assert_array_equal(
+        deck_state.face_ids,
+        app.cover.tau_face.get()[app.lifted_point_vortex.face_ids.get()],
+    )
+
     paired_faces = app.point_vortex.face_ids.get().reshape(-1, 2)
     paired_bary = app.point_vortex.bary.get().reshape(-1, 2, 3)
     paired_vertices = app.cover_mesh.V_pos.get()[

@@ -14,6 +14,45 @@ from rheidos.apps.p2.modules.surface_mesh.surface_mesh_module import SurfaceMesh
 from rheidos.compute import World
 
 
+class _ScalarState:
+    def __init__(self, value: float) -> None:
+        self.value = float(value)
+
+    def get(self) -> float:
+        return self.value
+
+    def set(self, value: float) -> None:
+        self.value = float(value)
+
+
+def _use_zero_harmonic_component(app: App, coefficient: float = 0.0) -> None:
+    """Keep intrinsic-advection tests independent of cylinder topology."""
+    harmonic_coefficient = _ScalarState(coefficient)
+    coordinate = _ScalarState(0.0)
+    step_delta = _ScalarState(0.0)
+
+    class ZeroHarmonicComponent:
+        @staticmethod
+        def stage_coefficient(reference_coordinate, reference_coefficient) -> float:
+            return float(reference_coefficient)
+
+        @staticmethod
+        def interpolate(probes, coefficient=None) -> np.ndarray:
+            face_ids, _ = probes
+            return np.zeros((face_ids.shape[0], 3), dtype=np.float64)
+
+        @staticmethod
+        def commit_accepted_step(reference_coordinate, reference_coefficient):
+            harmonic_coefficient.set(reference_coefficient)
+            step_delta.set(0.0)
+            return float(reference_coefficient), 0.0
+
+    app.harmonic_component = ZeroHarmonicComponent()
+    app.harmonic_coefficient = harmonic_coefficient
+    app.abel_jacobi_coordinate = coordinate
+    app.abel_jacobi_step_delta = step_delta
+
+
 def _planar_square() -> tuple[np.ndarray, np.ndarray]:
     vertices = np.array(
         [
@@ -304,6 +343,7 @@ def test_app_integrates_only_n_lifted_vortices_and_syncs_base_state() -> None:
         pos=np.array([[0.3, 0.3, 0.0]], dtype=np.float64),
     )
     app.initialize_lifted_point_vortices()
+    _use_zero_harmonic_component(app)
 
     pair_history: list[np.ndarray] = []
 
@@ -340,6 +380,8 @@ def test_rejected_app_step_restores_the_last_accepted_lifted_state() -> None:
         pos=np.array([[0.3, 0.3, 0.0]], dtype=np.float64),
     )
     initial = app.initialize_lifted_point_vortices()
+    _use_zero_harmonic_component(app, coefficient=0.6)
+    initial_coefficient = app.harmonic_coefficient.get()
 
     class BoundaryCrossingVelocity:
         def interpolate(self, probes) -> np.ndarray:
@@ -356,4 +398,5 @@ def test_rejected_app_step_restores_the_last_accepted_lifted_state() -> None:
         initial.face_ids,
     )
     np.testing.assert_allclose(app.lifted_point_vortex.bary.get(), initial.bary)
+    assert app.harmonic_coefficient.get() == initial_coefficient
     assert app.rk4.time.get() == pytest.approx(0.0)
